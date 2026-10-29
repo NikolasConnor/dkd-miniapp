@@ -159,12 +159,26 @@ def update_profile(payload: ProfileUpdate, x_telegram_init_data: str | None = He
     user = current_user(x_telegram_init_data)
     client = db()
     name = " ".join(payload.full_name.split())
+    if len(name) < 2:
+        raise HTTPException(status_code=422, detail="Введите ФИО длиной не менее двух символов.")
+    uid = int(user["id"])
     try:
-        result = client.table("subjects").update({"full_name": name}).eq("user_id", int(user["id"])).eq("is_citizen", True).execute()
+        existing = one_or_none(client.table("subjects").select("id,user_id").eq("user_id", uid).limit(1))
+        if existing:
+            result = client.table("subjects").update({"full_name": name, "username": user.get("username")}).eq("user_id", uid).execute()
+        else:
+            result = client.table("subjects").insert({
+                "user_id": uid,
+                "username": user.get("username"),
+                "full_name": name,
+                "is_citizen": False,
+            }).execute()
+        if not result.data:
+            raise HTTPException(status_code=502, detail="Supabase не подтвердил сохранение профиля.")
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Не удалось обновить профиль в Supabase: {type(exc).__name__}") from exc
-    if not result.data:
-        raise HTTPException(status_code=403, detail="Профиль не найден или изменение ФИО недоступно для этого пользователя.")
     return {"ok": True, "profile": profile_for(user)}
 
 @app.get("/api/parties")
@@ -304,9 +318,16 @@ class CitizenUpdate(BaseModel):
 @app.post("/api/admin/roles")
 def admin_create_role(payload: RoleCreate, x_telegram_init_data: str | None = Header(default=None)):
     user = current_user(x_telegram_init_data); require_admin(user)
+    name = " ".join(payload.name.split())
+    if len(name) < 2:
+        raise HTTPException(status_code=422, detail="Название должности должно содержать минимум 2 символа.")
     try:
-        result = db().table("roles").insert({"name": payload.name.strip(), "emoji": payload.emoji}).execute()
+        result = db().table("roles").insert({"name": name, "emoji": payload.emoji}).execute()
+        if not result.data:
+            raise HTTPException(status_code=502, detail="Supabase не подтвердил создание должности.")
         return {"ok": True, "role": result.data[0]}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=409, detail="Не удалось создать должность: проверьте, что название ещё не занято.") from exc
 
