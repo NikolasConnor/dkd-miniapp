@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ДКДУСЛУГИ — Mini App</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+:root{--bg:#f2f4fb;--card:#fff;--fg:#182033;--muted:#69738a;--line:#e2e7f1;--soft:#edf1ff;--blue:#315ee8;--purple:#7048d9}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body.dark{--bg:#10131b;--card:#1a2030;--fg:#f3f5fb;--muted:#a5aec3;--line:#2b3347;--soft:#242c46}
+.app{max-width:760px;margin:auto;padding:18px 16px 32px}.top{display:flex;justify-content:space-between;margin-bottom:16px}.hero{color:#fff;padding:22px;border-radius:24px;background:linear-gradient(130deg,var(--blue),var(--purple))}
+.row{display:flex;align-items:center;gap:14px}.avatar{width:64px;height:64px;border-radius:50%;background:#ffffff30;display:grid;place-items:center;font-size:28px;overflow:hidden;flex-shrink:0}.avatar img{width:100%;height:100%;object-fit:cover}
+h1{font-size:21px;margin:0 0 6px}h2{font-size:18px;margin:0}.muted{color:var(--muted);font-size:13px}.hero .muted{color:#fff}.pill,.badge{display:inline-block;border-radius:99px;padding:7px 11px;background:#ffffff28;margin-top:14px;font-size:12px}
+.head{display:flex;justify-content:space-between;align-items:center;margin:24px 2px 12px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile,.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px}.tile{text-align:left;color:var(--fg);min-height:112px;display:flex;flex-direction:column;justify-content:space-between;gap:12px}.tile .ico{font-size:27px}.tile small{display:block;color:var(--muted);margin-top:4px}.page{display:none}.page.active{display:block}.back{border:0;background:none;color:var(--blue);font-weight:700;padding:8px 0 14px}.card{margin-bottom:12px}.btn{border:0;border-radius:12px;background:linear-gradient(120deg,var(--blue),var(--purple));color:white;padding:12px 15px;font-weight:650}.btn.secondary{background:var(--soft);color:var(--blue)}.full{width:100%;margin-top:12px}.field{width:100%;padding:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--fg);margin:8px 0 12px}.stat{background:var(--soft);padding:11px;border-radius:12px;margin-top:10px}.empty{text-align:center;padding:24px 12px;color:var(--muted)}.notice{font-size:12px;line-height:1.5;color:var(--muted);margin-top:14px}.modal{display:none;position:fixed;inset:0;background:#0008;z-index:10;align-items:flex-end;justify-content:center;padding:14px}.modal.open{display:flex}.box{background:var(--card);color:var(--fg);border-radius:22px;padding:20px;width:100%;max-width:520px}.actions{display:flex;gap:10px}.actions>*{flex:1}
+@media(min-width:600px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(prefers-color-scheme:dark){body:not(.light){--bg:#10131b;--card:#1a2030;--fg:#f3f5fb;--muted:#a5aec3;--line:#2b3347;--soft:#242c46}}
+</style></head>
+<body><main class="app">
+<div class="top"><b>🏛️ ДКДУСЛУГИ</b><span class="muted">Mini App · v1.0</span></div>
+<section id="home" class="page active"><header class="hero"><div class="row"><div id="avatar" class="avatar">👤</div><div><h1 id="heroName">Пользователь Telegram</h1><div id="heroRole" class="muted">Участник ДКДУ</div></div></div><div id="heroParty" class="pill">🎭 Партия не указана</div></header>
+<div class="head"><h2>Госуслуги</h2><span class="muted">Ваш кабинет</span></div><div class="grid">
+<button class="tile" data-page="profile"><span class="ico">👤</span><span><b>Мой профиль</b><small>Данные и репутация</small></span></button>
+<button class="tile" data-page="votes"><span class="ico">🗳️</span><span><b>Голосования</b><small>Выборы и кандидаты</small></span></button>
+<button class="tile" data-page="parties"><span class="ico">🎭</span><span><b>Партии</b><small>Состав и заявки</small></span></button>
+<button class="tile" data-page="documents"><span class="ico">📜</span><span><b>Документы</b><small>Законы и указы</small></span></button>
+<button class="tile" data-page="news"><span class="ico">📰</span><span><b>Газета</b><small>Публикации</small></span></button></div>
+<p class="notice">Данные загружаются с сервера после подключения API.</p></section>
+<section id="profile" class="page"><button class="back" data-page="home">← На главную</button><div class="card"><div class="row"><div class="avatar" style="background:var(--soft)">👤</div><div><h2 id="fullName">Профиль</h2><p class="muted" id="username">Telegram</p><span class="badge" id="role">Участник</span></div></div><div class="stat">⭐ Репутация: <b id="rep">—</b></div><div class="stat">🎭 Партия: <b id="party">Не указана</b></div><button class="btn full" id="edit">Изменить ФИО</button></div></section>
+<section id="votes" class="page"><button class="back" data-page="home">← На главную</button><div class="head"><h2>Активные голосования</h2></div><div id="votesList" class="empty">Загружаем голосования…</div></section>
+<section id="parties" class="page"><button class="back" data-page="home">← На главную</button><div class="head"><h2>Политические партии</h2></div><div id="partiesList" class="empty">Загружаем партии…</div></section>
+<section id="documents" class="page"><button class="back" data-page="home">← На главную</button><div class="head"><h2>Документы</h2></div><div id="documentsList" class="empty">Загружаем документы…</div></section>
+<section id="news" class="page"><button class="back" data-page="home">← На главную</button><div class="head"><h2>Газета</h2></div><div id="newsList" class="empty">Загружаем публикации…</div></section></main>
+<div class="modal" id="modal"><div class="box"><h2>Изменить ФИО</h2><input id="newName" class="field" maxlength="120" placeholder="Введите ФИО"><div class="actions"><button class="btn secondary" id="cancel">Отмена</button><button class="btn" id="save">Сохранить</button></div><p class="notice">Для сохранения нужно подключить защищённый API бэкенда.</p></div></div>
+<script>
+(()=>{const tg=window.Telegram?.WebApp;if(tg){tg.ready();tg.expand();if(tg.colorScheme==='dark')document.body.classList.add('dark')}
+const $=id=>document.getElementById(id);const API_BASE='';const initData=tg?.initData||'';const u=tg?.initDataUnsafe?.user||{};
+const name=[u.first_name,u.last_name].filter(Boolean).join(' ')||'Пользователь Telegram';$('heroName').textContent=name;$('fullName').textContent=name;$('username').textContent=u.username?'@'+u.username:'Telegram';$('avatar').textContent=(name.split(/\s+/).map(x=>x[0]).join('').slice(0,2)||'👤').toUpperCase();
+document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===b.dataset.page));window.scrollTo(0,0)}));
+$('edit').onclick=()=>{$('newName').value=$('fullName').textContent;$('modal').classList.add('open')};$('cancel').onclick=()=> $('modal').classList.remove('open');
+async function api(path,opts={}){const headers={'Content-Type':'application/json','X-Telegram-Init-Data':initData,...opts.headers};const r=await fetch(API_BASE+path,{...opts,headers});const d=await r.json();if(!r.ok)throw Error(d.detail||'Ошибка API');return d}
+$('save').onclick=async()=>{const full_name=$('newName').value.trim();if(!full_name)return alert('Введите ФИО');try{await api('/api/profile',{method:'PATCH',body:JSON.stringify({full_name})});$('fullName').textContent=full_name;$('heroName').textContent=full_name;$('modal').classList.remove('open')}catch(e){alert(e.message)}};
+async function loadProfile(){try{const d=await api('/api/profile'),p=d.profile||d;$('heroName').textContent=p.full_name||name;$('fullName').textContent=p.full_name||name;$('heroRole').textContent=p.role||'Участник ДКДУ';$('role').textContent=p.role||'Участник';$('rep').textContent=p.reputation??'—';$('party').textContent=p.party_name||'Не указана';$('heroParty').textContent='🎭 '+(p.party_name||'Партия не указана')}catch(e){}}
+
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function card(title, body, meta=''){return `<article class="card"><h2>${esc(title)}</h2><div style="margin-top:8px;white-space:pre-wrap;line-height:1.45">${body}</div>${meta?`<p class="muted">${esc(meta)}</p>`:''}</article>`}
+async function loadVotes(){try{const d=await api('/api/votes');const all=[...(d.presidential||[]).map(x=>({...x,kind:'Президентские выборы'})),...(d.duma||[]).map(x=>({...x,kind:'Выборы Госдумы'}))];$('votesList').innerHTML=all.length?all.map(x=>card(`${x.kind} №${x.id}`,`Статус: <b>${esc(x.status||'—')}</b><br>Окончание: ${esc(x.ends_at||'—')}${x.results?`<div class="stat">Результаты: ${esc(JSON.stringify(x.results))}</div>`:''}`,`Создано: ${x.created_at||''}`)).join(''):'<div class="empty">Голосований пока нет.</div>'}catch(e){$('votesList').textContent=e.message}}
+async function loadParties(){try{const d=await api('/api/parties');$('partiesList').innerHTML=(d.parties||[]).length?d.parties.map(p=>card(`${p.emoji||'🎭'} ${p.name}`,esc(p.description||'Описание не добавлено.'),`Участников: ${p.members_count??'—'} · Председатель: ${p.leader_username?'@'+p.leader_username:'не указан'}`)).join(''):'<div class="empty">Активных партий пока нет.</div>'}catch(e){$('partiesList').textContent=e.message}}
+async function loadDocuments(){try{const d=await api('/api/documents');const items=[...(d.laws||[]).map(x=>card('📜 '+x.title,esc(x.description||''),'Закон · '+(x.status||'')+' · '+(x.created_at||''))),...(d.decrees||[]).map(x=>card('🖋️ '+x.title,esc(x.text||''),'Указ · '+(x.created_at||'')))];$('documentsList').innerHTML=items.join('')||'<div class="empty">Документов пока нет.</div>'}catch(e){$('documentsList').textContent=e.message}}
+async function loadNews(){try{const d=await api('/api/news');$('newsList').innerHTML=(d.news||[]).map(x=>card('📰 Публикация №'+x.id,esc(x.text||''),x.created_at||'')).join('')||'<div class="empty">Публикаций пока нет.</div>'}catch(e){$('newsList').textContent=e.message}}
+loadProfile();loadVotes();loadParties();loadDocuments();loadNews();
+
+})();
+</script></body></html>
