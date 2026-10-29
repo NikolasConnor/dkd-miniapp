@@ -112,7 +112,6 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
     try { tg.setHeaderColor('#315ee8'); tg.setBackgroundColor('#f2f4fb'); } catch (_) {}
   }
   const $ = id => document.getElementById(id);
-  // Use same-origin requests so the Mini App and API share the Render host and avoid CORS preflight issues.
   const API_BASE = '';
   const initData = tg && tg.initData ? tg.initData : '';
   const telegramUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user : {};
