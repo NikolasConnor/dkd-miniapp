@@ -36,7 +36,38 @@ const $=id=>document.getElementById(id);const API_BASE='';const initData=tg?.ini
 const name=[u.first_name,u.last_name].filter(Boolean).join(' ')||'Пользователь Telegram';$('heroName').textContent=name;$('fullName').textContent=name;$('username').textContent=u.username?'@'+u.username:'Telegram';$('avatar').textContent=(name.split(/\s+/).map(x=>x[0]).join('').slice(0,2)||'👤').toUpperCase();
 document.querySelectorAll('[data-page]').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.page').forEach(p=>p.classList.toggle('active',p.id===b.dataset.page));window.scrollTo(0,0)}));
 $('edit').onclick=()=>{$('newName').value=$('fullName').textContent;$('modal').classList.add('open')};$('cancel').onclick=()=> $('modal').classList.remove('open');
-async function api(path,opts={}){const headers={'Content-Type':'application/json','X-Telegram-Init-Data':initData,...opts.headers};const r=await fetch(API_BASE+path,{...opts,headers});const d=await r.json();if(!r.ok)throw Error(d.detail||'Ошибка API');return d}
+```javascript
+async function api(path, opts = {}) {
+    const headers = {
+        'Content-Type': 'application/json',
+        'X-Telegram-Init-Data': initData,
+        ...opts.headers
+    };
+
+    const response = await fetch(API_BASE + path, {
+        ...opts,
+        headers
+    });
+
+    const contentType = response.headers.get('content-type') || '';
+
+    if (!contentType.includes('application/json')) {
+        const body = await response.text();
+        throw new Error(
+            `API ${path}: сервер вернул HTML вместо JSON (HTTP ${response.status}). ` +
+            `Ответ: ${body.slice(0, 120)}`
+        );
+    }
+
+    const data = await response.json();
+
+    if (!response.ok) {
+        throw new Error(data.detail || `Ошибка API: ${response.status}`);
+    }
+
+    return data;
+}
+```
 $('save').onclick=async()=>{const full_name=$('newName').value.trim();if(!full_name)return alert('Введите ФИО');try{await api('/api/profile',{method:'PATCH',body:JSON.stringify({full_name})});$('fullName').textContent=full_name;$('heroName').textContent=full_name;$('modal').classList.remove('open')}catch(e){alert(e.message)}};
 async function loadProfile(){try{const d=await api('/api/profile'),p=d.profile||d;$('heroName').textContent=p.full_name||name;$('fullName').textContent=p.full_name||name;$('heroRole').textContent=p.role||'Участник ДКДУ';$('role').textContent=p.role||'Участник';$('rep').textContent=p.reputation??'—';$('party').textContent=p.party_name||'Не указана';$('heroParty').textContent='🎭 '+(p.party_name||'Партия не указана')}catch(e){}}
 
