@@ -16,11 +16,12 @@ BASE_DIR = Path(__file__).resolve().parent
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = (os.getenv("SUPABASE_SECRET_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY") or "").strip()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
-ADMIN_TELEGRAM_ID = 7934244888
+ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "7934244888"))
+PRESIDENT_TELEGRAM_ID = int(os.getenv("PRESIDENT_TELEGRAM_ID", "0"))
 SECRET_PHRASE = " ".join(os.getenv("CITIZENSHIP_SECRET_PHRASE", "Бог Эфиопии").split()).casefold()
 AVATARS = ["👤", "😀", "😎", "🤓", "🦊", "🐺", "🐼", "🐸", "🦁", "🐯", "🐉", "👑", "⚡", "🔥", "🌟", "🎭", "🗳️", "🏛️", "🦅", "🐈"]
 
-app = FastAPI(title="DKD Mini App API", version="1.2.0")
+app = FastAPI(title="DKD Mini App API", version="1.3.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 supabase: Client | None = None
 
@@ -79,6 +80,9 @@ def one(query):
 def is_admin(user: dict) -> bool:
     return int(user.get("id", 0)) == ADMIN_TELEGRAM_ID
 
+def is_president(user: dict) -> bool:
+    return PRESIDENT_TELEGRAM_ID > 0 and int(user.get("id", 0)) == PRESIDENT_TELEGRAM_ID
+
 def profile_for(user: dict) -> dict:
     client = db()
     uid = int(user["id"])
@@ -88,7 +92,7 @@ def profile_for(user: dict) -> dict:
                 "full_name": " ".join(x for x in [user.get("first_name"), user.get("last_name")] if x) or "Пользователь Telegram",
                 "role": "Не зарегистрирован", "reputation": 0, "party_name": None,
                 "is_citizen": False, "registered": False, "avatar_emoji": "👤",
-                "is_admin": is_admin(user)}
+                "is_admin": is_admin(user), "is_president": is_president(user)}
     role_names = []
     try:
         links = rows(client.table("subject_roles").select("role_id").eq("subject_id", subject["id"]))
@@ -109,7 +113,7 @@ def profile_for(user: dict) -> dict:
         except HTTPException:
             pass
     return {**subject, "role": ", ".join(role_names) or ("Гражданин" if subject.get("is_citizen") else "Участник ДКДУ"),
-            "party_name": party_name, "registered": True, "is_admin": is_admin(user)}
+            "party_name": party_name, "registered": True, "is_admin": is_admin(user), "is_president": is_president(user)}
 
 @app.get("/")
 def home():
@@ -127,6 +131,12 @@ def health():
 @app.get("/api/config")
 def config():
     return {"app": "ДКДУСЛУГИ", "api_version": app.version, "avatars": AVATARS}
+
+@app.get("/api/access")
+def access_info(x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data)
+    return {"is_admin": is_admin(user), "is_president": is_president(user),
+            "admin_mode_available": is_admin(user)}
 
 @app.get("/api/profile")
 def get_profile(x_telegram_init_data: str | None = Header(default=None)):
@@ -200,23 +210,32 @@ def apply_citizenship(payload: CitizenshipApplication, x_telegram_init_data: str
 def admin_overview(x_telegram_init_data: str | None = Header(default=None)):
     user = current_user(x_telegram_init_data)
     if not is_admin(user):
-        raise HTTPException(403, "Доступ только президенту.")
+        raise HTTPException(403, "Доступ только администратору.")
     citizens = rows(db().table("subjects").select("id,user_id,username,full_name,is_citizen,avatar_emoji,reputation").order("full_name").limit(200))
     pending = rows(db().table("citizenship_applications").select("id,user_id,username,full_name,status,created_at").eq("status", "pending").order("created_at").limit(100))
     return {"citizens": citizens, "pending_applications": pending, "is_admin": True}
+
+@app.get("/api/president/overview")
+def president_overview(x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data)
+    if not (is_president(user) or is_admin(user)):
+        raise HTTPException(403, "Доступ только президенту или администратору в активном режиме.")
+    citizens = rows(db().table("subjects").select("id,user_id,username,full_name,is_citizen,avatar_emoji,reputation").order("full_name").limit(200))
+    pending = rows(db().table("citizenship_applications").select("id,user_id,username,full_name,status,created_at").eq("status", "pending").order("created_at").limit(100))
+    return {"citizens": citizens, "pending_applications": pending, "is_president": is_president(user), "is_admin": is_admin(user)}
 
 @app.get("/api/admin/citizenship")
 def admin_citizenship(x_telegram_init_data: str | None = Header(default=None)):
     user = current_user(x_telegram_init_data)
     if not is_admin(user):
-        raise HTTPException(403, "Доступ только президенту.")
+        raise HTTPException(403, "Доступ только администратору.")
     return {"applications": rows(db().table("citizenship_applications").select("*").order("created_at", desc=True).limit(100))}
 
 @app.post("/api/admin/citizenship/{application_id}/review")
 def review_citizenship(application_id: int, payload: ApplicationReview, x_telegram_init_data: str | None = Header(default=None)):
     user = current_user(x_telegram_init_data)
-    if not is_admin(user):
-        raise HTTPException(403, "Доступ только президенту.")
+    if not (is_admin(user) or is_president(user)):
+        raise HTTPException(403, "Нет прав на рассмотрение заявок.")
     client = db()
     application = one(client.table("citizenship_applications").select("*").eq("id", application_id).limit(1))
     if not application:
