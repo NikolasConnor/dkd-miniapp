@@ -51,10 +51,14 @@ def verify_telegram_init_data(raw: str) -> dict:
         raise HTTPException(status_code=401, detail="Некорректные данные Telegram.")
     auth_date = values.get("auth_date", "")
     try:
-        if abs(time.time() - int(auth_date)) > 86400:
-            raise HTTPException(status_code=401, detail="Сессия Telegram устарела. Закройте и снова откройте Mini App.")
-    except ValueError:
+        auth_timestamp = int(auth_date)
+    except (TypeError, ValueError):
         raise HTTPException(status_code=401, detail="Некорректная дата авторизации Telegram.")
+    now = time.time()
+    if auth_timestamp <= 0 or auth_timestamp > now + 60:
+        raise HTTPException(status_code=401, detail="Некорректная дата авторизации Telegram.")
+    if now - auth_timestamp > 86400:
+        raise HTTPException(status_code=401, detail="Сессия Telegram устарела. Закройте и снова откройте Mini App.")
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(values.items()))
     secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
     expected_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
