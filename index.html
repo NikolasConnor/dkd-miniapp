@@ -2,455 +2,199 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#315ee8">
-<title>ДКДУСЛУГИ — Mini App 1.2.1</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#10132b">
+<title>ДКД — Mini App</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
-:root{color-scheme:light;--bg:#f2f4fb;--card:#fff;--fg:#182033;--muted:#69738a;--line:#e2e7f1;--soft:#edf1ff;--blue:#315ee8;--purple:#7048d9;--good:#16845b;--bad:#b42318;--shadow:0 8px 24px #263b6810}
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.4}
-body.dark{color-scheme:dark;--bg:#10131b;--card:#1a2030;--fg:#f3f5fb;--muted:#a5aec3;--line:#2b3347;--soft:#242c46;--shadow:0 8px 24px #0002}
-button,input{font:inherit}button{cursor:pointer;touch-action:manipulation}button:focus-visible,input:focus-visible{outline:3px solid #7c91ff;outline-offset:2px}
-.app{max-width:760px;margin:auto;padding:18px 16px calc(30px + env(safe-area-inset-bottom))}.top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}.brand{font-weight:800;letter-spacing:-.3px}.version{color:var(--muted);font-size:12px}
-.hero{color:#fff;padding:22px;border-radius:24px;background:linear-gradient(130deg,var(--blue),var(--purple));box-shadow:0 12px 28px #315ee82b}.row{display:flex;align-items:center;gap:14px}.avatar{width:60px;height:60px;border-radius:19px;background:#ffffff30;display:grid;place-items:center;font-size:24px;font-weight:800;overflow:hidden;flex-shrink:0}.avatar img{width:100%;height:100%;object-fit:cover}
-h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin:0}h3{font-size:15px;margin:0 0 7px}.muted{color:var(--muted);font-size:13px}.hero .muted{color:#ffffffdf}.pill,.badge{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:7px 11px;background:#ffffff28;margin-top:14px;font-size:12px}.badge{margin-top:8px;background:var(--soft);color:var(--blue)}
-.head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin:24px 2px 12px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.tile,.card{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;box-shadow:var(--shadow)}.tile{text-align:left;color:var(--fg);min-height:112px;display:flex;flex-direction:column;justify-content:space-between;gap:12px;transition:transform .12s,border-color .12s}.tile:active{transform:scale(.985)}.tile:hover{border-color:#9baeff}.tile .ico{font-size:27px}.tile small{display:block;color:var(--muted);margin-top:4px}.tile-label{font-weight:700}
-.page{display:none}.page.active{display:block;animation:appear .16s ease-out}@keyframes appear{from{opacity:.5;transform:translateY(4px)}to{opacity:1;transform:none}}.back{border:0;background:none;color:var(--blue);font-weight:750;padding:8px 0 14px}.card{margin-bottom:12px}.btn{border:0;border-radius:12px;background:linear-gradient(120deg,var(--blue),var(--purple));color:white;padding:12px 15px;font-weight:700;min-height:43px}.btn.secondary{background:var(--soft);color:var(--blue)}.btn.ghost{background:transparent;color:var(--blue);border:1px solid var(--line)}.btn:disabled{opacity:.55;cursor:wait}.full{width:100%;margin-top:12px}.field{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--fg);margin:8px 0 12px}.stat{background:var(--soft);padding:11px 12px;border-radius:12px;margin-top:10px;overflow-wrap:anywhere}.empty{text-align:center;padding:24px 12px;color:var(--muted);background:var(--card);border:1px dashed var(--line);border-radius:16px}.notice{font-size:12px;line-height:1.5;color:var(--muted);margin-top:14px}.notice.error{color:var(--bad)}.notice.success{color:var(--good)}.modal{display:none;position:fixed;inset:0;background:#0008;z-index:10;align-items:flex-end;justify-content:center;padding:14px}.modal.open{display:flex}.box{background:var(--card);color:var(--fg);border-radius:22px;padding:20px;width:100%;max-width:520px;box-shadow:0 18px 60px #0003}.actions{display:flex;gap:10px}.actions>*{flex:1}.searchrow{display:flex;gap:8px;align-items:center}.searchrow .field{margin:0;min-width:0}.searchrow .btn{flex-shrink:0}.meta{font-size:12px;color:var(--muted);margin-top:10px}.section-actions{display:flex;gap:8px;align-items:center}.spinner{display:inline-block;width:15px;height:15px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-3px;margin-right:6px}@keyframes spin{to{transform:rotate(360deg)}}.status{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:12px}.dot{width:7px;height:7px;border-radius:50%;background:#9aa4b7}.dot.ok{background:#21a366}.dot.err{background:#d92d20}.bottomnav{display:none}[hidden]{display:none!important}
-@media(min-width:600px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}.modal{align-items:center}}
-@media(max-width:390px){.app{padding-left:12px;padding-right:12px}.hero{padding:18px}.tile{padding:13px;min-height:108px}.top{align-items:flex-start}}
-@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;scroll-behavior:auto!important;transition:none!important}}
-.passport-wrap{margin:14px 0}.passport{overflow:hidden;border-radius:16px;border:1px solid #d9aab6;background:linear-gradient(135deg,#fff8f8,#f6dfe5 65%,#fff3f5);box-shadow:0 8px 24px #43102120;color:#3c2530;padding-bottom:14px}.passport-top{background:#94142f;color:#fff;text-align:center;font-size:11px;letter-spacing:.05em;padding:11px;font-weight:800}.passport-inner{display:grid;grid-template-columns:86px 1fr;gap:12px;padding:14px 12px 8px}.passport-photo{height:112px;border-radius:8px;background:#fff;border:1px solid #e5c4ce;display:flex;align-items:center;justify-content:center;font-size:42px}.passport-label{font-size:10px;color:#876a75;text-transform:uppercase;margin-top:8px}.passport-value{font-size:13px;font-weight:750;overflow-wrap:anywhere}.passport-number{font-size:18px;color:#8d1530;font-weight:900}.passport-foot{padding:8px 12px;border-top:1px solid #e4c3cd;font-size:10px;color:#775b66}.role-tools{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px}</style>
+:root{--bg:#0d1024;--panel:#171b37;--panel2:#20264a;--line:#343b69;--text:#f5f6ff;--muted:#a8afd5;--purple:#8b7cff;--blue:#5e8bff;--pink:#f0b7d0;--good:#63d9a0;--bad:#ff8298;--radius:20px}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at top right,#282257 0,transparent 40%),var(--bg);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}button,input,textarea,select{font:inherit}button{cursor:pointer;border:0}.app{max-width:760px;margin:auto;padding:18px 15px 100px}.top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:6px 0 22px}.brand{display:flex;gap:11px;align-items:center}.logo{width:46px;height:46px;border-radius:15px;background:linear-gradient(135deg,var(--blue),var(--purple));display:grid;place-items:center;font-size:24px;box-shadow:0 8px 28px #6658ff45}.brand h1{font-size:18px;letter-spacing:.04em;margin:0}.brand small{color:var(--muted)}.pill{border:1px solid var(--line);background:#171b37;color:var(--muted);border-radius:999px;padding:7px 11px;font-size:12px}.hero{background:linear-gradient(125deg,#292b60,#25234d 55%,#3b2860);border:1px solid #55508e;border-radius:26px;padding:23px;margin-bottom:18px;position:relative;overflow:hidden}.hero:after{content:"";position:absolute;width:180px;height:180px;border-radius:50%;background:#8b7cff22;right:-50px;top:-70px}.hero h2{font-size:25px;line-height:1.15;margin:0 0 8px;max-width:440px}.hero p{margin:0;color:#d0d3f3;max-width:470px}.hero-actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:18px}.btn{padding:11px 15px;border-radius:13px;font-weight:650;transition:.15s}.primary{color:white;background:linear-gradient(135deg,#6c8cff,#8b70ff);box-shadow:0 7px 20px #6e68ff2b}.secondary{background:#ffffff10;border:1px solid #ffffff24;color:var(--text)}.danger{background:#4c233c;color:#ffc5d1;border:1px solid #74354e}.btn:disabled{opacity:.5;cursor:not-allowed}.section-head{display:flex;align-items:center;justify-content:space-between;margin:23px 2px 12px}.section-head h3{font-size:16px;margin:0}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.tile,.card{background:linear-gradient(145deg,#1a1f3e,#151931);border:1px solid var(--line);border-radius:var(--radius);padding:16px;min-width:0}.tile{min-height:116px;text-align:left;color:var(--text);display:flex;flex-direction:column;gap:8px}.tile:active{transform:scale(.985)}.tile .icon{font-size:24px}.tile strong{font-size:14px}.tile span:last-child{font-size:12px;color:var(--muted)}.card{margin-bottom:11px}.row{display:flex;align-items:center;justify-content:space-between;gap:12px}.muted{color:var(--muted)}.small{font-size:12px}.hidden{display:none!important}.view{display:none}.view.active{display:block}.back{background:none;color:#c4c9ef;padding:8px 0 15px}.form{display:grid;gap:11px}.field{display:grid;gap:6px}.field label{font-size:12px;color:var(--muted)}input,textarea,select{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:12px;background:#0f132a;color:var(--text);outline:none}input:focus,textarea:focus,select:focus{border-color:var(--purple)}textarea{min-height:100px;resize:vertical}.item-title{font-weight:700;margin:0 0 5px}.status{font-size:11px;border-radius:999px;padding:5px 9px;background:#343a62;color:#dfe1ff;white-space:nowrap}.status.good{background:#153e38;color:#91f0c4}.status.bad{background:#4d2636;color:#ffb1c0}.passport{border-radius:20px;overflow:hidden;background:#f5d9e6;color:#321c35;max-width:460px;margin:8px auto 18px;box-shadow:0 16px 40px #0004}.passport-top{background:linear-gradient(120deg,#651b35,#8d2c49);color:white;padding:17px 19px}.passport-top b{display:block;letter-spacing:.06em}.passport-top small{opacity:.82}.passport-body{padding:17px;display:grid;grid-template-columns:100px 1fr;gap:15px}.photo{height:126px;border-radius:9px;background:linear-gradient(#d9bfd1,#b7a2c0);display:grid;place-items:center;font-size:42px;color:#73566e}.passport-data{display:grid;gap:9px}.passport-data small{display:block;font-size:10px;color:#805c78;text-transform:uppercase;letter-spacing:.04em}.passport-data strong{font-size:13px;overflow-wrap:anywhere}.notice{padding:12px 14px;border-radius:13px;background:#24294d;border:1px solid #3b4273;color:#cdd2ff;font-size:13px;margin-bottom:12px}.notice.error{border-color:#79374b;background:#351d32;color:#ffc0cb}.notice.ok{border-color:#27634f;background:#16332f;color:#a9f0d0}.bottom{position:fixed;bottom:0;left:0;right:0;padding:10px 12px calc(10px + env(safe-area-inset-bottom));background:#0d1024eF;backdrop-filter:blur(18px);border-top:1px solid #292e50;z-index:5}.nav{max-width:760px;margin:auto;display:grid;grid-template-columns:repeat(4,1fr);gap:5px}.nav button{color:var(--muted);background:transparent;border-radius:12px;padding:8px 3px;font-size:11px}.nav button span{display:block;font-size:19px;margin-bottom:2px}.nav button.active{color:#fff;background:#29284f}.spinner{display:inline-block;width:14px;height:14px;border:2px solid #ffffff55;border-top-color:white;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}@keyframes spin{to{transform:rotate(360deg)}}.empty{text-align:center;padding:22px;color:var(--muted)}.list{display:grid;gap:10px}.list .card{margin:0}.footer-note{text-align:center;color:#737ca8;font-size:11px;margin-top:25px}
+@media(min-width:600px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}.hero{padding:28px}.hero h2{font-size:30px}}@media(max-width:360px){.app{padding-left:11px;padding-right:11px}.grid{gap:8px}.tile{padding:12px}.hero h2{font-size:22px}}
+</style>
 </head>
 <body>
-<main class="app">
-  <div class="top">
-    <div class="brand">🏛️ ДКДУСЛУГИ</div>
-    <div style="text-align:right"><div class="version">Mini App · v2.1</div><div class="status" id="connection"><span class="dot"></span><span>Проверяем соединение</span></div></div>
-  </div>
+<div class="app">
+  <header class="top">
+    <div class="brand"><div class="logo">🏛️</div><div><h1>ДКД · УСЛУГИ</h1><small>Государственный портал</small></div></div>
+    <span class="pill" id="connection">Подключение…</span>
+  </header>
 
-  <section id="home" class="page active">
-    <header class="hero">
-      <div class="row">
-        <div id="avatar" class="avatar">👤</div>
-        <div><h1 id="heroName">Пользователь Telegram</h1><div id="heroRole" class="muted">Участник ДКДУ</div></div>
+  <main>
+    <section id="homeView" class="view active">
+      <div class="hero">
+        <h2 id="welcome">Добро пожаловать в ДКД</h2>
+        <p>Документы, гражданство и государственные сервисы — в одном месте.</p>
+        <div class="hero-actions"><button class="btn primary" onclick="openView('documents')">Открыть документы</button><button class="btn secondary" onclick="openView('profile')">Мой профиль</button></div>
       </div>
-      <div id="heroParty" class="pill">🎭 Партия не указана</div>
-    </header>
-    <div class="head"><h2>Госуслуги</h2><span class="muted">Ваш кабинет</span></div>
-    <div class="grid">
-      <button class="tile" type="button" data-page="profile"><span class="ico">👤</span><span><span class="tile-label">Мой профиль</span><small>Данные и репутация</small></span></button>
-      <button class="tile" type="button" data-page="votes"><span class="ico">🗳️</span><span><span class="tile-label">Голосования</span><small>Выборы и результаты</small></span></button>
-      <button class="tile" type="button" data-page="parties"><span class="ico">🎭</span><span><span class="tile-label">Партии</span><small>Состав и информация</small></span></button>
-      <button class="tile" type="button" data-page="documents"><span class="ico">📜</span><span><span class="tile-label">Документы</span><small>Законы, указы и паспорта</small></span></button>
-      <button class="tile" type="button" data-page="admin" id="adminTile" hidden><span class="ico">🛡️</span><span><span class="tile-label">Панель администратора</span><small>Граждане и заявления</small></span></button>
-      <button class="tile" type="button" data-page="adminSetup" id="adminSetupTile" hidden><span class="ico">🔑</span><span><span class="tile-label">Первичная настройка</span><small>Активировать главного администратора</small></span></button>
-      <button class="tile" type="button" data-page="president" id="presidentTile" hidden><span class="ico">🇩🇰</span><span><span class="tile-label">Панель президента</span><small>Президентские указы</small></span></button>
-      <button class="tile" type="button" data-page="news"><span class="ico">📰</span><span><span class="tile-label">Газета</span><small>Новости и публикации</small></span></button>
-    </div>
-    <div class="head"><h2>Быстрый обзор</h2><button class="btn ghost" id="refreshAll" type="button">↻ Обновить</button></div>
-    <div class="grid">
-      <div class="card"><div class="muted">Голосования</div><h2 id="statVotes">—</h2><div class="meta">Последние выборы</div></div>
-      <div class="card"><div class="muted">Партии</div><h2 id="statParties">—</h2><div class="meta">Активные объединения</div></div>
-      <div class="card"><div class="muted">Публикации</div><h2 id="statNews">—</h2><div class="meta">Материалы газеты</div></div>
-    </div>
-    <p id="homeMessage" class="notice">Открывайте разделы через карточки выше. Навигация работает и при недоступном сервере.</p>
-  </section>
+      <div class="section-head"><h3>Сервисы</h3><span class="muted small">Главное меню</span></div>
+      <div class="grid">
+        <button class="tile" onclick="openView('profile')"><span class="icon">👤</span><strong>Профиль</strong><span>Личные данные и статус</span></button>
+        <button class="tile" onclick="openView('documents')"><span class="icon">📚</span><strong>Документы</strong><span>Паспорта, заявления, законы</span></button>
+        <button class="tile" onclick="openView('parties')"><span class="icon">🎭</span><strong>Партии</strong><span>Участие и состав</span></button>
+        <button class="tile" onclick="openView('elections')"><span class="icon">🗳️</span><strong>Выборы</strong><span>Голосование</span></button>
+        <button class="tile" onclick="openView('news')"><span class="icon">📰</span><strong>Новости</strong><span>Последние публикации</span></button>
+        <button class="tile hidden" id="presidentTile" onclick="openView('president')"><span class="icon">🏅</span><strong>Президент</strong><span>Указы и управление</span></button>
+        <button class="tile hidden" id="adminTile" onclick="openView('admin')"><span class="icon">🛡️</span><strong>Администрация</strong><span>Управление системой</span></button>
+      </div>
+      <div id="homeNotice" style="margin-top:14px"></div>
+    </section>
 
-  <section id="profile" class="page">
-    <button class="back" type="button" data-page="home">← На главную</button>
-    <div class="card">
-      <div class="row"><div id="profileAvatar" class="avatar" style="background:var(--soft);color:var(--blue)">👤</div><div><h2 id="fullName">Профиль</h2><p class="muted" id="username">Telegram</p><span class="badge" id="role">Участник</span></div></div>
-      <div class="stat">⭐ Репутация: <b id="rep">—</b></div><div class="stat">🎭 Партия: <b id="party">Не указана</b></div>
-      <button class="btn full" type="button" id="edit">✏️ Изменить ФИО</button>
-      <p class="notice" id="profileMessage">Данные профиля доступны после авторизации через Telegram.</p>
-    </div>
-  </section>
+    <section id="profileView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Мой профиль</h3><button class="btn secondary" onclick="loadProfile()">Обновить</button></div>
+      <div id="profileContent"><div class="empty">Загрузка профиля…</div></div>
+      <form class="card form" onsubmit="saveProfile(event)"><div class="field"><label for="fullName">ФИО</label><input id="fullName" minlength="2" maxlength="120" placeholder="Введите ФИО" required></div><button class="btn primary">Сохранить изменения</button></form>
+    </section>
 
-  <section id="votes" class="page">
-    <button class="back" type="button" data-page="home">← На главную</button>
-    <div class="head"><h2>Голосования и выборы</h2><button class="btn ghost" type="button" data-refresh="votes">↻</button></div>
-    <div id="votesList" class="empty">Ожидаем данные…</div>
-  </section>
+    <section id="documentsView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Документы</h3><button class="btn secondary" onclick="loadDocuments()">Обновить</button></div>
+      <div id="passportArea"></div>
+      <div class="grid" style="margin-bottom:15px">
+        <button class="tile" onclick="showDocTab('passport')"><span class="icon">🪪</span><strong>Мой паспорт</strong><span>Статус гражданства</span></button>
+        <button class="tile" onclick="showDocTab('applications')"><span class="icon">📝</span><strong>Заявления</strong><span>Подать и отслеживать</span></button>
+        <button class="tile" onclick="showDocTab('laws')"><span class="icon">⚖️</span><strong>Законы и указы</strong><span>Государственные документы</span></button>
+      </div>
+      <div id="docTabContent"></div>
+    </section>
 
-  <section id="parties" class="page">
-    <button class="back" type="button" data-page="home">← На главную</button>
-    <div class="head"><h2>Политические партии</h2><button class="btn ghost" type="button" data-refresh="parties">↻</button></div>
-    <div class="searchrow"><input id="partySearch" class="field" type="search" placeholder="Поиск партии…" aria-label="Поиск партии"></div>
-    <div id="partiesList" style="margin-top:12px" class="empty">Ожидаем данные…</div>
-  </section>
+    <section id="partiesView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Политические партии</h3><button class="btn secondary" onclick="loadParties()">Обновить</button></div>
+      <div id="partiesContent" class="list"></div>
+      <form class="card form" onsubmit="createParty(event)"><h3 style="margin:0">Создать партию</h3><div class="field"><label>Название</label><input id="partyName" minlength="2" maxlength="60" required></div><div class="field"><label>Эмодзи</label><input id="partyEmoji" value="🎭" maxlength="8"></div><div class="field"><label>Описание</label><textarea id="partyDescription" maxlength="1000"></textarea></div><button class="btn primary">Создать партию</button></form>
+      <button class="btn secondary" onclick="api('/api/parties/leave',{method:'POST',body:{}}).then(()=>{notify('Вы вышли из партии');loadParties()})">Выйти из партии</button>
+    </section>
 
-  <section id="documents" class="page">
-    <button class="back" type="button" data-page="home">← На главную</button>
-    <div class="head"><h2>Документы</h2><button class="btn ghost" type="button" data-refresh="documents">↻</button></div>
-    <div class="searchrow"><input id="documentSearch" class="field" type="search" placeholder="Поиск по документам…" aria-label="Поиск по документам"></div>
-    <div id="passportCard" class="passport-wrap"><div class="empty">Паспорт появится автоматически после получения гражданства.</div></div><div id="documentsList" style="margin-top:12px" class="empty">Ожидаем данные…</div>
-    <div class="head"><h2>🪪 Мои паспорта и заявления</h2><button class="btn ghost" type="button" id="refreshApplications">↻</button></div>
-    <div class="card"><h3>Подать заявление</h3><p class="notice">Паспорт выдаётся автоматически при одобрении гражданства. Отдельное заявление на паспорт не требуется.</p><label class="muted" for="appKind">Тип заявления</label><select id="appKind" class="field"><option value="citizenship">Заявление на гражданство</option><option value="other">Другое заявление</option></select><label class="muted" for="appFullName">ФИО</label><input id="appFullName" class="field" maxlength="120" placeholder="Фамилия Имя Отчество"><label class="muted" for="appDetails">Подробности</label><textarea id="appDetails" class="field" maxlength="5000" rows="4" placeholder="Укажите необходимую информацию"></textarea><button class="btn full" id="submitApplication">Отправить заявление</button><p id="applicationMessage" class="notice"></p></div>
-    <div class="head"><h2>История заявлений</h2></div><div id="myApplications" class="empty">Откройте через Telegram.</div>
-  </section>
+    <section id="electionsView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Выборы и голосование</h3><button class="btn secondary" onclick="loadElections()">Обновить</button></div><div id="electionsContent" class="list"></div>
+    </section>
 
-  <section id="adminSetup" class="page">
-    <button class="back" type="button" data-page="home">← На главную</button><div class="head"><h2>🔑 Первичная настройка администратора</h2></div>
-    <div class="card"><p class="muted">Введите ADMIN_BOOTSTRAP_CODE, уже заданный в настройках Render. Код используется только для однократного назначения главного администратора.</p><input id="adminBootstrapCode" class="field" type="password" autocomplete="current-password" placeholder="Код активации"><button class="btn full" id="claimAdmin">Активировать панель администратора</button><p id="adminSetupMessage" class="notice"></p></div>
-  </section>
-  <section id="admin" class="page">
-    <button class="back" type="button" data-page="home">← На главную</button><div class="head"><h2>🛡️ Панель администратора</h2><button class="btn ghost" id="refreshAdmin">↻</button></div>
-    <div class="card"><h3>Опубликовать новость</h3><textarea id="adminNewsText" class="field" rows="3" maxlength="10000" placeholder="Текст новости"></textarea><button class="btn full" id="adminPublishNews">Опубликовать</button></div>
-    <div class="card"><h3>Опубликовать закон/документ</h3><input id="adminLawTitle" class="field" maxlength="200" placeholder="Название документа"><textarea id="adminLawDescription" class="field" rows="4" maxlength="20000" placeholder="Текст документа"></textarea><button class="btn full" id="adminPublishLaw">Опубликовать документ</button></div>
-    <div class="card"><h3>Создать выборы</h3><label class="muted">Тип выборов</label><select id="adminElectionKind" class="field"><option value="presidential">Президентские</option><option value="duma">Госдума</option></select><input id="adminElectionTitle" class="field" maxlength="160" placeholder="Название выборов"><textarea id="adminElectionOptions" class="field" rows="3" placeholder="Варианты — по одному на строку"></textarea><button class="btn full" id="adminCreateElection">Создать выборы</button></div>
-    <div class="card"><h3>Создать должность</h3><p class="muted">Например: Президент, Министр, Депутат. Для президентской панели название должно содержать слово «Президент».</p><div class="role-tools"><input id="adminRoleName" class="field" maxlength="80" placeholder="Название должности"><input id="adminRoleEmoji" class="field" maxlength="8" style="max-width:86px" value="👤" aria-label="Эмодзи должности"></div><button class="btn full" id="adminCreateRole">Создать должность</button></div><div class="card"><h3>Заявления граждан</h3><div id="adminApplications" class="empty">Загрузка…</div></div><div class="card"><h3>Пользователи, гражданство и должности</h3><p class="muted">Ищите пользователя по ФИО, username или числовому Telegram ID. Выдача гражданства активирует паспорт; отзыв отключает его.</p><input id="adminSubjectSearch" class="field" type="search" placeholder="Поиск пользователя…"><div id="adminSubjects" class="empty">Загрузка…</div></div><p id="adminMessage" class="notice"></p>
-  </section>
-  <section id="president" class="page">
-    <button class="back" type="button" data-page="home">← На главную</button><div class="head"><h2>🇩🇰 Панель президента</h2></div>
-    <div class="card"><h3>Опубликовать президентский указ</h3><input id="presidentDecreeTitle" class="field" maxlength="200" placeholder="Название указа"><textarea id="presidentDecreeText" class="field" rows="5" maxlength="20000" placeholder="Полный текст указа"></textarea><button class="btn full" id="presidentPublishDecree">Опубликовать указ</button><p id="presidentMessage" class="notice"></p></div>
-  </section>
+    <section id="newsView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Новости ДКД</h3><button class="btn secondary" onclick="loadNews()">Обновить</button></div><div id="newsContent" class="list"></div>
+    </section>
 
-  <section id="news" class="page">
-    <button class="back" type="button" data-page="home">← На главную</button>
-    <div class="head"><h2>Газета</h2><button class="btn ghost" type="button" data-refresh="news">↻</button></div>
-    <div class="searchrow"><input id="newsSearch" class="field" type="search" placeholder="Поиск публикаций…" aria-label="Поиск публикаций"></div>
-    <div id="newsList" style="margin-top:12px" class="empty">Ожидаем данные…</div>
-  </section>
-</main>
+    <section id="presidentView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Президентская панель</h3></div>
+      <form class="card form" onsubmit="createDecree(event)"><h3 style="margin:0">Опубликовать указ</h3><div class="field"><label>Заголовок</label><input id="decreeTitle" minlength="2" maxlength="200" required></div><div class="field"><label>Текст указа</label><textarea id="decreeText" maxlength="20000" required></textarea></div><div class="field"><label>Секретный указ для ID пользователя (необязательно)</label><input id="secretUserId" type="number" min="1"></div><button class="btn primary">Опубликовать</button></form>
+    </section>
 
-<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-  <div class="box">
-    <h2 id="modalTitle">Изменить ФИО</h2>
-    <label class="muted" for="newName">Новое имя</label>
-    <input id="newName" class="field" maxlength="120" autocomplete="name" placeholder="Введите ФИО">
-    <div class="actions"><button class="btn secondary" type="button" id="cancel">Отмена</button><button class="btn" type="button" id="save">Сохранить</button></div>
-    <p class="notice">Изменение сохраняется на сервере только для авторизованного профиля гражданина.</p>
-  </div>
+    <section id="adminView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Администрация</h3><button class="btn secondary" onclick="loadAdmin()">Обновить</button></div>
+      <div id="adminStatus" class="notice">Проверка прав…</div>
+      <div id="claimBox" class="card hidden"><h3 style="margin-top:0">Первичная активация администратора</h3><p class="muted small">Введите одноразовый код, выданный владельцем системы.</p><form class="form" onsubmit="claimAdmin(event)"><div class="field"><label>Код активации</label><input id="adminCode" type="password" minlength="8" required autocomplete="off"></div><button class="btn primary">Активировать</button></form></div>
+      <div id="adminTools" class="hidden">
+        <div class="section-head"><h3>Заявления</h3></div><div id="adminApplications" class="list"></div>
+        <div class="section-head"><h3>Пользователи</h3></div><div id="adminSubjects" class="list"></div>
+        <form class="card form" onsubmit="grantCitizen(event)"><h3 style="margin:0">Выдать гражданство по Telegram ID</h3><div class="field"><label>Числовой Telegram ID</label><input id="grantTelegramId" type="number" min="1" required></div><div class="field"><label>ФИО</label><input id="grantFullName" minlength="2" maxlength="120" required></div><button class="btn primary">Выдать гражданство</button></form>
+        <form class="card form" onsubmit="createRole(event)"><h3 style="margin:0">Создать роль</h3><div class="field"><label>Название</label><input id="roleName" minlength="2" maxlength="80" required></div><div class="field"><label>Эмодзи</label><input id="roleEmoji" value="👤" maxlength="12"></div><button class="btn primary">Создать роль</button></form>
+        <form class="card form" onsubmit="createElection(event)"><h3 style="margin:0">Создать выборы</h3><div class="field"><label>Тип</label><select id="electionKind"><option value="president">Президентские</option><option value="duma">В Думу</option></select></div><div class="field"><label>Название</label><input id="electionTitle" minlength="3" maxlength="160" required></div><div class="field"><label>Варианты — каждый с новой строки, минимум два</label><textarea id="electionOptions" required></textarea></div><div class="field"><label>Окончание (ISO, необязательно)</label><input id="electionEnds" placeholder="2026-12-31T23:59:00Z"></div><button class="btn primary">Создать выборы</button></form>
+        <form class="card form" onsubmit="createNews(event)"><h3 style="margin:0">Опубликовать новость</h3><div class="field"><label>Текст новости</label><textarea id="newsText" maxlength="10000" required></textarea></div><button class="btn primary">Опубликовать</button></form>
+        <form class="card form" onsubmit="createLaw(event)"><h3 style="margin:0">Опубликовать закон</h3><div class="field"><label>Название</label><input id="lawTitle" minlength="2" maxlength="200" required></div><div class="field"><label>Описание / текст</label><textarea id="lawDescription" maxlength="20000"></textarea></div><button class="btn primary">Опубликовать закон</button></form>
+        <div class="section-head"><h3>Диагностика БД</h3></div><button class="btn secondary" onclick="diagnostics()">Проверить таблицы</button><pre id="diagnosticsResult" class="card" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+      </div>
+    </section>
+  </main>
+  <p class="footer-note">ДКД Mini App · Интерфейс использует API проекта</p>
 </div>
-
+<nav class="bottom"><div class="nav">
+  <button class="active" data-view="home" onclick="openView('home')"><span>⌂</span>Главная</button>
+  <button data-view="documents" onclick="openView('documents')"><span>▤</span>Документы</button>
+  <button data-view="elections" onclick="openView('elections')"><span>◉</span>Выборы</button>
+  <button data-view="profile" onclick="openView('profile')"><span>○</span>Профиль</button>
+</div></nav>
+<div id="toast" style="position:fixed;left:15px;right:15px;bottom:90px;z-index:10;display:none"></div>
 <script>
-(() => {
-  'use strict';
-  const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-  if (tg) {
-    tg.ready();
-    tg.expand();
-    try { if (tg.colorScheme === 'dark') document.body.classList.add('dark'); } catch (_) {}
-    try { tg.setHeaderColor('#315ee8'); tg.setBackgroundColor('#f2f4fb'); } catch (_) {}
+const tg = window.Telegram?.WebApp;
+if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0d1024'); tg.setBackgroundColor('#0d1024'); } catch(e) {} }
+const initData = tg?.initData || '';
+const state = {profile:null, isAdmin:false, isPresident:false, docs:null, apps:[]};
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmtDate = v => {if(!v)return '—';const d=new Date(v);return isNaN(d)?esc(v):d.toLocaleDateString('ru-RU',{year:'numeric',month:'short',day:'numeric'});};
+function notify(msg, type='ok'){const t=$('toast');t.innerHTML=`<div class="notice ${type==='error'?'error':'ok'}">${esc(msg)}</div>`;t.style.display='block';clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>t.style.display='none',3600)}
+async function api(url, opts={}) {
+  const headers={'Content-Type':'application/json',...(opts.headers||{})};
+  if(initData) headers['X-Telegram-Init-Data']=initData;
+  const res=await fetch(url,{method:opts.method||'GET',headers,body:opts.body===undefined?undefined:JSON.stringify(opts.body),cache:'no-store'});
+  let data={};try{data=await res.json()}catch{}
+  if(!res.ok) throw new Error(data.detail || data.message || `Ошибка API (${res.status})`);
+  return data;
+}
+function showError(target,err){if(target)target.innerHTML=`<div class="notice error">${esc(err.message||err)}</div>`}
+function openView(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  const target=$(name+'View');if(target)target.classList.add('active');
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
+  if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='admin')loadAdmin();if(name==='president')checkPresident();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function statusPill(s){const val=String(s||'');let cls=/approved|active|citizen|опублик/i.test(val)?'good':/rejected|отклон|denied/i.test(val)?'bad':'';return `<span class="status ${cls}">${esc(val||'Не указан')}</span>`}
+async function init(){
+  if(!initData){$('connection').textContent='Откройте в Telegram';$('homeNotice').innerHTML='<div class="notice">Для авторизации откройте Mini App через Telegram. Обычный браузер не передаёт подписанные данные Telegram.</div>';}
+  try{
+    const h=await fetch('/health',{cache:'no-store'});const health=await h.json();
+    $('connection').textContent=health.ok?'Сервер доступен':'Проблема сервера';
+  }catch{$('connection').textContent='Нет связи с сервером';}
+  if(!initData){$('welcome').textContent='Добро пожаловать в ДКД';return}
+  try{
+    await loadProfile();const p=await api('/api/president/status');state.isAdmin=!!p.is_admin;state.isPresident=!!p.is_president;
+    $('adminTile').classList.toggle('hidden',!state.isAdmin);$('presidentTile').classList.toggle('hidden',!state.isPresident);
+  }catch(e){$('homeNotice').innerHTML=`<div class="notice error">${esc(e.message)}. Убедитесь, что Mini App открыт через Telegram и сервер настроен.</div>`}
+}
+async function loadProfile(){
+  try{const d=await api('/api/profile');state.profile=d.profile||{};const p=state.profile;
+    $('welcome').textContent=p.full_name?`Здравствуйте, ${p.full_name.split(' ')[0]}!`:'Добро пожаловать в ДКД';
+    $('fullName').value=p.full_name||'';
+    $('profileContent').innerHTML=`<div class="card"><div class="row"><div><div class="muted small">Пользователь</div><h2 style="margin:4px 0 0">${esc(p.full_name||'Без имени')}</h2></div><div class="logo">👤</div></div><hr style="border:0;border-top:1px solid var(--line);margin:15px 0"><div class="row"><span class="muted">Гражданство</span>${statusPill(p.is_citizen?'Гражданин':'Нет гражданства')}</div><div class="row" style="margin-top:12px"><span class="muted">Telegram ID</span><strong>${esc(p.telegram_id??'Скрыт')}</strong></div><div class="row" style="margin-top:12px"><span class="muted">Роли</span><strong>${esc((p.roles||[]).map(r=>typeof r==='string'?r:r.name).join(', ')||'Нет ролей')}</strong></div></div>`;
+    return p;
+  }catch(e){showError($('profileContent'),e);throw e}
+}
+async function saveProfile(e){e.preventDefault();try{await api('/api/profile',{method:'PATCH',body:{full_name:$('fullName').value.trim()}});notify('Профиль сохранён');await loadProfile()}catch(err){notify(err.message,'error')}}
+async function loadDocuments(){
+  $('docTabContent').innerHTML='<div class="empty"><span class="spinner"></span> Загружаем документы…</div>';
+  try{const [pass,docs,apps]=await Promise.all([api('/api/passport'),api('/api/documents'),api('/api/applications')]);state.docs=docs;state.apps=apps.applications||[];
+    const passport=pass.passport||pass;
+    if(passport && (passport.has_passport||passport.number||passport.passport_number||passport.full_name)){
+      $('passportArea').innerHTML=`<div class="passport"><div class="passport-top"><b>ДКД · ПАСПОРТ ГРАЖДАНИНА</b><small>ДЕМОКРАТИЧЕСКАЯ / ГОСУДАРСТВЕННАЯ СИСТЕМА</small></div><div class="passport-body"><div class="photo">👤</div><div class="passport-data"><div><small>ФИО</small><strong>${esc(passport.full_name||state.profile?.full_name||'—')}</strong></div><div><small>Номер паспорта</small><strong>${esc(passport.number||passport.passport_number||'—')}</strong></div><div><small>Дата выдачи</small><strong>${fmtDate(passport.issued_at||passport.issue_date)}</strong></div><div><small>Гражданство</small><strong>${esc(passport.country||'ДКД')}</strong></div><div><small>Статус</small><strong>Гражданин</strong></div></div></div></div>`;
+    }else $('passportArea').innerHTML='<div class="notice">Паспорт появится здесь после подтверждения гражданства.</div>';
+    showDocTab('passport');
+  }catch(e){showError($('docTabContent'),e);$('passportArea').innerHTML=''}
+}
+function showDocTab(tab){
+  const el=$('docTabContent');
+  if(tab==='passport'){el.innerHTML='<div class="section-head"><h3>Мой паспорт</h3></div>'+(state.profile?.is_citizen?'<div class="notice ok">Паспорт доступен гражданину. Если карточка не появилась, обновите документы.</div>':'<div class="notice">Гражданство ещё не подтверждено. Вы можете подать заявление ниже, во вкладке «Заявления».</div>')+`<button class="btn secondary" onclick="showDocTab('applications')">Перейти к заявлениям</button>`;return}
+  if(tab==='applications'){
+    el.innerHTML=`<div class="section-head"><h3>Подать заявление</h3></div><form class="card form" onsubmit="submitApplication(event)"><div class="field"><label>Тип заявления</label><select id="appKind"><option value="citizenship">Получение гражданства</option><option value="other">Другое обращение</option></select></div><div class="field"><label>ФИО заявителя</label><input id="appFullName" value="${esc(state.profile?.full_name||'')}" minlength="2" maxlength="120" required></div><div class="field"><label>Подробности</label><textarea id="appDetails" maxlength="5000" placeholder="Опишите ваше обращение"></textarea></div><button class="btn primary">Отправить заявление</button></form><div class="section-head"><h3>Мои заявления</h3></div><div class="list">${state.apps.length?state.apps.map(a=>`<div class="card"><div class="row"><strong>${esc(a.kind==='citizenship'?'Гражданство':a.kind==='other'?'Другое обращение':a.kind||'Заявление')}</strong>${statusPill(a.status)}</div><p class="muted small">${esc(a.details||a.review_note||'Без дополнительной информации')}</p><small class="muted">${fmtDate(a.created_at)}</small></div>`).join(''):'<div class="empty">Заявлений пока нет</div>'}</div>`;
+    return}
+  if(tab==='laws'){
+    const d=state.docs||{};const laws=d.laws||d.documents||[];const decrees=d.decrees||[];
+    el.innerHTML='<div class="section-head"><h3>Законы</h3></div>'+renderItems(laws,'title','description')+'<div class="section-head"><h3>Указы</h3></div>'+renderItems(decrees,'title','text');
   }
-  const $ = id => document.getElementById(id);
-  // Use same-origin requests so the Mini App and API share the Render host and avoid CORS preflight issues.
-  const API_BASE = 'https://dkd-miniapp-1.onrender.com';
-  const initData = tg && tg.initData ? tg.initData : '';
-  const telegramUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user : {};
-  const displayName = [telegramUser.first_name, telegramUser.last_name].filter(Boolean).join(' ') || 'Пользователь Telegram';
-  const state = { profile: null, votes: [], parties: [], documents: [], news: [], adminSubjects: [], adminRoles: [] };
-  const loaded = { profile: false, votes: false, parties: false, documents: false, news: false };
-
-  function esc(value) {
-    return String(value == null ? '' : value).replace(/[&<>"']/g, ch => ({
-      '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
-    })[ch]);
-  }
-  function formatDate(value) {
-    if (!value) return 'Дата не указана';
-    const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString('ru-RU', {dateStyle:'medium', timeStyle:'short'});
-  }
-  function setConnection(mode, text) {
-    const el = $('connection');
-    const dot = el.querySelector('.dot');
-    dot.className = 'dot' + (mode === 'ok' ? ' ok' : mode === 'err' ? ' err' : '');
-    el.lastElementChild.textContent = text;
-  }
-  function setNotice(id, text, kind) {
-    const el = $(id);
-    if (!el) return;
-    el.textContent = text;
-    el.className = 'notice' + (kind ? ' ' + kind : '');
-  }
-  function showPage(pageId) {
-    if (!$ (pageId)) return;
-    document.querySelectorAll('.page').forEach(page => page.classList.toggle('active', page.id === pageId));
-    window.scrollTo({top:0, behavior:'smooth'});
-    if (pageId === 'profile' && !loaded.profile) loadProfile();
-    if (pageId === 'votes' && !loaded.votes) loadVotes();
-    if (pageId === 'parties' && !loaded.parties) loadParties();
-    if (pageId === 'documents' && !loaded.documents) loadDocuments();
-    if (pageId === 'news' && !loaded.news) loadNews();
-    if (pageId === 'documents') loadApplications();
-    if (pageId === 'adminSetup') checkPanels();
-    if (pageId === 'admin') loadAdmin();
-    if (pageId === 'president') { /* protected API checks role on submission */ }
-  }
-  document.querySelectorAll('[data-page]').forEach(button => {
-    button.addEventListener('click', () => showPage(button.dataset.page));
-  });
-
-  async function api(path, options) {
-    options = options || {};
-    if (!initData) {
-      throw new Error('Откройте Mini App через Telegram, чтобы загрузить личные данные.');
-    }
-    const headers = Object.assign({'Content-Type':'application/json', 'X-Telegram-Init-Data':initData}, options.headers || {});
-    let response;
-    try {
-      response = await fetch(API_BASE + path, Object.assign({}, options, {headers}));
-    } catch (_) {
-      throw new Error('Не удалось связаться с сервером. Проверьте соединение и попробуйте ещё раз.');
-    }
-    const contentType = response.headers.get('content-type') || '';
-    let data;
-    if (contentType.includes('application/json')) {
-      try { data = await response.json(); } catch (_) { throw new Error('Сервер вернул повреждённый JSON.'); }
-    } else {
-      const text = await response.text();
-      throw new Error('Запрос ' + path + ' вернул не JSON (HTTP ' + response.status + '). ' + text.slice(0, 90));
-    }
-    if (!response.ok) {
-      const detail = data && (data.detail || data.message);
-      throw new Error(detail || ('Ошибка сервера: HTTP ' + response.status));
-    }
-    return data;
-  }
-  function renderCard(title, body, meta, icon) {
-    return '<article class="card"><h3>' + (icon || '') + ' ' + esc(title) + '</h3>' +
-      '<div style="white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.5">' + body + '</div>' +
-      (meta ? '<div class="meta">' + esc(meta) + '</div>' : '') + '</article>';
-  }
-  function renderEmpty(id, message) {
-    $(id).className = 'empty';
-    $(id).textContent = message;
-  }
-  function renderError(id, message, section) {
-    $(id).className = 'empty';
-    $(id).innerHTML = '<div>⚠️ ' + esc(message) + '</div><button class="btn secondary" type="button" style="margin-top:12px" data-refresh="' + esc(section) + '">Попробовать снова</button>';
-    const btn = $(id).querySelector('[data-refresh]');
-    if (btn) btn.addEventListener('click', () => refreshSection(section));
-  }
-  function applyProfile(profile) {
-    const p = profile || {};
-    const name = p.full_name || displayName;
-    $('heroName').textContent = name;
-    $('fullName').textContent = name;
-    $('username').textContent = p.username ? '@' + p.username : (telegramUser.username ? '@' + telegramUser.username : 'Telegram');
-    $('heroRole').textContent = p.role || 'Участник ДКДУ';
-    $('role').textContent = p.role || 'Участник';
-    $('rep').textContent = p.reputation == null ? '—' : p.reputation;
-    $('party').textContent = p.party_name || 'Не указана';
-    $('heroParty').textContent = '🎭 ' + (p.party_name || 'Партия не указана');
-    const initials = name.split(/\s+/).map(part => part.charAt(0)).join('').slice(0,2).toUpperCase() || '👤';
-    $('avatar').textContent = initials;
-    $('profileAvatar').textContent = initials;
-    state.profile = p;
-  }
-  async function loadProfile() {
-    try {
-      const result = await api('/api/profile');
-      applyProfile(result.profile || result);
-      loaded.profile = true;
-      setNotice('profileMessage', 'Профиль загружен.', 'success');
-      setConnection('ok', 'Сервер доступен');
-    } catch (e) {
-      setNotice('profileMessage', e.message, 'error');
-      if (initData) setConnection('err', 'Проблема с API');
-      applyProfile(state.profile || {});
-    }
-  }
-  async function loadVotes() {
-    renderEmpty('votesList', 'Загружаем голосования…');
-    try {
-      const d = await api('/api/votes');
-      const all = [...(d.presidential || []).map(x => Object.assign({},x,{typeKey:'presidential',kind:'Президентские выборы'})),
-                   ...(d.duma || []).map(x => Object.assign({},x,{typeKey:'duma',kind:'Выборы Госдумы'}))];
-      state.votes = all;
-      loaded.votes = true;
-      $('statVotes').textContent = all.length;
-      if (!all.length) return renderEmpty('votesList', 'Голосований пока нет.');
-      $('votesList').className = '';
-      $('votesList').innerHTML = all.map(x => {
-        let options = Array.isArray(x.options) ? x.options : [];
-        const controls = x.status === 'active' && options.length && !x.has_voted
-          ? '<div class="actions" style="flex-wrap:wrap">' + options.map(opt => '<button class="btn vote-option" data-kind="' + esc(x.typeKey) + '" data-id="' + Number(x.id) + '" data-option="' + esc(opt) + '">' + esc(opt) + '</button>').join('') + '</div>'
-          : (x.has_voted ? '<div class="notice success">Ваш голос уже учтён.</div>' : '');
-        return renderCard(x.title || (x.kind + ' №' + x.id),
-          '<div class="stat">Статус: <b>' + esc(x.status || 'не указан') + '</b></div>' +
-          '<div class="stat">Окончание: <b>' + esc(formatDate(x.ends_at)) + '</b></div>' +
-          (options.length ? '<div class="stat">Варианты: ' + esc(options.join(' · ')) + '</div>' : '<div class="stat">Варианты голосования не настроены.</div>') +
-          (x.vote_counts ? '<div class="stat">Результаты: ' + esc(JSON.stringify(x.vote_counts)) + '</div>' : (x.results ? '<div class="stat">Результаты: ' + esc(typeof x.results === 'string' ? x.results : JSON.stringify(x.results)) + '</div>' : '')) + controls,
-          'Создано: ' + formatDate(x.created_at), '🗳️');
-      }).join('');
-      document.querySelectorAll('.vote-option').forEach(btn => btn.addEventListener('click', async () => {
-        if (!confirm('Подтвердить голос за «' + btn.dataset.option + '»? После отправки изменить голос нельзя.')) return;
-        btn.disabled = true;
-        try {
-          await api('/api/votes/' + btn.dataset.kind + '/' + btn.dataset.id + '/cast', {method:'POST', body:JSON.stringify({option:btn.dataset.option})});
-          alert('Голос сохранён.'); await loadVotes();
-        } catch (e) { alert(e.message); btn.disabled = false; }
-      }));
-      setConnection('ok', 'Сервер доступен');
-    } catch (e) { renderError('votesList', e.message, 'votes'); if (initData) setConnection('err','Проблема с API'); }
-  }
-  async function loadParties() {
-    renderEmpty('partiesList', 'Загружаем партии…');
-    try {
-      const d = await api('/api/parties');
-      state.parties = d.parties || [];
-      loaded.parties = true;
-      $('statParties').textContent = state.parties.length;
-      renderParties();
-      setConnection('ok', 'Сервер доступен');
-    } catch (e) { renderError('partiesList', e.message, 'parties'); if (initData) setConnection('err','Проблема с API'); }
-  }
-  function renderParties() {
-    const q = $('partySearch').value.trim().toLocaleLowerCase('ru');
-    const items = state.parties.filter(p => [p.name,p.description,p.leader_username].join(' ').toLocaleLowerCase('ru').includes(q));
-    if (!items.length) return renderEmpty('partiesList', state.parties.length ? 'Ничего не найдено.' : 'Активных партий пока нет.');
-    $('partiesList').className = '';
-    $('partiesList').innerHTML = items.map(p => renderCard(p.name || 'Без названия',
-      esc(p.description || 'Описание пока не добавлено.'),
-      'Участников: ' + (p.members_count == null ? '—' : p.members_count) + ' · Председатель: ' + (p.leader_username ? '@' + p.leader_username : 'не указан'),
-      p.emoji || '🎭')).join('');
-  }
-  async function loadDocuments() {
-    renderEmpty('documentsList', 'Загружаем документы…');
-    try {
-      const d = await api('/api/documents');
-      await loadPassport();
-      state.documents = [
-        ...(d.laws || []).map(x => ({title:x.title || 'Закон без названия', text:x.description || '', type:'Закон', status:x.status, created_at:x.created_at, icon:'📜'})),
-        ...(d.decrees || []).map(x => ({title:x.title || 'Указ без названия', text:x.text || '', type:'Указ', status:'', created_at:x.created_at, icon:'🖋️'}))
-      ];
-      loaded.documents = true;
-      renderDocuments();
-      setConnection('ok', 'Сервер доступен');
-    } catch (e) { renderError('documentsList', e.message, 'documents'); if (initData) setConnection('err','Проблема с API'); }
-  }
-  async function loadPassport() {
-    const host=$('passportCard'); if(!host)return;
-    try { const d=await api('/api/passport'); if(!d.has_passport){host.innerHTML='<div class="empty"><div style="font-size:34px">🪪</div><b>Паспорт пока не выдан</b><br>'+esc(d.message||'Паспорт появится после получения гражданства.')+'<br><small>После одобрения гражданства обновите этот раздел — паспорт появится автоматически.</small></div>';return;}
-      const p=d.passport; host.innerHTML='<article class="passport"><div class="passport-top">ДЕМОКРАТИЧЕСКАЯ КОНСТИТУЦИОННАЯ ДЕРЖАВА</div><div class="passport-inner"><div class="passport-photo">👤<small style="display:block;font-size:9px">ФОТО</small></div><div><div class="passport-label">ДЕМОКРАТИЧЕСКАЯ КОНСТИТУЦИОННАЯ ДЕРЖАВА</div><div class="passport-value">ПАСПОРТ ГРАЖДАНИНА ДКД</div><div class="passport-label">Номер документа</div><div class="passport-number">'+esc(p.number)+'</div><div class="passport-label">Фамилия, имя, отчество</div><div class="passport-value">'+esc(p.full_name)+'</div><div class="passport-label">Дата выдачи</div><div class="passport-value">'+esc(p.issued_at)+'</div><div class="passport-label">Статус документа</div><div class="passport-value">'+esc(p.status)+'</div></div></div><div class="passport-foot">Гражданство ДКД подтверждено · ID гражданина: '+esc(p.citizen_id)+'<br>Внутренний игровой документ ДКД; не является удостоверением личности РФ.</div></article>';
-    } catch(e){host.innerHTML='<div class="empty">Не удалось загрузить паспорт: '+esc(e.message)+'</div>';}
-  }
-  function renderDocuments() {
-    const q = $('documentSearch').value.trim().toLocaleLowerCase('ru');
-    const items = state.documents.filter(x => [x.title,x.text,x.type,x.status].join(' ').toLocaleLowerCase('ru').includes(q));
-    if (!items.length) return renderEmpty('documentsList', state.documents.length ? 'Ничего не найдено.' : 'Документов пока нет.');
-    $('documentsList').className = '';
-    $('documentsList').innerHTML = items.map(x => renderCard(x.title, esc(x.text || 'Текст не добавлен.'),
-      x.type + (x.status ? ' · ' + x.status : '') + ' · ' + formatDate(x.created_at), x.icon)).join('');
-  }
-  async function loadNews() {
-    renderEmpty('newsList', 'Загружаем публикации…');
-    try {
-      const d = await api('/api/news');
-      state.news = d.news || [];
-      loaded.news = true;
-      $('statNews').textContent = state.news.length;
-      renderNews();
-      setConnection('ok', 'Сервер доступен');
-    } catch (e) { renderError('newsList', e.message, 'news'); if (initData) setConnection('err','Проблема с API'); }
-  }
-  function renderNews() {
-    const q = $('newsSearch').value.trim().toLocaleLowerCase('ru');
-    const items = state.news.filter(x => String(x.text || '').toLocaleLowerCase('ru').includes(q));
-    if (!items.length) return renderEmpty('newsList', state.news.length ? 'Ничего не найдено.' : 'Публикаций пока нет.');
-    $('newsList').className = '';
-    $('newsList').innerHTML = items.map(x => renderCard('Публикация №' + x.id, esc(x.text || ''), formatDate(x.created_at), '📰')).join('');
-  }
-
-  async function loadApplications() {
-    renderEmpty('myApplications','Загружаем заявления…');
-    try { const d=await api('/api/applications'); const rows=d.applications||[]; if(!rows.length) return renderEmpty('myApplications','Заявлений пока нет.'); $('myApplications').className=''; $('myApplications').innerHTML=rows.map(x=>renderCard(({citizenship:'🏛️ Гражданство',other:'📄 Заявление'}[x.kind]||'Заявление')+' №'+x.id,esc(x.details||'Подробности не указаны.'),'Статус: '+x.status+' · '+formatDate(x.created_at)+(x.review_note?' · Ответ: '+x.review_note:''),'📄')).join(''); } catch(e){renderError('myApplications',e.message,'applications');}
-  }
-  function renderAdminSubjects() {
-    const query = ($('adminSubjectSearch')?.value || '').trim().toLocaleLowerCase('ru');
-    const users = state.adminSubjects.filter(x => [x.full_name, x.username, String(x.user_id)].some(v => String(v || '').toLocaleLowerCase('ru').includes(query)));
-    $('adminSubjects').className = '';
-    $('adminSubjects').innerHTML = users.map(x => '<article class="card"><h3>'+esc(x.full_name || 'Без ФИО')+'</h3><div class="meta">Telegram ID: '+Number(x.user_id)+' · '+esc(x.username?'@'+x.username:'без username')+'</div><div class="stat">Гражданство: '+(x.is_citizen?'есть · паспорт активен':'нет · паспорт не активен')+'</div><button class="btn secondary" data-citizen="'+Number(x.id)+'" data-value="'+(!x.is_citizen)+'">'+(x.is_citizen?'Отозвать гражданство':'Выдать гражданство')+'</button><h3 style="margin-top:14px">Должности</h3><div class="meta">'+esc((x.roles||[]).map(r=>(r.emoji||'')+' '+r.name).join(', ')||'Не назначены')+'</div><div class="role-tools"><select class="field" data-role-select="'+Number(x.id)+'"><option value="">Выберите должность…</option>'+state.adminRoles.map(r=>'<option value="'+Number(r.id)+'">'+esc((r.emoji||'')+' '+r.name)+'</option>').join('')+'</select><button class="btn" data-role-assign="'+Number(x.id)+'">Назначить</button></div>'+(x.roles||[]).map(r=>'<button class="btn ghost" style="margin:6px 6px 0 0" data-role-toggle="true" data-subject="'+Number(x.id)+'" data-role="'+Number(r.id)+'" data-assigned="true">Снять: '+esc(r.name)+'</button>').join('')+'</article>').join('') || '<div class="empty">'+(query?'По запросу ничего не найдено.':'Пользователей нет.')+'</div>';
-    document.querySelectorAll('[data-citizen]').forEach(b=>b.onclick=async()=>{const granting=b.dataset.value==='true';if(!confirm(granting?'Выдать этому пользователю гражданство и активировать паспорт?':'Отозвать гражданство и деактивировать паспорт?'))return;try{await api('/api/admin/subjects/'+b.dataset.citizen+'/citizenship',{method:'PATCH',body:JSON.stringify({is_citizen:granting})});await loadAdmin();}catch(e){setNotice('adminMessage',e.message,'error')}});
-    document.querySelectorAll('[data-role-assign]').forEach(b=>b.onclick=async()=>{const sel=document.querySelector('[data-role-select="'+b.dataset.roleAssign+'"]');if(!sel||!sel.value){setNotice('adminMessage','Сначала выберите должность.','error');return;}try{await api('/api/admin/subjects/'+b.dataset.roleAssign+'/roles',{method:'PUT',body:JSON.stringify({role_id:Number(sel.value),assigned:true})});await loadAdmin();await checkPanels();}catch(e){setNotice('adminMessage',e.message,'error')}});
-    document.querySelectorAll('[data-role-toggle]').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/subjects/'+b.dataset.subject+'/roles',{method:'PUT',body:JSON.stringify({role_id:Number(b.dataset.role),assigned:false})});await loadAdmin();await checkPanels();}catch(e){setNotice('adminMessage',e.message,'error')}});
-  }
-  async function loadAdmin() {
-    try { const st=await api('/api/admin/status'); if(!st.is_admin){$('adminMessage').textContent='Доступ запрещён: требуется главный администратор.';return;} $('adminMessage').textContent='Доступ подтверждён.';
-      const [a,u]=await Promise.all([api('/api/admin/applications'),api('/api/admin/subjects')]);
-      const apps=a.applications||[]; $('adminApplications').className=''; $('adminApplications').innerHTML=apps.length?apps.map(x=>'<article class="card"><h3>№'+Number(x.id)+' · '+esc(x.kind)+' · '+esc(x.full_name)+'</h3><div class="meta">Telegram ID: '+Number(x.user_id)+' · '+esc(x.username?'@'+x.username:'без username')+' · '+esc(x.status)+'</div><p>'+esc(x.details||'')+'</p>'+(x.status==='pending'?'<div class="actions"><button class="btn" data-review="approved" data-id="'+Number(x.id)+'">Одобрить</button><button class="btn secondary" data-review="rejected" data-id="'+Number(x.id)+'">Отклонить</button></div>':'')+'</article>').join(''): '<div class="empty">Заявлений нет.</div>';
-      document.querySelectorAll('[data-review]').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/applications/'+b.dataset.id,{method:'PATCH',body:JSON.stringify({status:b.dataset.review,review_note:''})});await loadAdmin();}catch(e){alert(e.message)}});
-      state.adminSubjects=u.subjects||[]; state.adminRoles=u.roles||[]; renderAdminSubjects();
-      document.querySelectorAll('[data-citizen]').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/subjects/'+b.dataset.citizen+'/citizenship',{method:'PATCH',body:JSON.stringify({is_citizen:b.dataset.value==='true'})});await loadAdmin();}catch(e){alert(e.message)}});
-      document.querySelectorAll('[data-role-toggle]').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/subjects/'+b.dataset.subject+'/roles',{method:'PUT',body:JSON.stringify({role_id:Number(b.dataset.role),assigned:b.dataset.assigned!=='true'})});await loadAdmin();await checkPanels();}catch(e){setNotice('adminMessage',e.message,'error')}});
-    } catch(e){$('adminMessage').textContent=e.message;}
-  }
-  async function checkPanels() { try { const a=await api('/api/admin/status'); $('adminTile').hidden=!a.is_admin; $('adminSetupTile').hidden=!(a.bootstrap_available && !a.is_admin); } catch(_){} try { const p=await api('/api/president/status'); $('presidentTile').hidden=!(p.is_president||p.is_admin); } catch(_){} }
-  $('refreshApplications').addEventListener('click',loadApplications); $('refreshAdmin').addEventListener('click',loadAdmin);
-  $('claimAdmin').addEventListener('click',async()=>{try{const code=$('adminBootstrapCode').value;const r=await api('/api/admin/claim',{method:'POST',body:JSON.stringify({code})});setNotice('adminSetupMessage',r.message||'Администратор активирован.','success');$('adminBootstrapCode').value='';await checkPanels();showPage('home');}catch(e){setNotice('adminSetupMessage',e.message,'error')}});
-  $('submitApplication').addEventListener('click',async()=>{try{const full_name=$('appFullName').value.trim()||($('fullName').textContent||displayName);const details=$('appDetails').value.trim();await api('/api/applications',{method:'POST',body:JSON.stringify({kind:$('appKind').value,full_name,details})});setNotice('applicationMessage','Заявление отправлено.','success');$('appDetails').value='';await loadApplications();}catch(e){setNotice('applicationMessage',e.message,'error')}});
-  $('adminSubjectSearch').addEventListener('input',renderAdminSubjects);
-  $('adminCreateRole').addEventListener('click',async()=>{const name=$('adminRoleName').value.trim(),emoji=$('adminRoleEmoji').value.trim()||'👤';if(name.length<2){setNotice('adminMessage','Введите название должности (не менее 2 символов).','error');return;}try{await api('/api/admin/roles',{method:'POST',body:JSON.stringify({name,emoji})});$('adminRoleName').value='';setNotice('adminMessage','Должность создана.','success');await loadAdmin();}catch(e){setNotice('adminMessage',e.message,'error')}});
-  $('adminPublishNews').addEventListener('click',async()=>{try{await api('/api/admin/news',{method:'POST',body:JSON.stringify({text:$('adminNewsText').value.trim()})});$('adminNewsText').value='';$('adminMessage').textContent='Новость опубликована.';await loadNews();}catch(e){$('adminMessage').textContent=e.message;}});
-  $('adminPublishLaw').addEventListener('click',async()=>{try{await api('/api/admin/laws',{method:'POST',body:JSON.stringify({title:$('adminLawTitle').value.trim(),description:$('adminLawDescription').value.trim()})});$('adminMessage').textContent='Документ опубликован.';$('adminLawTitle').value='';$('adminLawDescription').value='';await loadDocuments();}catch(e){$('adminMessage').textContent=e.message;}});
-  $('adminCreateElection').addEventListener('click',async()=>{try{const options=$('adminElectionOptions').value.split('\n').map(x=>x.trim()).filter(Boolean);await api('/api/admin/elections/'+$('adminElectionKind').value,{method:'POST',body:JSON.stringify({title:$('adminElectionTitle').value.trim(),options})});$('adminMessage').textContent='Выборы созданы.';$('adminElectionTitle').value='';$('adminElectionOptions').value='';await loadVotes();}catch(e){$('adminMessage').textContent=e.message;}});
-  $('presidentPublishDecree').addEventListener('click',async()=>{try{await api('/api/president/decrees',{method:'POST',body:JSON.stringify({title:$('presidentDecreeTitle').value.trim(),text:$('presidentDecreeText').value.trim()})});setNotice('presidentMessage','Указ опубликован.','success');$('presidentDecreeTitle').value='';$('presidentDecreeText').value='';await loadDocuments();}catch(e){setNotice('presidentMessage',e.message,'error')}});
-
-  async function refreshSection(section) {
-    if (section === 'profile') return loadProfile();
-    if (section === 'votes') return loadVotes();
-    if (section === 'parties') return loadParties();
-    if (section === 'documents') { await loadDocuments(); return loadApplications(); }
-    if (section === 'news') return loadNews();
-    if (section === 'applications') return loadApplications();
-    if (section === 'admin') return loadAdmin();
-    return refreshAll();
-  }
-  async function refreshAll() {
-    $('homeMessage').textContent = 'Обновляем данные…';
-    await Promise.allSettled([loadProfile(), loadVotes(), loadParties(), loadDocuments(), loadNews()]);
-    const failed = [loaded.profile,loaded.votes,loaded.parties,loaded.documents,loaded.news].filter(x => !x).length;
-    $('homeMessage').textContent = failed ? 'Некоторые данные не загрузились. Откройте нужный раздел и нажмите «Попробовать снова».' : 'Все разделы успешно обновлены.';
-    $('homeMessage').className = 'notice' + (failed ? ' error' : ' success');
-  }
-  $('refreshAll').addEventListener('click', refreshAll);
-  document.querySelectorAll('[data-refresh]').forEach(btn => btn.addEventListener('click', () => refreshSection(btn.dataset.refresh)));
-  $('partySearch').addEventListener('input', renderParties);
-  $('documentSearch').addEventListener('input', renderDocuments);
-  $('newsSearch').addEventListener('input', renderNews);
-
-  $('edit').addEventListener('click', () => {
-    $('newName').value = $('fullName').textContent || displayName;
-    $('modal').classList.add('open');
-    setTimeout(() => $('newName').focus(), 50);
-  });
-  $('cancel').addEventListener('click', () => $('modal').classList.remove('open'));
-  $('modal').addEventListener('click', event => { if (event.target === $('modal')) $('modal').classList.remove('open'); });
-  document.addEventListener('keydown', event => { if (event.key === 'Escape') $('modal').classList.remove('open'); });
-  $('save').addEventListener('click', async () => {
-    const full_name = $('newName').value.trim().replace(/\s+/g, ' ');
-    if (full_name.length < 2) { setNotice('profileMessage', 'Введите ФИО длиной не менее двух символов.', 'error'); return; }
-    const btn = $('save');
-    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>Сохраняем…';
-    try {
-      const result = await api('/api/profile', {method:'PATCH', body:JSON.stringify({full_name})});
-      applyProfile((result && result.profile) || Object.assign({}, state.profile || {}, {full_name}));
-      $('modal').classList.remove('open');
-      setNotice('profileMessage', 'Изменения сохранены.', 'success');
-    } catch (e) {
-      setNotice('profileMessage', e.message, 'error');
-    } finally {
-      btn.disabled = false; btn.textContent = 'Сохранить';
-    }
-  });
-
-  applyProfile({full_name:displayName, username:telegramUser.username, role:'Участник ДКДУ'});
-  ['statVotes','statParties','statNews'].forEach(id => $(id).textContent = '—');
-  if (initData) {
-    setConnection('wait','Подключаемся');
-    checkPanels();
-    refreshAll();
-  } else {
-    setConnection('err','Откройте в Telegram');
-    setNotice('homeMessage', 'Интерфейс готов. Для защищённых данных и сохранения профиля откройте Mini App внутри Telegram.', '');
-    renderEmpty('votesList','Откройте Mini App через Telegram, чтобы загрузить голосования.');
-    renderEmpty('partiesList','Откройте Mini App через Telegram, чтобы загрузить партии.');
-    renderEmpty('documentsList','Откройте Mini App через Telegram, чтобы загрузить документы.');
-    renderEmpty('newsList','Откройте Mini App через Telegram, чтобы загрузить публикации.');
-  }
-})();
+}
+function renderItems(items,titleKey,bodyKey){if(!items.length)return '<div class="empty">Пока ничего не опубликовано</div>';return `<div class="list">${items.map(x=>`<div class="card"><h4 class="item-title">${esc(x[titleKey]||'Документ')}</h4><p class="muted" style="white-space:pre-wrap">${esc(x[bodyKey]||x.text||'')}</p><small class="muted">${fmtDate(x.created_at||x.published_at)}</small></div>`).join('')}</div>`}
+async function submitApplication(e){e.preventDefault();try{await api('/api/applications',{method:'POST',body:{kind:$('appKind').value,full_name:$('appFullName').value.trim(),details:$('appDetails').value.trim()}});notify('Заявление отправлено');await loadDocuments();showDocTab('applications')}catch(err){notify(err.message,'error')}}
+async function loadParties(){const el=$('partiesContent');el.innerHTML='<div class="empty">Загрузка…</div>';try{const d=await api('/api/parties');const a=d.parties||[];el.innerHTML=a.length?a.map(p=>`<div class="card"><div class="row"><h3 style="margin:0">${esc(p.emoji||'🎭')} ${esc(p.name)}</h3><button class="btn primary" onclick="joinParty(${Number(p.id)})">Вступить</button></div><p class="muted">${esc(p.description||'Без описания')}</p><small class="muted">Участников: ${esc(p.member_count??(p.members||[]).length??0)}</small></div>`).join(''):'<div class="empty">Пока нет партий. Вы можете создать первую.</div>'}catch(e){showError(el,e)}}
+async function joinParty(id){try{await api(`/api/parties/${id}/join`,{method:'POST',body:{}});notify('Вы вступили в партию');loadParties()}catch(e){notify(e.message,'error')}}
+async function createParty(e){e.preventDefault();try{await api('/api/parties',{method:'POST',body:{name:$('partyName').value.trim(),emoji:$('partyEmoji').value||'🎭',description:$('partyDescription').value.trim()}});notify('Партия создана');e.target.reset();loadParties()}catch(err){notify(err.message,'error')}}
+async function loadElections(){const el=$('electionsContent');el.innerHTML='<div class="empty">Загрузка…</div>';try{const d=await api('/api/votes');const arr=d.elections||d.votes||[];el.innerHTML=arr.length?arr.map(v=>{const kind=v.kind||v.type||'president';const opts=v.options||v.candidates||[];return `<div class="card"><div class="row"><h3 style="margin:0">${esc(v.title||'Выборы')}</h3>${statusPill(v.status||'Открыты')}</div><p class="muted small">${esc(kind==='duma'?'Выборы в Думу':'Президентские выборы')} · до ${fmtDate(v.ends_at)}</p><form class="form" onsubmit="castVote(event,'${esc(kind)}',${Number(v.id)})"><div class="field"><label>Ваш голос</label><select name="option" required>${opts.map(o=>{const val=typeof o==='string'?o:(o.name||o.title||o.option||'');return `<option value="${esc(val)}">${esc(val)}</option>`}).join('')}</select></div><button class="btn primary" ${/closed|заверш/i.test(v.status||'')?'disabled':''}>Проголосовать</button></form></div>`}).join(''):'<div class="empty">Активных выборов пока нет</div>'}catch(e){showError(el,e)}}
+async function castVote(e,kind,id){e.preventDefault();try{const option=new FormData(e.target).get('option');await api(`/api/votes/${encodeURIComponent(kind)}/${id}/cast`,{method:'POST',body:{option}});notify('Ваш голос принят');loadElections()}catch(err){notify(err.message,'error')}}
+async function loadNews(){const el=$('newsContent');el.innerHTML='<div class="empty">Загрузка…</div>';try{const d=await api('/api/news');const arr=d.news||[];el.innerHTML=arr.length?arr.map(n=>`<div class="card"><p style="white-space:pre-wrap;margin:0 0 10px">${esc(n.text||n.title||'')}</p><small class="muted">${fmtDate(n.created_at||n.published_at)}</small></div>`).join(''):'<div class="empty">Новостей пока нет</div>'}catch(e){showError(el,e)}}
+async function checkPresident(){try{const d=await api('/api/president/status');if(!d.is_president)notify('Недостаточно прав для президентской панели','error')}catch(e){notify(e.message,'error')}}
+async function createDecree(e){e.preventDefault();try{const secret=$('secretUserId').value;await api('/api/president/decrees',{method:'POST',body:{title:$('decreeTitle').value.trim(),text:$('decreeText').value.trim(),secret_for_user_id:secret?Number(secret):null}});notify('Указ опубликован');e.target.reset()}catch(err){notify(err.message,'error')}}
+async function loadAdmin(){
+  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':'Администратор не активирован.';$('claimBox').classList.toggle('hidden',state.isAdmin);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!state.isAdmin);if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects()])}}
+  catch(e){$('adminStatus').textContent=e.message;$('claimBox').classList.remove('hidden');$('adminTools').classList.add('hidden')}
+}
+async function claimAdmin(e){e.preventDefault();try{await api('/api/admin/claim',{method:'POST',body:{code:$('adminCode').value}});notify('Администратор активирован');$('adminCode').value='';await loadAdmin()}catch(err){notify(err.message,'error')}}
+async function loadAdminApplications(){try{const d=await api('/api/admin/applications');const a=d.applications||[];$('adminApplications').innerHTML=a.length?a.map(x=>`<div class="card"><div class="row"><strong>${esc(x.full_name||'Заявление')}</strong>${statusPill(x.status)}</div><p class="muted small">${esc(x.kind||'')} · ID ${esc(x.id)}</p><p>${esc(x.details||'')}</p><form class="form" onsubmit="reviewApplication(event,${Number(x.id)})"><div class="field"><label>Комментарий</label><input name="note" maxlength="2000"></div><div class="row"><button class="btn primary" name="decision" value="approved">Одобрить</button><button class="btn danger" name="decision" value="rejected">Отклонить</button></div></form></div>`).join(''):'<div class="empty">Заявлений на рассмотрении нет</div>'}catch(e){showError($('adminApplications'),e)}}
+async function reviewApplication(e,id){e.preventDefault();const decision=e.submitter?.value||'approved';try{await api(`/api/admin/applications/${id}`,{method:'PATCH',body:{status:decision,review_note:new FormData(e.target).get('note')||''}});notify(decision==='approved'?'Заявление одобрено':'Заявление отклонено');await loadAdminApplications()}catch(err){notify(err.message,'error')}}
+async function loadAdminSubjects(){try{const d=await api('/api/admin/subjects');const a=d.subjects||[];$('adminSubjects').innerHTML=a.length?a.map(s=>`<div class="card"><div class="row"><strong>${esc(s.full_name||'Без имени')}</strong>${statusPill(s.is_citizen?'Гражданин':'Не гражданин')}</div><p class="muted small">ID: ${esc(s.id)} · Telegram: ${esc(s.telegram_id||'—')}</p><button class="btn secondary" onclick="toggleCitizenship(${Number(s.id)},${!s.is_citizen})">${s.is_citizen?'Отозвать гражданство':'Выдать гражданство'}</button></div>`).join(''):'<div class="empty">Пользователи не найдены</div>'}catch(e){showError($('adminSubjects'),e)}}
+async function toggleCitizenship(id,val){try{await api(`/api/admin/subjects/${id}/citizenship`,{method:'PATCH',body:{is_citizen:val}});notify('Статус гражданства обновлён');loadAdminSubjects()}catch(e){notify(e.message,'error')}}
+async function grantCitizen(e){e.preventDefault();try{await api('/api/admin/citizenship/by-id',{method:'POST',body:{telegram_id:Number($('grantTelegramId').value),full_name:$('grantFullName').value.trim()}});notify('Гражданство назначено');e.target.reset();loadAdminSubjects()}catch(err){notify(err.message,'error')}}
+async function createRole(e){e.preventDefault();try{await api('/api/admin/roles',{method:'POST',body:{name:$('roleName').value.trim(),emoji:$('roleEmoji').value||'👤'}});notify('Роль создана');e.target.reset()}catch(err){notify(err.message,'error')}}
+async function createElection(e){e.preventDefault();const options=$('electionOptions').value.split('\n').map(s=>s.trim()).filter(Boolean);if(options.length<2){notify('Укажите минимум два варианта','error');return}try{await api(`/api/admin/elections/${$('electionKind').value}`,{method:'POST',body:{title:$('electionTitle').value.trim(),options,ends_at:$('electionEnds').value.trim()||null}});notify('Выборы созданы');e.target.reset()}catch(err){notify(err.message,'error')}}
+async function createNews(e){e.preventDefault();try{await api('/api/admin/news',{method:'POST',body:{text:$('newsText').value.trim()}});notify('Новость опубликована');e.target.reset()}catch(err){notify(err.message,'error')}}
+async function createLaw(e){e.preventDefault();try{await api('/api/admin/laws',{method:'POST',body:{title:$('lawTitle').value.trim(),description:$('lawDescription').value.trim()}});notify('Закон опубликован');e.target.reset()}catch(err){notify(err.message,'error')}}
+async function diagnostics(){try{const d=await api('/api/admin/diagnostics');$('diagnosticsResult').textContent=JSON.stringify(d,null,2)}catch(e){$('diagnosticsResult').textContent=e.message}}
+init();
 </script>
 </body>
 </html>
