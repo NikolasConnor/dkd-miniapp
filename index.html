@@ -141,7 +141,7 @@ async function init(){
 }
 async function loadProfile(){
   try{const d=await api('/api/profile');state.profile=d.profile||{};const p=state.profile;
-    $('welcome').textContent=p.full_name?`Здравствуйте, ${p.full_name.split(' ')[0]}!`:'Добро пожаловать в ДКД';
+    $('welcome').textContent=p.full_name?`Здравствуйте, ${p.full_name.trim().split(/\s+/)[1] || p.full_name.trim().split(/\s+/)[0]}!`:'Добро пожаловать в ДКД';
     $('fullName').value=p.full_name||'';
     $('profileContent').innerHTML=`<div class="card"><div class="row"><div><div class="muted small">Пользователь</div><h2 style="margin:4px 0 0">${esc(p.full_name||'Без имени')}</h2></div><div class="logo">👤</div></div><hr style="border:0;border-top:1px solid var(--line);margin:15px 0"><div class="row"><span class="muted">Гражданство</span>${statusPill(p.is_citizen?'Гражданин':'Нет гражданства')}</div><div class="row" style="margin-top:12px"><span class="muted">Telegram ID</span><strong>${esc(p.telegram_id??'Скрыт')}</strong></div><div class="row" style="margin-top:12px"><span class="muted">Роли</span><strong>${esc((p.roles||[]).map(r=>typeof r==='string'?r:r.name).join(', ')||'Нет ролей')}</strong></div></div>`;
     return p;
