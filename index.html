@@ -67,7 +67,7 @@
       <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Политические партии</h3><button class="btn secondary" onclick="loadParties()">Обновить</button></div>
       <div id="partiesContent" class="list"></div>
       <form class="card form" onsubmit="createParty(event)"><h3 style="margin:0">Создать партию</h3><div class="field"><label>Название</label><input id="partyName" minlength="2" maxlength="60" required></div><div class="field"><label>Эмодзи</label><input id="partyEmoji" value="🎭" maxlength="8"></div><div class="field"><label>Описание</label><textarea id="partyDescription" maxlength="1000"></textarea></div><button class="btn primary">Создать партию</button></form>
-      <button class="btn secondary" onclick="api('/api/parties/leave',{method:'POST',body:{}}).then(()=>{notify('Вы вышли из партии');loadParties()})">Выйти из партии</button>
+      <button id="leavePartyBtn" class="btn secondary hidden" onclick="leaveParty()">Выйти из партии</button>
     </section>
 
     <section id="electionsView" class="view">
@@ -183,9 +183,39 @@ function showDocTab(tab){
 }
 function renderItems(items,titleKey,bodyKey){if(!items.length)return '<div class="empty">Пока ничего не опубликовано</div>';return `<div class="list">${items.map(x=>`<div class="card"><h4 class="item-title">${esc(x[titleKey]||'Документ')}</h4><p class="muted" style="white-space:pre-wrap">${esc(x[bodyKey]||x.text||'')}</p><small class="muted">${fmtDate(x.created_at||x.published_at)}</small></div>`).join('')}</div>`}
 async function submitApplication(e){e.preventDefault();try{await api('/api/applications',{method:'POST',body:{kind:$('appKind').value,full_name:$('appFullName').value.trim(),details:$('appDetails').value.trim()}});notify('Заявление отправлено');await loadDocuments();showDocTab('applications')}catch(err){notify(err.message,'error')}}
-async function loadParties(){const el=$('partiesContent');el.innerHTML='<div class="empty">Загрузка…</div>';try{const d=await api('/api/parties');const a=d.parties||[];el.innerHTML=a.length?a.map(p=>`<div class="card"><div class="row"><h3 style="margin:0">${esc(p.emoji||'🎭')} ${esc(p.name)}</h3><button class="btn primary" onclick="joinParty(${Number(p.id)})">Вступить</button></div><p class="muted">${esc(p.description||'Без описания')}</p><small class="muted">Участников: ${esc(p.member_count??(p.members||[]).length??0)}</small></div>`).join(''):'<div class="empty">Пока нет партий. Вы можете создать первую.</div>'}catch(e){showError(el,e)}}
-async function joinParty(id){try{await api(`/api/parties/${id}/join`,{method:'POST',body:{}});notify('Вы вступили в партию');loadParties()}catch(e){notify(e.message,'error')}}
-async function createParty(e){e.preventDefault();try{await api('/api/parties',{method:'POST',body:{name:$('partyName').value.trim(),emoji:$('partyEmoji').value||'🎭',description:$('partyDescription').value.trim()}});notify('Партия создана');e.target.reset();loadParties()}catch(err){notify(err.message,'error')}}
+async function loadParties(){
+  const el=$('partiesContent');el.innerHTML='<div class="empty">Загрузка партий…</div>';
+  try{
+    const d=await api('/api/parties');
+    const parties=Array.isArray(d.parties)?d.parties:[];
+    const me=d.me||{};
+    const myParty=parties.find(p=>p.is_member)||null;
+    const createForm=document.querySelector('#partiesView form[onsubmit="createParty(event)"]');
+    if(createForm) createForm.classList.toggle('hidden',!me.is_citizen||!!me.party_id);
+    const leaveBtn=document.getElementById('leavePartyBtn');
+    if(leaveBtn){leaveBtn.classList.toggle('hidden',!myParty);leaveBtn.textContent=myParty&&myParty.can_manage?'Выйти и передать руководство':'Выйти из партии';}
+    if(!parties.length){el.innerHTML='<div class="empty">Пока нет партий. Если вы гражданин, можете создать первую.</div>';return}
+    el.innerHTML=parties.map(p=>{
+      const members=Array.isArray(p.members)?p.members:[];
+      const leader=members.find(m=>m.is_leader);
+      const leaderName=leader?(leader.name||(' @'+(leader.username||''))):(p.leader_username?'@'+p.leader_username:'Не назначен');
+      const count=Number(p.members_count??p.member_count??members.length);
+      const isMember=!!p.is_member;
+      const controls=isMember
+        ? '<span class="status good">Ваша партия</span>'
+        : (!me.party_id&&me.is_citizen?'<button class="btn primary" onclick="joinParty('+Number(p.id)+')">Вступить</button>':'');
+      const roster=members.length?'<div class="list" style="margin-top:12px">'+members.map(m=>'<div class="row" style="padding:8px 0;border-top:1px solid var(--line)"><div><strong>'+esc(m.name||'Участник')+'</strong>'+(m.username?'<div class="muted small">@'+esc(m.username)+'</div>':'')+(m.is_leader?'<div class="small" style="color:var(--pink)">Председатель партии</div>':'')+'</div>'+(p.can_manage&&!m.is_leader?'<button class="btn danger" onclick="kickPartyMember('+Number(p.id)+','+Number(m.member_id)+')">Исключить</button>':'')+'</div>').join('')+'</div>':'<p class="muted small">Список участников пока пуст.</p>';
+      const manage=p.can_manage?'<div class="notice" style="margin-top:12px;margin-bottom:0"><strong>Управление партией</strong><p class="small" style="margin:6px 0 10px">Вы можете просматривать состав и исключать участников. Распускание партии необратимо.</p><button class="btn danger" onclick="disbandParty('+Number(p.id)+')">Распустить партию</button></div>':'';
+      return '<article class="card"><div class="row" style="align-items:flex-start"><div><h3 style="margin:0 0 5px">'+esc(p.emoji||'🎭')+' '+esc(p.name)+'</h3><div class="muted small">Председатель: '+esc(leaderName)+'</div></div>'+controls+'</div><p class="muted" style="white-space:pre-wrap">'+esc(p.description||'Без описания')+'</p><div class="row"><span class="status">'+count+' участн.'+(count===1?'ик':count>=2&&count<=4?'ика':'иков')+'</span><button class="btn secondary" onclick="togglePartyMembers('+Number(p.id)+')">Состав партии</button></div><div id="partyMembers'+Number(p.id)+'" class="hidden">'+roster+manage+'</div></article>';
+    }).join('');
+  }catch(e){showError(el,e)}
+}
+function togglePartyMembers(id){const el=$('partyMembers'+id);if(el)el.classList.toggle('hidden')}
+async function joinParty(id){try{await api('/api/parties/'+id+'/join',{method:'POST',body:{}});notify('Вы вступили в партию');await loadParties()}catch(e){notify(e.message,'error')}}
+async function kickPartyMember(partyId,memberId){if(!confirm('Исключить этого участника из партии?'))return;try{await api('/api/parties/'+partyId+'/members/'+memberId,{method:'DELETE'});notify('Участник исключён');await loadParties()}catch(e){notify(e.message,'error')}}
+async function disbandParty(id){if(!confirm('Распустить партию? Это действие нельзя отменить.'))return;try{await api('/api/parties/'+id,{method:'DELETE'});notify('Партия распущена');await loadParties()}catch(e){notify(e.message,'error')}}
+async function leaveParty(){if(!confirm('Выйти из партии? Если вы председатель, руководство перейдёт старейшему участнику.'))return;try{await api('/api/parties/leave',{method:'POST',body:{}});notify('Вы вышли из партии');await loadParties()}catch(e){notify(e.message,'error')}}
+async function createParty(e){e.preventDefault();try{await api('/api/parties',{method:'POST',body:{name:$('partyName').value.trim(),emoji:$('partyEmoji').value||'🎭',description:$('partyDescription').value.trim()}});notify('Партия создана');e.target.reset();notify('Партия создана');await loadParties()}catch(err){notify(err.message,'error')}}
 async function loadElections(){const el=$('electionsContent');el.innerHTML='<div class="empty">Загрузка…</div>';try{const d=await api('/api/votes');const arr=d.elections||d.votes||[];el.innerHTML=arr.length?arr.map(v=>{const kind=v.kind||v.type||'president';const opts=v.options||v.candidates||[];return `<div class="card"><div class="row"><h3 style="margin:0">${esc(v.title||'Выборы')}</h3>${statusPill(v.status||'Открыты')}</div><p class="muted small">${esc(kind==='duma'?'Выборы в Думу':'Президентские выборы')} · до ${fmtDate(v.ends_at)}</p><form class="form" onsubmit="castVote(event,'${esc(kind)}',${Number(v.id)})"><div class="field"><label>Ваш голос</label><select name="option" required>${opts.map(o=>{const val=typeof o==='string'?o:(o.name||o.title||o.option||'');return `<option value="${esc(val)}">${esc(val)}</option>`}).join('')}</select></div><button class="btn primary" ${/closed|заверш/i.test(v.status||'')?'disabled':''}>Проголосовать</button></form></div>`}).join(''):'<div class="empty">Активных выборов пока нет</div>'}catch(e){showError(el,e)}}
 async function castVote(e,kind,id){e.preventDefault();try{const option=new FormData(e.target).get('option');await api(`/api/votes/${encodeURIComponent(kind)}/${id}/cast`,{method:'POST',body:{option}});notify('Ваш голос принят');loadElections()}catch(err){notify(err.message,'error')}}
 async function loadNews(){const el=$('newsContent');el.innerHTML='<div class="empty">Загрузка…</div>';try{const d=await api('/api/news');const arr=d.news||[];el.innerHTML=arr.length?arr.map(n=>`<div class="card"><p style="white-space:pre-wrap;margin:0 0 10px">${esc(n.text||n.title||'')}</p><small class="muted">${fmtDate(n.created_at||n.published_at)}</small></div>`).join(''):'<div class="empty">Новостей пока нет</div>'}catch(e){showError(el,e)}}
