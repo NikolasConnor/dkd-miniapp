@@ -273,14 +273,14 @@ def cast_vote(kind: str, election_id: int, payload: CastVote, x_telegram_init_da
 def get_my_passport(x_telegram_init_data: str | None = Header(default=None)):
     """Virtual DKD citizen passport: automatically exists while citizenship is active."""
     user = current_user(x_telegram_init_data)
-    subject = one_or_none(db().table("subjects").select("id,user_id,full_name,is_citizen,created_at").eq("user_id", int(user["id"])).limit(1))
+    subject = one_or_none(db().table("subjects").select("id,user_id,full_name,is_citizen,created_at,citizenship_granted_at").eq("user_id", int(user["id"])).limit(1))
     if not subject or not subject.get("is_citizen"):
         return {"has_passport": False, "message": "Паспорт появляется автоматически после получения гражданства ДКД."}
     # Stable fictional document number derived from the internal subject id; not an official ID.
     number = f"ДКД-{int(subject['id']):06d}"
     return {"has_passport": True, "passport": {
         "number": number, "full_name": subject.get("full_name") or "Гражданин ДКД",
-        "issued_at": (subject.get("created_at") or "")[:10] or __import__("datetime").date.today().isoformat(),
+        "issued_at": (subject.get("citizenship_granted_at") or subject.get("created_at") or "")[:10] or __import__("datetime").date.today().isoformat(),
         "citizen_id": str(subject.get("user_id", "")), "country": "Демократическая Конституционная Держава",
         "status": "Действителен", "document_type": "Паспорт гражданина ДКД"
     }}
@@ -300,9 +300,9 @@ def get_news(x_telegram_init_data: str | None = Header(default=None)):
     news = rows_or_error(db().table("news").select("id,text,created_at").order("id", desc=True).limit(30))
     return {"news": news}
 
-# Citizen services: passport requests and applications are stored by numeric Telegram user ID.
+# Citizen services: citizenship and other applications are stored by numeric Telegram user ID. Passports are automatic.
 class ApplicationCreate(BaseModel):
-    kind: str = Field(pattern="^(passport|citizenship|other)$")
+    kind: str = Field(pattern="^(citizenship|other)$")
     full_name: str = Field(min_length=2, max_length=120)
     details: str = Field(default="", max_length=5000)
 
@@ -344,7 +344,7 @@ def admin_review_application(application_id: int, payload: ApplicationReview, x_
     try:
         client.table("document_applications").update({"status":payload.status,"review_note":payload.review_note.strip(),"reviewed_by":int(user["id"]),"reviewed_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}).eq("id",application_id).execute()
         if payload.status == "approved" and row["kind"] == "citizenship":
-            client.table("subjects").update({"is_citizen":True}).eq("user_id",int(row["user_id"])).execute()
+            client.table("subjects").update({"is_citizen":True,"citizenship_granted_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}).eq("user_id",int(row["user_id"])).execute()
         client.table("audit_log").insert({"actor_user_id":int(user["id"]),"action":"application_reviewed","target_user_id":int(row["user_id"]),"details":f"application:{application_id}:{payload.status}"}).execute()
         return {"ok":True}
     except Exception as exc:
@@ -442,7 +442,7 @@ def claim_admin(payload: ClaimAdmin, x_telegram_init_data: str | None = Header(d
         subj = one_or_none(client.table("subjects").select("id").eq("user_id", int(user["id"])).limit(1))
         if not subj:
             name = " ".join(x for x in [user.get("first_name"), user.get("last_name")] if x) or "Главный администратор"
-            subj = client.table("subjects").insert({"user_id": int(user["id"]), "username": user.get("username"), "full_name": name, "is_citizen": True}).execute().data[0]
+            subj = client.table("subjects").insert({"user_id": int(user["id"]), "username": user.get("username"), "full_name": name, "is_citizen": True, "citizenship_granted_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}).execute().data[0]
         admin_role = one_or_none(client.table("roles").select("id").eq("name", "Главный администратор").limit(1))
         if not admin_role:
             admin_role = client.table("roles").insert({"name": "Главный администратор", "emoji": "🛡️"}).execute().data[0]
@@ -523,7 +523,15 @@ def admin_assign_role(subject_id: int, payload: AssignRole, x_telegram_init_data
 def admin_set_citizenship(subject_id: int, payload: CitizenUpdate, x_telegram_init_data: str | None = Header(default=None)):
     user = current_user(x_telegram_init_data); require_admin(user)
     try:
-        result = db().table("subjects").update({"is_citizen": payload.is_citizen}).eq("id", subject_id).execute()
+        subject_before = one_or_none(db().table("subjects").select("id,is_citizen,citizenship_granted_at").eq("id", subject_id).limit(1))
+        if not subject_before:
+            raise HTTPException(status_code=404, detail="Пользователь не найден.")
+        update_data = {"is_citizen": payload.is_citizen}
+        if payload.is_citizen and not subject_before.get("is_citizen"):
+            update_data["citizenship_granted_at"] = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+        elif not payload.is_citizen:
+            update_data["citizenship_granted_at"] = None
+        result = db().table("subjects").update(update_data).eq("id", subject_id).execute()
         if not result.data:
             raise HTTPException(status_code=404, detail="Пользователь не найден.")
         return {"ok": True}
