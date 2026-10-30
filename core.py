@@ -271,12 +271,12 @@ def saved_admin_id() -> str | None:
     return str(row["value"]) if row and row.get("value") else None
 
 
+MAIN_ADMIN_TELEGRAM_ID = "7934244888"
+
+
 def is_admin(user: dict) -> bool:
-    uid = str(user.get("id"))
-    if uid in env_admin_ids():
-        return True
-    saved = saved_admin_id()
-    return saved is not None and uid == saved
+    # Доступ к административным функциям закреплён только за владельцем проекта.
+    return str(user.get("id")) == MAIN_ADMIN_TELEGRAM_ID
 
 
 def require_admin(user: dict) -> None:
@@ -333,13 +333,19 @@ def _claim_locked(uid: int, now: float) -> bool:
 
 def admin_status(user: dict) -> dict:
     admin = is_admin(user)
-    available = bool(env("ADMIN_BOOTSTRAP_CODE")) and not env_admin_ids() and saved_admin_id() is None
+    available = (
+        str(user.get("id")) == MAIN_ADMIN_TELEGRAM_ID
+        and bool(env("ADMIN_BOOTSTRAP_CODE"))
+        and saved_admin_id() is None
+    )
     return {"is_admin": admin, "bootstrap_available": available and not admin}
 
 
 def claim_admin(user: dict, code: str, now: float | None = None) -> dict:
     now = now if now is not None else time.time()
     uid = int(user["id"])
+    if str(uid) != MAIN_ADMIN_TELEGRAM_ID:
+        raise DKDError(403, "Активировать панель может только владелец проекта.")
     expected = env("ADMIN_BOOTSTRAP_CODE")
     if not expected:
         raise DKDError(503, "Первичная настройка администратора отключена: задайте ADMIN_BOOTSTRAP_CODE в Render.")
