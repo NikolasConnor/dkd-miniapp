@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#315ee8">
-<title>ДКДУСЛУГИ — Mini App</title>
+<title>ДКДУСЛУГИ — Mini App 1.2.1</title>
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
 :root{color-scheme:light;--bg:#f2f4fb;--card:#fff;--fg:#182033;--muted:#69738a;--line:#e2e7f1;--soft:#edf1ff;--blue:#315ee8;--purple:#7048d9;--good:#16845b;--bad:#b42318;--shadow:0 8px 24px #263b6810}
@@ -42,8 +42,8 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
       <button class="tile" type="button" data-page="votes"><span class="ico">🗳️</span><span><span class="tile-label">Голосования</span><small>Выборы и результаты</small></span></button>
       <button class="tile" type="button" data-page="parties"><span class="ico">🎭</span><span><span class="tile-label">Партии</span><small>Состав и информация</small></span></button>
       <button class="tile" type="button" data-page="documents"><span class="ico">📜</span><span><span class="tile-label">Документы</span><small>Законы, указы и паспорта</small></span></button>
-      <button class="tile" type="button" data-page="applications"><span class="ico">🪪</span><span><span class="tile-label">Паспорта и заявления</span><small>Подать заявление и смотреть статус</small></span></button>
       <button class="tile" type="button" data-page="admin" id="adminTile" hidden><span class="ico">🛡️</span><span><span class="tile-label">Панель администратора</span><small>Граждане и заявления</small></span></button>
+      <button class="tile" type="button" data-page="adminSetup" id="adminSetupTile" hidden><span class="ico">🔑</span><span><span class="tile-label">Первичная настройка</span><small>Активировать главного администратора</small></span></button>
       <button class="tile" type="button" data-page="president" id="presidentTile" hidden><span class="ico">🇩🇰</span><span><span class="tile-label">Панель президента</span><small>Президентские указы</small></span></button>
       <button class="tile" type="button" data-page="news"><span class="ico">📰</span><span><span class="tile-label">Газета</span><small>Новости и публикации</small></span></button>
     </div>
@@ -84,14 +84,14 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
     <div class="head"><h2>Документы</h2><button class="btn ghost" type="button" data-refresh="documents">↻</button></div>
     <div class="searchrow"><input id="documentSearch" class="field" type="search" placeholder="Поиск по документам…" aria-label="Поиск по документам"></div>
     <div id="documentsList" style="margin-top:12px" class="empty">Ожидаем данные…</div>
+    <div class="head"><h2>🪪 Мои паспорта и заявления</h2><button class="btn ghost" type="button" id="refreshApplications">↻</button></div>
+    <div class="card"><h3>Подать заявление</h3><label class="muted" for="appKind">Тип заявления</label><select id="appKind" class="field"><option value="passport">Оформление паспорта</option><option value="citizenship">Заявление на гражданство</option><option value="other">Другое заявление</option></select><label class="muted" for="appFullName">ФИО</label><input id="appFullName" class="field" maxlength="120" placeholder="Фамилия Имя Отчество"><label class="muted" for="appDetails">Подробности</label><textarea id="appDetails" class="field" maxlength="5000" rows="4" placeholder="Укажите необходимую информацию"></textarea><button class="btn full" id="submitApplication">Отправить заявление</button><p id="applicationMessage" class="notice"></p></div>
+    <div class="head"><h2>История заявлений</h2></div><div id="myApplications" class="empty">Откройте через Telegram.</div>
   </section>
 
-
-  <section id="applications" class="page">
-    <button class="back" type="button" data-page="home">← На главную</button>
-    <div class="head"><h2>Паспорта и заявления</h2><button class="btn ghost" type="button" id="refreshApplications">↻</button></div>
-    <div class="card"><h3>Подать заявление</h3><label class="muted" for="appKind">Тип заявления</label><select id="appKind" class="field"><option value="passport">Оформление паспорта</option><option value="citizenship">Заявление на гражданство</option><option value="other">Другое заявление</option></select><label class="muted" for="appFullName">ФИО</label><input id="appFullName" class="field" maxlength="120" placeholder="Фамилия Имя Отчество"><label class="muted" for="appDetails">Подробности</label><textarea id="appDetails" class="field" maxlength="5000" rows="4" placeholder="Укажите необходимую информацию"></textarea><button class="btn full" id="submitApplication">Отправить заявление</button><p id="applicationMessage" class="notice"></p></div>
-    <div class="head"><h2>Мои заявления</h2></div><div id="myApplications" class="empty">Откройте через Telegram.</div>
+  <section id="adminSetup" class="page">
+    <button class="back" type="button" data-page="home">← На главную</button><div class="head"><h2>🔑 Первичная настройка администратора</h2></div>
+    <div class="card"><p class="muted">Введите ADMIN_BOOTSTRAP_CODE, уже заданный в настройках Render. Код используется только для однократного назначения главного администратора.</p><input id="adminBootstrapCode" class="field" type="password" autocomplete="current-password" placeholder="Код активации"><button class="btn full" id="claimAdmin">Активировать панель администратора</button><p id="adminSetupMessage" class="notice"></p></div>
   </section>
   <section id="admin" class="page">
     <button class="back" type="button" data-page="home">← На главную</button><div class="head"><h2>🛡️ Панель администратора</h2><button class="btn ghost" id="refreshAdmin">↻</button></div>
@@ -173,7 +173,8 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
     if (pageId === 'parties' && !loaded.parties) loadParties();
     if (pageId === 'documents' && !loaded.documents) loadDocuments();
     if (pageId === 'news' && !loaded.news) loadNews();
-    if (pageId === 'applications') loadApplications();
+    if (pageId === 'documents') loadApplications();
+    if (pageId === 'adminSetup') checkPanels();
     if (pageId === 'admin') loadAdmin();
     if (pageId === 'president') { /* protected API checks role on submission */ }
   }
@@ -359,8 +360,9 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
       document.querySelectorAll('[data-citizen]').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/subjects/'+b.dataset.citizen+'/citizenship',{method:'PATCH',body:JSON.stringify({is_citizen:b.dataset.value==='true'})});await loadAdmin();}catch(e){alert(e.message)}});
     } catch(e){$('adminMessage').textContent=e.message;}
   }
-  async function checkPanels() { try { const a=await api('/api/admin/status'); $('adminTile').hidden=!a.is_admin; } catch(_){} try { const p=await api('/api/president/status'); $('presidentTile').hidden=!(p.is_president||p.is_admin); } catch(_){} }
+  async function checkPanels() { try { const a=await api('/api/admin/status'); $('adminTile').hidden=!a.is_admin; $('adminSetupTile').hidden=!(a.bootstrap_available && !a.is_admin); } catch(_){} try { const p=await api('/api/president/status'); $('presidentTile').hidden=!(p.is_president||p.is_admin); } catch(_){} }
   $('refreshApplications').addEventListener('click',loadApplications); $('refreshAdmin').addEventListener('click',loadAdmin);
+  $('claimAdmin').addEventListener('click',async()=>{try{const code=$('adminBootstrapCode').value;const r=await api('/api/admin/claim',{method:'POST',body:JSON.stringify({code})});setNotice('adminSetupMessage',r.message||'Администратор активирован.','success');$('adminBootstrapCode').value='';await checkPanels();showPage('home');}catch(e){setNotice('adminSetupMessage',e.message,'error')}});
   $('submitApplication').addEventListener('click',async()=>{try{const full_name=$('appFullName').value.trim()||($('fullName').textContent||displayName);const details=$('appDetails').value.trim();await api('/api/applications',{method:'POST',body:JSON.stringify({kind:$('appKind').value,full_name,details})});setNotice('applicationMessage','Заявление отправлено.','success');$('appDetails').value='';await loadApplications();}catch(e){setNotice('applicationMessage',e.message,'error')}});
   $('adminPublishNews').addEventListener('click',async()=>{try{await api('/api/admin/news',{method:'POST',body:JSON.stringify({text:$('adminNewsText').value.trim()})});$('adminNewsText').value='';$('adminMessage').textContent='Новость опубликована.';await loadNews();}catch(e){$('adminMessage').textContent=e.message;}});
   $('adminPublishLaw').addEventListener('click',async()=>{try{await api('/api/admin/laws',{method:'POST',body:JSON.stringify({title:$('adminLawTitle').value.trim(),description:$('adminLawDescription').value.trim()})});$('adminMessage').textContent='Документ опубликован.';$('adminLawTitle').value='';$('adminLawDescription').value='';await loadDocuments();}catch(e){$('adminMessage').textContent=e.message;}});
@@ -371,7 +373,7 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
     if (section === 'profile') return loadProfile();
     if (section === 'votes') return loadVotes();
     if (section === 'parties') return loadParties();
-    if (section === 'documents') return loadDocuments();
+    if (section === 'documents') { await loadDocuments(); return loadApplications(); }
     if (section === 'news') return loadNews();
     if (section === 'applications') return loadApplications();
     if (section === 'admin') return loadAdmin();
