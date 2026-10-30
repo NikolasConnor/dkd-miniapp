@@ -104,6 +104,10 @@ class ProfileUpdate(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
 
 
+class AvatarUpdate(BaseModel):
+    avatar_emoji: str = Field(min_length=1, max_length=16)
+
+
 @app.get("/api/profile")
 def get_profile(user: dict = Depends(auth_user)):
     return {"profile": core.build_profile(user)}
@@ -112,6 +116,11 @@ def get_profile(user: dict = Depends(auth_user)):
 @app.patch("/api/profile")
 def update_profile(payload: ProfileUpdate, user: dict = Depends(auth_user)):
     return {"ok": True, "profile": core.update_profile_name(user, payload.full_name)}
+
+
+@app.patch("/api/profile/avatar")
+def update_profile_avatar(payload: AvatarUpdate, user: dict = Depends(auth_user)):
+    return {"ok": True, "profile": core.update_profile_avatar(user, payload.avatar_emoji)}
 
 
 # ----------------------------------------------------------------------------
