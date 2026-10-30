@@ -148,7 +148,8 @@ async function init(){
   if(!initData){$('welcome').textContent='Добро пожаловать в ДКД';return}
   try{
     await loadProfile();const p=await api('/api/president/status');state.isAdmin=!!p.is_admin;state.isPresident=!!p.is_president;
-    $('adminTile').classList.toggle('hidden',!state.isAdmin);$('presidentTile').classList.toggle('hidden',!state.isPresident);
+    let adminStatus={};try{adminStatus=await api('/api/admin/status')}catch(e){}
+    $('adminTile').classList.toggle('hidden',!(state.isAdmin||adminStatus.bootstrap_available));$('presidentTile').classList.toggle('hidden',!state.isPresident);
   }catch(e){$('homeNotice').innerHTML=`<div class="notice error">${esc(e.message)}. Убедитесь, что Mini App открыт через Telegram и сервер настроен.</div>`}
 }
 async function loadProfile(){
@@ -222,7 +223,7 @@ async function loadNews(){const el=$('newsContent');el.innerHTML='<div class="em
 async function checkPresident(){try{const d=await api('/api/president/status');if(!d.is_president)notify('Недостаточно прав для президентской панели','error')}catch(e){notify(e.message,'error')}}
 async function createDecree(e){e.preventDefault();try{const secret=$('secretUserId').value;await api('/api/president/decrees',{method:'POST',body:{title:$('decreeTitle').value.trim(),text:$('decreeText').value.trim(),secret_for_user_id:secret?Number(secret):null}});notify('Указ опубликован');e.target.reset()}catch(err){notify(err.message,'error')}}
 async function loadAdmin(){
-  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':'Администратор не активирован.';$('claimBox').classList.toggle('hidden',state.isAdmin);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!state.isAdmin);if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects()])}}
+  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects()])}}
   catch(e){$('adminStatus').textContent=e.message;$('claimBox').classList.remove('hidden');$('adminTools').classList.add('hidden')}
 }
 async function claimAdmin(e){e.preventDefault();try{await api('/api/admin/claim',{method:'POST',body:{code:$('adminCode').value}});notify('Администратор активирован');$('adminCode').value='';await loadAdmin()}catch(err){notify(err.message,'error')}}
