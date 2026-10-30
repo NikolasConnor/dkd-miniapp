@@ -19,7 +19,7 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
 @media(min-width:600px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}.modal{align-items:center}}
 @media(max-width:390px){.app{padding-left:12px;padding-right:12px}.hero{padding:18px}.tile{padding:13px;min-height:108px}.top{align-items:flex-start}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.01ms!important;scroll-behavior:auto!important;transition:none!important}}
-</style>
+.passport-wrap{margin:14px 0}.passport{overflow:hidden;border-radius:16px;border:1px solid #d9aab6;background:linear-gradient(135deg,#fff8f8,#f6dfe5 65%,#fff3f5);box-shadow:0 8px 24px #43102120;color:#3c2530;padding-bottom:14px}.passport-top{background:#94142f;color:#fff;text-align:center;font-size:11px;letter-spacing:.05em;padding:11px;font-weight:800}.passport-inner{display:grid;grid-template-columns:86px 1fr;gap:12px;padding:14px 12px 8px}.passport-photo{height:112px;border-radius:8px;background:#fff;border:1px solid #e5c4ce;display:flex;align-items:center;justify-content:center;font-size:42px}.passport-label{font-size:10px;color:#876a75;text-transform:uppercase;margin-top:8px}.passport-value{font-size:13px;font-weight:750;overflow-wrap:anywhere}.passport-number{font-size:18px;color:#8d1530;font-weight:900}.passport-foot{padding:8px 12px;border-top:1px solid #e4c3cd;font-size:10px;color:#775b66}.role-tools{display:grid;grid-template-columns:1fr auto;gap:8px;margin-top:10px}</style>
 </head>
 <body>
 <main class="app">
@@ -83,7 +83,7 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
     <button class="back" type="button" data-page="home">← На главную</button>
     <div class="head"><h2>Документы</h2><button class="btn ghost" type="button" data-refresh="documents">↻</button></div>
     <div class="searchrow"><input id="documentSearch" class="field" type="search" placeholder="Поиск по документам…" aria-label="Поиск по документам"></div>
-    <div id="documentsList" style="margin-top:12px" class="empty">Ожидаем данные…</div>
+    <div id="passportCard" class="passport-wrap"><div class="empty">Паспорт появится автоматически после получения гражданства.</div></div><div id="documentsList" style="margin-top:12px" class="empty">Ожидаем данные…</div>
     <div class="head"><h2>🪪 Мои паспорта и заявления</h2><button class="btn ghost" type="button" id="refreshApplications">↻</button></div>
     <div class="card"><h3>Подать заявление</h3><label class="muted" for="appKind">Тип заявления</label><select id="appKind" class="field"><option value="passport">Оформление паспорта</option><option value="citizenship">Заявление на гражданство</option><option value="other">Другое заявление</option></select><label class="muted" for="appFullName">ФИО</label><input id="appFullName" class="field" maxlength="120" placeholder="Фамилия Имя Отчество"><label class="muted" for="appDetails">Подробности</label><textarea id="appDetails" class="field" maxlength="5000" rows="4" placeholder="Укажите необходимую информацию"></textarea><button class="btn full" id="submitApplication">Отправить заявление</button><p id="applicationMessage" class="notice"></p></div>
     <div class="head"><h2>История заявлений</h2></div><div id="myApplications" class="empty">Откройте через Telegram.</div>
@@ -98,7 +98,7 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
     <div class="card"><h3>Опубликовать новость</h3><textarea id="adminNewsText" class="field" rows="3" maxlength="10000" placeholder="Текст новости"></textarea><button class="btn full" id="adminPublishNews">Опубликовать</button></div>
     <div class="card"><h3>Опубликовать закон/документ</h3><input id="adminLawTitle" class="field" maxlength="200" placeholder="Название документа"><textarea id="adminLawDescription" class="field" rows="4" maxlength="20000" placeholder="Текст документа"></textarea><button class="btn full" id="adminPublishLaw">Опубликовать документ</button></div>
     <div class="card"><h3>Создать выборы</h3><label class="muted">Тип выборов</label><select id="adminElectionKind" class="field"><option value="presidential">Президентские</option><option value="duma">Госдума</option></select><input id="adminElectionTitle" class="field" maxlength="160" placeholder="Название выборов"><textarea id="adminElectionOptions" class="field" rows="3" placeholder="Варианты — по одному на строку"></textarea><button class="btn full" id="adminCreateElection">Создать выборы</button></div>
-    <div class="card"><h3>Заявления граждан</h3><div id="adminApplications" class="empty">Загрузка…</div></div><div class="card"><h3>Пользователи и гражданство</h3><div id="adminSubjects" class="empty">Загрузка…</div></div><p id="adminMessage" class="notice"></p>
+    <div class="card"><h3>Заявления граждан</h3><div id="adminApplications" class="empty">Загрузка…</div></div><div class="card"><h3>Пользователи, гражданство и должности</h3><p class="muted">Назначайте президента и должности. Права панелей проверяются сервером.</p><div id="adminSubjects" class="empty">Загрузка…</div></div><p id="adminMessage" class="notice"></p>
   </section>
   <section id="president" class="page">
     <button class="back" type="button" data-page="home">← На главную</button><div class="head"><h2>🇩🇰 Панель президента</h2></div>
@@ -311,6 +311,7 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
     renderEmpty('documentsList', 'Загружаем документы…');
     try {
       const d = await api('/api/documents');
+      await loadPassport();
       state.documents = [
         ...(d.laws || []).map(x => ({title:x.title || 'Закон без названия', text:x.description || '', type:'Закон', status:x.status, created_at:x.created_at, icon:'📜'})),
         ...(d.decrees || []).map(x => ({title:x.title || 'Указ без названия', text:x.text || '', type:'Указ', status:'', created_at:x.created_at, icon:'🖋️'}))
@@ -319,6 +320,12 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
       renderDocuments();
       setConnection('ok', 'Сервер доступен');
     } catch (e) { renderError('documentsList', e.message, 'documents'); if (initData) setConnection('err','Проблема с API'); }
+  }
+  async function loadPassport() {
+    const host=$('passportCard'); if(!host)return;
+    try { const d=await api('/api/passport'); if(!d.has_passport){host.innerHTML='<div class="empty">🪪 '+esc(d.message||'Паспорт появится после получения гражданства.')+'</div>';return;}
+      const p=d.passport; host.innerHTML='<article class="passport"><div class="passport-top">ДЕМОКРАТИЧЕСКАЯ КОНСТИТУЦИОННАЯ ДЕРЖАВА</div><div class="passport-inner"><div class="passport-photo">👤</div><div><div class="passport-label">Тип документа</div><div class="passport-value">ПАСПОРТ ГРАЖДАНИНА ДКД</div><div class="passport-label">Номер документа</div><div class="passport-number">'+esc(p.number)+'</div><div class="passport-label">ФИО</div><div class="passport-value">'+esc(p.full_name)+'</div><div class="passport-label">Дата выдачи</div><div class="passport-value">'+esc(p.issued_at)+'</div><div class="passport-label">Статус</div><div class="passport-value">'+esc(p.status)+'</div></div></div><div class="passport-foot">Гражданство подтверждено в системе ДКД · Telegram ID: '+esc(p.citizen_id)+'<br>Игровой документ ДКД, не является официальным удостоверением личности.</div></article>';
+    } catch(e){host.innerHTML='<div class="empty">Не удалось загрузить паспорт: '+esc(e.message)+'</div>';}
   }
   function renderDocuments() {
     const q = $('documentSearch').value.trim().toLocaleLowerCase('ru');
@@ -356,8 +363,9 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
       const [a,u]=await Promise.all([api('/api/admin/applications'),api('/api/admin/subjects')]);
       const apps=a.applications||[]; $('adminApplications').className=''; $('adminApplications').innerHTML=apps.length?apps.map(x=>'<article class="card"><h3>№'+Number(x.id)+' · '+esc(x.kind)+' · '+esc(x.full_name)+'</h3><div class="meta">Telegram ID: '+Number(x.user_id)+' · '+esc(x.username?'@'+x.username:'без username')+' · '+esc(x.status)+'</div><p>'+esc(x.details||'')+'</p>'+(x.status==='pending'?'<div class="actions"><button class="btn" data-review="approved" data-id="'+Number(x.id)+'">Одобрить</button><button class="btn secondary" data-review="rejected" data-id="'+Number(x.id)+'">Отклонить</button></div>':'')+'</article>').join(''): '<div class="empty">Заявлений нет.</div>';
       document.querySelectorAll('[data-review]').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/applications/'+b.dataset.id,{method:'PATCH',body:JSON.stringify({status:b.dataset.review,review_note:''})});await loadAdmin();}catch(e){alert(e.message)}});
-      const users=u.subjects||[]; $('adminSubjects').className=''; $('adminSubjects').innerHTML=users.map(x=>'<article class="card"><h3>'+esc(x.full_name)+'</h3><div class="meta">Telegram ID: '+Number(x.user_id)+' · '+esc(x.username?'@'+x.username:'без username')+'</div><div class="stat">Гражданство: '+(x.is_citizen?'есть':'нет')+'</div><button class="btn secondary" data-citizen="'+Number(x.id)+'" data-value="'+(!x.is_citizen)+'">'+(x.is_citizen?'Отозвать гражданство':'Выдать гражданство')+'</button></article>').join('')||'<div class="empty">Пользователей нет.</div>';
+      const users=u.subjects||[], roles=u.roles||[]; $('adminSubjects').className=''; $('adminSubjects').innerHTML=users.map(x=>'<article class="card"><h3>'+esc(x.full_name)+'</h3><div class="meta">Telegram ID: '+Number(x.user_id)+' · '+esc(x.username?'@'+x.username:'без username')+'</div><div class="stat">Гражданство: '+(x.is_citizen?'есть · паспорт активен':'нет')+'</div><button class="btn secondary" data-citizen="'+Number(x.id)+'" data-value="'+(!x.is_citizen)+'">'+(x.is_citizen?'Отозвать гражданство':'Выдать гражданство')+'</button><div class="role-tools"><select class="field" data-role-select="'+Number(x.id)+'"><option value="">Выберите должность…</option>'+roles.map(r=>'<option value="'+Number(r.id)+'">'+esc((r.emoji||'')+' '+r.name)+'</option>').join('')+'</select><button class="btn" data-role-assign="'+Number(x.id)+'">Назначить</button></div><div class="meta">Должности: '+esc((x.roles||[]).map(r=>r.name).join(', ')||'нет')+'</div></article>').join('')||'<div class="empty">Пользователей нет.</div>';
       document.querySelectorAll('[data-citizen]').forEach(b=>b.onclick=async()=>{try{await api('/api/admin/subjects/'+b.dataset.citizen+'/citizenship',{method:'PATCH',body:JSON.stringify({is_citizen:b.dataset.value==='true'})});await loadAdmin();}catch(e){alert(e.message)}});
+      document.querySelectorAll('[data-role-assign]').forEach(b=>b.onclick=async()=>{const sel=document.querySelector('[data-role-select=\"'+b.dataset.roleAssign+'\"]');if(!sel||!sel.value){alert('Сначала выберите должность.');return;}try{await api('/api/admin/subjects/'+b.dataset.roleAssign+'/roles',{method:'PUT',body:JSON.stringify({role_id:Number(sel.value),assigned:true})});await loadAdmin();await checkPanels();}catch(e){alert(e.message)}});
     } catch(e){$('adminMessage').textContent=e.message;}
   }
   async function checkPanels() { try { const a=await api('/api/admin/status'); $('adminTile').hidden=!a.is_admin; $('adminSetupTile').hidden=!(a.bootstrap_available && !a.is_admin); } catch(_){} try { const p=await api('/api/president/status'); $('presidentTile').hidden=!(p.is_president||p.is_admin); } catch(_){} }

@@ -17,7 +17,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = (os.getenv("SUPABASE_SECRET_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
-app = FastAPI(title="DKD Mini App API", version="1.1.0")
+app = FastAPI(title="DKD Mini App API", version="1.3.0")
 # Telegram WebViews or an externally hosted frontend may send a CORS preflight
 # before requests carrying X-Telegram-Init-Data. Handle OPTIONS centrally.
 app.add_middleware(
@@ -269,6 +269,22 @@ def cast_vote(kind: str, election_id: int, payload: CastVote, x_telegram_init_da
         raise HTTPException(status_code=409, detail="Голос уже учтён или не удалось сохранить голос. Повторно проголосовать нельзя.") from exc
     return {"ok": True, "message": "Ваш голос сохранён."}
 
+@app.get("/api/passport")
+def get_my_passport(x_telegram_init_data: str | None = Header(default=None)):
+    """Virtual DKD citizen passport: automatically exists while citizenship is active."""
+    user = current_user(x_telegram_init_data)
+    subject = one_or_none(db().table("subjects").select("id,user_id,full_name,is_citizen,created_at").eq("user_id", int(user["id"])).limit(1))
+    if not subject or not subject.get("is_citizen"):
+        return {"has_passport": False, "message": "Паспорт появляется автоматически после получения гражданства ДКД."}
+    # Stable fictional document number derived from the internal subject id; not an official ID.
+    number = f"ДКД-{int(subject['id']):06d}"
+    return {"has_passport": True, "passport": {
+        "number": number, "full_name": subject.get("full_name") or "Гражданин ДКД",
+        "issued_at": (subject.get("created_at") or "")[:10] or __import__("datetime").date.today().isoformat(),
+        "citizen_id": str(subject.get("user_id", "")), "country": "Демократическая Конституционная Держава",
+        "status": "Действителен", "document_type": "Паспорт гражданина ДКД"
+    }}
+
 @app.get("/api/documents")
 def get_documents(x_telegram_init_data: str | None = Header(default=None)):
     user = current_user(x_telegram_init_data)
@@ -355,7 +371,7 @@ def president_create_decree(payload: DecreeCreate, x_telegram_init_data: str | N
 
 @app.get("/api/config")
 def config():
-    return {"app": "ДКДУСЛУГИ", "api_version": "1.0.0"}
+    return {"app": "ДКД Mini App", "api_version": "1.3.0"}
 
 # --- Secure one-time admin bootstrap and role management ---
 import secrets
