@@ -76,13 +76,13 @@ def one_or_none(query):
         rows = query.execute().data or []
         return rows[0] if rows else None
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Ошибка чтения Supabase. Проверьте таблицы и доступ Data API: {type(exc).__name__}") from exc
+        raise HTTPException(status_code=502, detail=f"Ошибка Supabase: {type(exc).__name__}: {str(exc)[:500]}") from exc
 
 def rows_or_error(query):
     try:
         return query.execute().data or []
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Ошибка чтения Supabase. Проверьте таблицы и доступ Data API: {type(exc).__name__}") from exc
+        raise HTTPException(status_code=502, detail=f"Ошибка Supabase: {type(exc).__name__}: {str(exc)[:500]}") from exc
 
 def profile_for(user: dict) -> dict:
     client = db()
@@ -284,6 +284,75 @@ def get_news(x_telegram_init_data: str | None = Header(default=None)):
     news = rows_or_error(db().table("news").select("id,text,created_at").order("id", desc=True).limit(30))
     return {"news": news}
 
+# Citizen services: passport requests and applications are stored by numeric Telegram user ID.
+class ApplicationCreate(BaseModel):
+    kind: str = Field(pattern="^(passport|citizenship|other)$")
+    full_name: str = Field(min_length=2, max_length=120)
+    details: str = Field(default="", max_length=5000)
+
+@app.get("/api/applications")
+def list_my_applications(x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data)
+    rows = rows_or_error(db().table("document_applications").select("id,user_id,kind,full_name,details,status,created_at,review_note").eq("user_id", int(user["id"])).order("id", desc=True).limit(50))
+    return {"applications": rows}
+
+@app.post("/api/applications")
+def create_application(payload: ApplicationCreate, x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data)
+    client = db()
+    subject = one_or_none(client.table("subjects").select("full_name").eq("user_id", int(user["id"])).limit(1))
+    full_name = " ".join(payload.full_name.split())
+    if len(full_name) < 2:
+        raise HTTPException(status_code=422, detail="Укажите полное имя.")
+    try:
+        row = client.table("document_applications").insert({"user_id":int(user["id"]),"username":user.get("username"),"kind":payload.kind,"full_name":full_name,"details":payload.details.strip(),"status":"pending"}).execute().data
+        return {"ok":True,"application":row[0]}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Не удалось сохранить заявление: {type(exc).__name__}: {str(exc)[:300]}") from exc
+
+@app.get("/api/admin/applications")
+def admin_list_applications(x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data); require_admin(user)
+    return {"applications": rows_or_error(db().table("document_applications").select("id,user_id,username,kind,full_name,details,status,created_at,review_note").order("id", desc=True).limit(200))}
+
+class ApplicationReview(BaseModel):
+    status: str = Field(pattern="^(approved|rejected)$")
+    review_note: str = Field(default="", max_length=2000)
+
+@app.patch("/api/admin/applications/{application_id}")
+def admin_review_application(application_id: int, payload: ApplicationReview, x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data); require_admin(user)
+    client = db()
+    row = one_or_none(client.table("document_applications").select("id,user_id,kind,status").eq("id", application_id).limit(1))
+    if not row: raise HTTPException(status_code=404, detail="Заявление не найдено.")
+    try:
+        client.table("document_applications").update({"status":payload.status,"review_note":payload.review_note.strip(),"reviewed_by":int(user["id"]),"reviewed_at":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()}).eq("id",application_id).execute()
+        if payload.status == "approved" and row["kind"] == "citizenship":
+            client.table("subjects").update({"is_citizen":True}).eq("user_id",int(row["user_id"])).execute()
+        client.table("audit_log").insert({"actor_user_id":int(user["id"]),"action":"application_reviewed","target_user_id":int(row["user_id"]),"details":f"application:{application_id}:{payload.status}"}).execute()
+        return {"ok":True}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Не удалось обработать заявление: {type(exc).__name__}: {str(exc)[:300]}") from exc
+
+@app.get("/api/president/status")
+def president_status(x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data)
+    return {"is_president":is_president(user),"is_admin":is_admin(user)}
+
+class DecreeCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    text: str = Field(min_length=1, max_length=20000)
+
+@app.post("/api/president/decrees")
+def president_create_decree(payload: DecreeCreate, x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data); require_president(user)
+    try:
+        row = db().table("decrees").insert({"title":payload.title.strip(),"text":payload.text.strip(),"is_secret":False}).execute().data
+        db().table("audit_log").insert({"actor_user_id":int(user["id"]),"action":"presidential_decree_created","details":f"decree:{row[0]['id']}"}).execute()
+        return {"ok":True,"decree":row[0]}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Не удалось опубликовать указ: {type(exc).__name__}: {str(exc)[:300]}") from exc
+
 @app.get("/api/config")
 def config():
     return {"app": "ДКДУСЛУГИ", "api_version": "1.0.0"}
@@ -314,6 +383,27 @@ def require_admin(user: dict):
     if not is_admin(user):
         raise HTTPException(status_code=403, detail="Доступ только для главного администратора.")
 
+
+
+def is_president(user: dict) -> bool:
+    if is_admin(user):
+        return True
+    try:
+        subject = one_or_none(db().table("subjects").select("id").eq("user_id", int(user["id"])).limit(1))
+        if not subject:
+            return False
+        links = rows_or_error(db().table("subject_roles").select("role_id").eq("subject_id", subject["id"]))
+        role_ids = [x["role_id"] for x in links]
+        if not role_ids:
+            return False
+        roles = rows_or_error(db().table("roles").select("name").in_("id", role_ids))
+        return any("президент" in str(r.get("name", "")).lower() for r in roles)
+    except HTTPException:
+        return False
+
+def require_president(user: dict):
+    if not is_president(user):
+        raise HTTPException(status_code=403, detail="Доступ только президенту или главному администратору.")
 
 class ClaimAdmin(BaseModel):
     code: str = Field(min_length=8, max_length=256)
