@@ -209,7 +209,7 @@ def tg_full_name(user: dict) -> str:
 # Пользователи (subjects)
 # ----------------------------------------------------------------------------
 
-SUBJECT_COLS = "id,user_id,username,full_name,is_citizen,reputation,created_at,citizenship_granted_at"
+SUBJECT_COLS = "id,user_id,username,full_name,is_citizen,reputation,created_at,citizenship_granted_at,avatar_emoji"
 
 
 def get_subject(user_id: int) -> dict | None:
@@ -532,6 +532,19 @@ def build_profile(user: dict) -> dict:
         "citizenship": "Гражданин ДКД" if subject.get("is_citizen") else "Не гражданин",
         "registered": True,
     }
+
+
+AVATAR_EMOJI_ALLOWLIST = set("""👤 👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️ 👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬 😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽 🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄 🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹 💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩 🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬 👾""".split())
+
+
+def update_profile_avatar(user: dict, avatar_emoji: str) -> dict:
+    avatar = str(avatar_emoji or "").strip()
+    if avatar not in AVATAR_EMOJI_ALLOWLIST:
+        raise DKDError(422, "Выберите аватарку из доступного каталога.")
+    subject = ensure_subject(int(user["id"]), user.get("username"), tg_full_name(user))
+    execute(db().table("subjects").update({"avatar_emoji": avatar}).eq("id", subject["id"]),
+            "Не удалось сохранить аватарку.")
+    return build_profile(user)
 
 
 def update_profile_name(user: dict, full_name: str) -> dict:
