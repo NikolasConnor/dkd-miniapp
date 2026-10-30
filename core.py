@@ -1052,6 +1052,45 @@ def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bo
     return {"ok": True}
 
 
+def president_list_subjects() -> dict:
+    """Список граждан и должностей для президентских назначений."""
+    return admin_list_subjects()
+
+
+def president_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bool) -> dict:
+    result = admin_assign_role(actor_id, subject_id, role_id, assigned)
+    audit(actor_id, "president_role_assigned" if assigned else "president_role_removed", None,
+          f"subject:{subject_id}:role:{role_id}")
+    return result
+
+
+def president_review_application(actor_id: int, application_id: int, status: str, note: str = "") -> dict:
+    result = review_application(actor_id, application_id, status, note)
+    audit(actor_id, "president_application_reviewed", None, f"application:{application_id}:{status}")
+    return result
+
+
+def president_create_duma_election(actor_id: int, title: str, options: list[str], ends_at: str | None) -> dict:
+    return create_election(actor_id, "duma", title, options, ends_at)
+
+
+def president_publish_law(actor_id: int, title: str, description: str) -> dict:
+    return publish_law(actor_id, title, description)
+
+
+def president_set_law_status(actor_id: int, law_id: int, status: str) -> dict:
+    if status not in ("signed", "vetoed"):
+        raise DKDError(422, "Недопустимое решение по закону.")
+    law = one(db().table("laws").select("id,title,status").eq("id", int(law_id)).limit(1))
+    if not law:
+        raise DKDError(404, "Закон не найден.")
+    updated = execute(db().table("laws").update({"status": status}).eq("id", int(law_id)),
+                      "Не удалось обновить статус закона.")
+    audit(actor_id, "president_law_signed" if status == "signed" else "president_law_vetoed", None,
+          f"law:{law_id}")
+    return updated[0] if updated else {"id": law_id, "status": status}
+
+
 # ----------------------------------------------------------------------------
 # Самодиагностика схемы БД (только для администратора)
 # ----------------------------------------------------------------------------
