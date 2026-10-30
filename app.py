@@ -245,6 +245,68 @@ def president_create_decree(payload: DecreeCreate, user: dict = Depends(presiden
     return {"ok": True, "decree": core.publish_decree(user["id"], payload.title, payload.text, payload.secret_for_user_id)}
 
 
+class PresidentApplicationDecision(BaseModel):
+    status: str = Field(pattern="^(approved|rejected)$")
+    note: str = Field(default="", max_length=2000)
+
+
+class PresidentRoleAssignment(BaseModel):
+    subject_id: int = Field(gt=0)
+    role_id: int = Field(gt=0)
+    assigned: bool = True
+
+
+class PresidentElectionCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    options: list[str] = Field(min_length=2, max_length=50)
+    ends_at: str | None = None
+
+
+class PresidentLawCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    description: str = Field(default="", max_length=20000)
+
+
+class PresidentLawDecision(BaseModel):
+    status: str = Field(pattern="^(signed|vetoed)$")
+
+
+@app.get("/api/president/subjects")
+def president_subjects(user: dict = Depends(president_user)):
+    return core.president_list_subjects()
+
+
+@app.put("/api/president/roles")
+def president_assign_role(payload: PresidentRoleAssignment, user: dict = Depends(president_user)):
+    return core.president_assign_role(user["id"], payload.subject_id, payload.role_id, payload.assigned)
+
+
+@app.get("/api/president/applications")
+def president_applications(user: dict = Depends(president_user)):
+    return {"applications": core.admin_list_applications()}
+
+
+@app.patch("/api/president/applications/{application_id}")
+def president_review_application(application_id: int, payload: PresidentApplicationDecision,
+                                user: dict = Depends(president_user)):
+    return core.president_review_application(user["id"], application_id, payload.status, payload.note)
+
+
+@app.post("/api/president/elections/duma")
+def president_create_duma_election(payload: PresidentElectionCreate, user: dict = Depends(president_user)):
+    return {"ok": True, "election": core.president_create_duma_election(user["id"], payload.title, payload.options, payload.ends_at)}
+
+
+@app.post("/api/president/laws")
+def president_publish_law(payload: PresidentLawCreate, user: dict = Depends(president_user)):
+    return {"ok": True, "law": core.president_publish_law(user["id"], payload.title, payload.description)}
+
+
+@app.patch("/api/president/laws/{law_id}")
+def president_decide_law(law_id: int, payload: PresidentLawDecision, user: dict = Depends(president_user)):
+    return {"ok": True, "law": core.president_set_law_status(user["id"], law_id, payload.status)}
+
+
 # ----------------------------------------------------------------------------
 # Администратор
 # ----------------------------------------------------------------------------
