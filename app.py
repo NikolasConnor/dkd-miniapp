@@ -1,6 +1,5 @@
 import hashlib
 import hmac
-import secrets
 import json
 import os
 import time
@@ -18,7 +17,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
 SUPABASE_KEY = (os.getenv("SUPABASE_SECRET_KEY") or os.getenv("SUPABASE_SERVICE_ROLE_KEY") or "").strip()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 
-app = FastAPI(title="DKD Mini App API", version="1.0.1")
+app = FastAPI(title="DKD Mini App API", version="1.1.0")
 # Telegram WebViews or an externally hosted frontend may send a CORS preflight
 # before requests carrying X-Telegram-Init-Data. Handle OPTIONS centrally.
 app.add_middleware(
@@ -52,14 +51,10 @@ def verify_telegram_init_data(raw: str) -> dict:
         raise HTTPException(status_code=401, detail="Некорректные данные Telegram.")
     auth_date = values.get("auth_date", "")
     try:
-        auth_timestamp = int(auth_date)
-    except (TypeError, ValueError):
+        if abs(time.time() - int(auth_date)) > 86400:
+            raise HTTPException(status_code=401, detail="Сессия Telegram устарела. Закройте и снова откройте Mini App.")
+    except ValueError:
         raise HTTPException(status_code=401, detail="Некорректная дата авторизации Telegram.")
-    now = time.time()
-    if auth_timestamp <= 0 or auth_timestamp > now + 60:
-        raise HTTPException(status_code=401, detail="Некорректная дата авторизации Telegram.")
-    if now - auth_timestamp > 86400:
-        raise HTTPException(status_code=401, detail="Сессия Telegram устарела. Закройте и снова откройте Mini App.")
     data_check_string = "\n".join(f"{k}={v}" for k, v in sorted(values.items()))
     secret_key = hmac.new(b"WebAppData", BOT_TOKEN.encode(), hashlib.sha256).digest()
     expected_hash = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
@@ -94,16 +89,25 @@ def profile_for(user: dict) -> dict:
     user_id = int(user["id"])
     subject = one_or_none(client.table("subjects").select("id,user_id,username,full_name,is_citizen,reputation").eq("user_id", user_id).limit(1))
     if not subject:
-        return {
-            "user_id": user_id,
-            "username": user.get("username"),
-            "full_name": " ".join(x for x in [user.get("first_name"), user.get("last_name")] if x) or "Пользователь Telegram",
-            "role": "Не зарегистрирован",
-            "reputation": 0,
-            "party_name": None,
-            "is_citizen": False,
-            "registered": False,
-        }
+        # First authenticated visit creates a basic account. It deliberately
+        # does NOT grant citizenship or administrator privileges.
+        full_name = " ".join(x for x in [user.get("first_name"), user.get("last_name")] if x).strip() or "Пользователь Telegram"
+        try:
+            created = client.table("subjects").upsert({
+                "user_id": user_id,
+                "username": user.get("username"),
+                "full_name": full_name,
+                "is_citizen": False,
+                "reputation": 0,
+            }, on_conflict="user_id").execute()
+            subject = created.data[0] if created.data else None
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"Не удалось зарегистрировать аккаунт в Supabase: {type(exc).__name__}") from exc
+        if not subject:
+            # Read after upsert to handle a concurrent first login.
+            subject = one_or_none(client.table("subjects").select("id,user_id,username,full_name,is_citizen,reputation").eq("user_id", user_id).limit(1))
+        if not subject:
+            raise HTTPException(status_code=502, detail="Supabase не подтвердил создание аккаунта.")
     role_names = []
     try:
         role_links = rows_or_error(client.table("subject_roles").select("role_id").eq("subject_id", subject["id"]))
@@ -116,7 +120,7 @@ def profile_for(user: dict) -> dict:
     party_name = None
     username = subject.get("username") or user.get("username") or ""
     try:
-        membership = one_or_none(client.table("party_members").select("party_id").ilike("username", username).limit(1))
+        membership = one_or_none(client.table("party_members").select("party_id").eq("user_id", user_id).limit(1))
         if membership:
             party = one_or_none(client.table("parties").select("name").eq("id", membership["party_id"]).limit(1))
             party_name = party.get("name") if party else None
@@ -160,36 +164,33 @@ def update_profile(payload: ProfileUpdate, x_telegram_init_data: str | None = He
     user = current_user(x_telegram_init_data)
     client = db()
     name = " ".join(payload.full_name.split())
-    if len(name) < 2:
-        raise HTTPException(status_code=422, detail="Введите ФИО длиной не менее двух символов.")
     uid = int(user["id"])
     try:
-        existing = one_or_none(client.table("subjects").select("id,user_id").eq("user_id", uid).limit(1))
+        existing = one_or_none(client.table("subjects").select("id").eq("user_id", uid).limit(1))
         if existing:
             result = client.table("subjects").update({"full_name": name, "username": user.get("username")}).eq("user_id", uid).execute()
         else:
-            result = client.table("subjects").insert({
+            result = client.table("subjects").upsert({
                 "user_id": uid,
                 "username": user.get("username"),
                 "full_name": name,
                 "is_citizen": False,
-            }).execute()
-        if not result.data:
-            raise HTTPException(status_code=502, detail="Supabase не подтвердил сохранение профиля.")
-    except HTTPException:
-        raise
+                "reputation": 0,
+            }, on_conflict="user_id").execute()
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Не удалось обновить профиль в Supabase: {type(exc).__name__}") from exc
+    if not result.data:
+        raise HTTPException(status_code=502, detail="Supabase не подтвердил сохранение профиля.")
     return {"ok": True, "profile": profile_for(user)}
 
 @app.get("/api/parties")
 def get_parties(x_telegram_init_data: str | None = Header(default=None)):
     current_user(x_telegram_init_data)
     client = db()
-    parties = rows_or_error(client.table("parties").select("id,name,emoji,description,leader_username,status").eq("status", "active").order("name"))
+    parties = rows_or_error(client.table("parties").select("id,name,emoji,description,leader_username,leader_user_id,status").eq("status", "active").order("name"))
     for party in parties:
         try:
-            members = rows_or_error(client.table("party_members").select("username").eq("party_id", party["id"]))
+            members = rows_or_error(client.table("party_members").select("user_id").eq("party_id", party["id"]))
             party["members_count"] = len(members)
         except HTTPException:
             party["members_count"] = None
@@ -199,9 +200,74 @@ def get_parties(x_telegram_init_data: str | None = Header(default=None)):
 def get_votes(x_telegram_init_data: str | None = Header(default=None)):
     current_user(x_telegram_init_data)
     client = db()
-    pres = rows_or_error(client.table("pres_elections").select("id,ends_at,status,results,created_at").order("id", desc=True).limit(10))
-    duma = rows_or_error(client.table("duma_elections").select("id,ends_at,status,results,created_at").order("id", desc=True).limit(10))
+    pres = rows_or_error(client.table("pres_elections").select("id,title,options,ends_at,status,results,created_at").order("id", desc=True).limit(10))
+    duma = rows_or_error(client.table("duma_elections").select("id,title,options,ends_at,status,results,created_at").order("id", desc=True).limit(10))
+    user = current_user(x_telegram_init_data)
+    uid = int(user["id"])
+    try:
+        cast = rows_or_error(client.table("votes").select("election_type,election_id").eq("user_id", uid))
+        voted = {(v["election_type"], int(v["election_id"])) for v in cast}
+    except HTTPException:
+        voted = set()
+    for row in pres:
+        row["kind"] = "presidential"
+        row["has_voted"] = ("presidential", int(row["id"])) in voted
+    for row in duma:
+        row["kind"] = "duma"
+        row["has_voted"] = ("duma", int(row["id"])) in voted
+    try:
+        ballots = rows_or_error(client.table("votes").select("election_type,election_id,option"))
+        counts = {}
+        for ballot in ballots:
+            key = (ballot["election_type"], int(ballot["election_id"]))
+            counts.setdefault(key, {})[ballot["option"]] = counts.setdefault(key, {}).get(ballot["option"], 0) + 1
+        for row in pres:
+            row["vote_counts"] = counts.get(("presidential", int(row["id"])), {}) if row.get("status") in ("closed", "finished", "completed") else None
+        for row in duma:
+            row["vote_counts"] = counts.get(("duma", int(row["id"])), {}) if row.get("status") in ("closed", "finished", "completed") else None
+    except HTTPException:
+        for row in pres + duma: row["vote_counts"] = None
     return {"presidential": pres, "duma": duma}
+
+class CastVote(BaseModel):
+    option: str = Field(min_length=1, max_length=200)
+
+@app.post("/api/votes/{kind}/{election_id}/cast")
+def cast_vote(kind: str, election_id: int, payload: CastVote, x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data)
+    client = db()
+    if kind not in ("presidential", "duma"):
+        raise HTTPException(status_code=404, detail="Неизвестный тип выборов.")
+    subject = one_or_none(client.table("subjects").select("id,is_citizen").eq("user_id", int(user["id"])).limit(1))
+    if not subject or not subject.get("is_citizen"):
+        raise HTTPException(status_code=403, detail="Голосовать могут только зарегистрированные граждане.")
+    table = "pres_elections" if kind == "presidential" else "duma_elections"
+    election = one_or_none(client.table(table).select("id,title,options,ends_at,status").eq("id", election_id).limit(1))
+    if not election:
+        raise HTTPException(status_code=404, detail="Выборы не найдены.")
+    if election.get("status") not in ("active", "open"):
+        raise HTTPException(status_code=409, detail="Эти выборы сейчас не открыты.")
+    if election.get("ends_at"):
+        from datetime import datetime, timezone
+        try:
+            end = datetime.fromisoformat(str(election["ends_at"]).replace("Z", "+00:00"))
+            if end.tzinfo is None: end = end.replace(tzinfo=timezone.utc)
+            if end <= datetime.now(timezone.utc):
+                raise HTTPException(status_code=409, detail="Срок голосования истёк.")
+        except ValueError:
+            raise HTTPException(status_code=502, detail="Некорректная дата окончания выборов в базе.")
+    options = election.get("options") or []
+    if isinstance(options, str):
+        try: options = json.loads(options)
+        except json.JSONDecodeError: options = []
+    if payload.option not in options:
+        raise HTTPException(status_code=400, detail="Выбранный вариант отсутствует в списке.")
+    try:
+        client.table("votes").insert({"user_id": int(user["id"]), "election_type": kind, "election_id": election_id, "option": payload.option}).execute()
+    except Exception as exc:
+        # A UNIQUE constraint on (user_id, election_type, election_id) is the authoritative duplicate-vote guard.
+        raise HTTPException(status_code=409, detail="Голос уже учтён или не удалось сохранить голос. Повторно проголосовать нельзя.") from exc
+    return {"ok": True, "message": "Ваш голос сохранён."}
 
 @app.get("/api/documents")
 def get_documents(x_telegram_init_data: str | None = Header(default=None)):
@@ -319,16 +385,9 @@ class CitizenUpdate(BaseModel):
 @app.post("/api/admin/roles")
 def admin_create_role(payload: RoleCreate, x_telegram_init_data: str | None = Header(default=None)):
     user = current_user(x_telegram_init_data); require_admin(user)
-    name = " ".join(payload.name.split())
-    if len(name) < 2:
-        raise HTTPException(status_code=422, detail="Название должности должно содержать минимум 2 символа.")
     try:
-        result = db().table("roles").insert({"name": name, "emoji": payload.emoji}).execute()
-        if not result.data:
-            raise HTTPException(status_code=502, detail="Supabase не подтвердил создание должности.")
+        result = db().table("roles").insert({"name": payload.name.strip(), "emoji": payload.emoji}).execute()
         return {"ok": True, "role": result.data[0]}
-    except HTTPException:
-        raise
     except Exception as exc:
         raise HTTPException(status_code=409, detail="Не удалось создать должность: проверьте, что название ещё не занято.") from exc
 
@@ -366,3 +425,53 @@ def admin_set_citizenship(subject_id: int, payload: CitizenUpdate, x_telegram_in
         raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail="Не удалось изменить гражданство.") from exc
+
+
+# Admin publishing and election management. All actions use server-side admin authorization.
+class ElectionCreate(BaseModel):
+    title: str = Field(min_length=3, max_length=160)
+    options: list[str] = Field(min_length=2, max_length=50)
+    ends_at: str | None = None
+
+@app.post("/api/admin/elections/{kind}")
+def admin_create_election(kind: str, payload: ElectionCreate, x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data); require_admin(user)
+    if kind not in ("presidential", "duma"):
+        raise HTTPException(status_code=404, detail="Неизвестный тип выборов.")
+    options = [x.strip() for x in payload.options if x and x.strip()]
+    if len(options) < 2 or len(set(options)) != len(options):
+        raise HTTPException(status_code=400, detail="Нужно минимум два разных варианта.")
+    table = "pres_elections" if kind == "presidential" else "duma_elections"
+    try:
+        row = db().table(table).insert({"title": payload.title.strip(), "options": options, "ends_at": payload.ends_at, "status": "active"}).execute().data
+        db().table("audit_log").insert({"actor_user_id": int(user["id"]), "action": "election_created", "details": f"{kind}:{row[0]['id']}"}).execute()
+        return {"ok": True, "election": row[0]}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Не удалось создать выборы. Проверьте миграцию schema.sql.") from exc
+
+class NewsCreate(BaseModel):
+    text: str = Field(min_length=1, max_length=10000)
+
+@app.post("/api/admin/news")
+def admin_create_news(payload: NewsCreate, x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data); require_admin(user)
+    try:
+        row = db().table("news").insert({"text": payload.text.strip()}).execute().data
+        db().table("audit_log").insert({"actor_user_id": int(user["id"]), "action": "news_created", "details": f"news:{row[0]['id']}"}).execute()
+        return {"ok": True, "news": row[0]}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Не удалось опубликовать новость.") from exc
+
+class LawCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    description: str = Field(default="", max_length=20000)
+
+@app.post("/api/admin/laws")
+def admin_create_law(payload: LawCreate, x_telegram_init_data: str | None = Header(default=None)):
+    user = current_user(x_telegram_init_data); require_admin(user)
+    try:
+        row = db().table("laws").insert({"title": payload.title.strip(), "description": payload.description.strip(), "status": "active"}).execute().data
+        db().table("audit_log").insert({"actor_user_id": int(user["id"]), "action": "law_created", "details": f"law:{row[0]['id']}"}).execute()
+        return {"ok": True, "law": row[0]}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail="Не удалось опубликовать документ.") from exc

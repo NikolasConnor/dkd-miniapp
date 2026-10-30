@@ -230,18 +230,33 @@ h1{font-size:21px;margin:0 0 5px;overflow-wrap:anywhere}h2{font-size:18px;margin
     renderEmpty('votesList', 'Загружаем голосования…');
     try {
       const d = await api('/api/votes');
-      const all = [...(d.presidential || []).map(x => Object.assign({},x,{kind:'Президентские выборы'})),
-                   ...(d.duma || []).map(x => Object.assign({},x,{kind:'Выборы Госдумы'}))];
+      const all = [...(d.presidential || []).map(x => Object.assign({},x,{typeKey:'presidential',kind:'Президентские выборы'})),
+                   ...(d.duma || []).map(x => Object.assign({},x,{typeKey:'duma',kind:'Выборы Госдумы'}))];
       state.votes = all;
       loaded.votes = true;
       $('statVotes').textContent = all.length;
       if (!all.length) return renderEmpty('votesList', 'Голосований пока нет.');
       $('votesList').className = '';
-      $('votesList').innerHTML = all.map(x => renderCard(x.kind + ' №' + x.id,
-        '<div class="stat">Статус: <b>' + esc(x.status || 'не указан') + '</b></div>' +
-        '<div class="stat">Окончание: <b>' + esc(formatDate(x.ends_at)) + '</b></div>' +
-        (x.results ? '<div class="stat">Результаты: ' + esc(typeof x.results === 'string' ? x.results : JSON.stringify(x.results)) + '</div>' : ''),
-        'Создано: ' + formatDate(x.created_at), '🗳️')).join('');
+      $('votesList').innerHTML = all.map(x => {
+        let options = Array.isArray(x.options) ? x.options : [];
+        const controls = x.status === 'active' && options.length && !x.has_voted
+          ? '<div class="actions" style="flex-wrap:wrap">' + options.map(opt => '<button class="btn vote-option" data-kind="' + esc(x.typeKey) + '" data-id="' + Number(x.id) + '" data-option="' + esc(opt) + '">' + esc(opt) + '</button>').join('') + '</div>'
+          : (x.has_voted ? '<div class="notice success">Ваш голос уже учтён.</div>' : '');
+        return renderCard(x.title || (x.kind + ' №' + x.id),
+          '<div class="stat">Статус: <b>' + esc(x.status || 'не указан') + '</b></div>' +
+          '<div class="stat">Окончание: <b>' + esc(formatDate(x.ends_at)) + '</b></div>' +
+          (options.length ? '<div class="stat">Варианты: ' + esc(options.join(' · ')) + '</div>' : '<div class="stat">Варианты голосования не настроены.</div>') +
+          (x.vote_counts ? '<div class="stat">Результаты: ' + esc(JSON.stringify(x.vote_counts)) + '</div>' : (x.results ? '<div class="stat">Результаты: ' + esc(typeof x.results === 'string' ? x.results : JSON.stringify(x.results)) + '</div>' : '')) + controls,
+          'Создано: ' + formatDate(x.created_at), '🗳️');
+      }).join('');
+      document.querySelectorAll('.vote-option').forEach(btn => btn.addEventListener('click', async () => {
+        if (!confirm('Подтвердить голос за «' + btn.dataset.option + '»? После отправки изменить голос нельзя.')) return;
+        btn.disabled = true;
+        try {
+          await api('/api/votes/' + btn.dataset.kind + '/' + btn.dataset.id + '/cast', {method:'POST', body:JSON.stringify({option:btn.dataset.option})});
+          alert('Голос сохранён.'); await loadVotes();
+        } catch (e) { alert(e.message); btn.disabled = false; }
+      }));
       setConnection('ok', 'Сервер доступен');
     } catch (e) { renderError('votesList', e.message, 'votes'); if (initData) setConnection('err','Проблема с API'); }
   }
