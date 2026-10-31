@@ -1109,7 +1109,7 @@ def admin_create_role(actor_id: int, name: str, emoji: str = "👤") -> dict:
 
 
 def _role_key(name: str) -> str:
-    return re.sub(r"\\s+", " ", clean_name(name).casefold()).strip()
+    return re.sub(r"\s+", " ", clean_name(name).casefold()).strip()
 
 
 def _ensure_canonical_role_rows() -> list[dict]:
