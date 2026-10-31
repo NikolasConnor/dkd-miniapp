@@ -60,6 +60,7 @@
       <div class="grid" style="margin-bottom:15px">
         <button class="tile" onclick="showDocTab('passport')"><span class="icon">🪪</span><strong>Мой паспорт</strong><span>Статус гражданства</span></button>
         <button class="tile" onclick="showDocTab('applications')"><span class="icon">📝</span><strong>Заявления</strong><span>Подать и отслеживать</span></button>
+        <button class="tile" onclick="showDocTab('mandates')"><span class="icon">🏛️</span><strong>Мандат депутата</strong><span>Удостоверение и срок полномочий</span></button>
         <button class="tile" onclick="showDocTab('laws')"><span class="icon">⚖️</span><strong>Законы и указы</strong><span>Государственные документы</span></button>
       </div>
       <div id="docTabContent"></div>
@@ -380,6 +381,12 @@ function showDocTab(tab){
   if(tab==='applications'){
     el.innerHTML=`<div class="section-head"><h3>Подать заявление</h3></div><form class="card form" onsubmit="submitApplication(event)"><div class="field"><label>Тип заявления</label><select id="appKind"><option value="citizenship">Получение гражданства</option><option value="other">Другое обращение</option></select></div><div class="field"><label>ФИО заявителя</label><input id="appFullName" value="${esc(state.profile?.full_name||'')}" minlength="2" maxlength="120" required></div><div class="field"><label>Подробности</label><textarea id="appDetails" maxlength="5000" placeholder="Опишите ваше обращение"></textarea></div><button class="btn primary">Отправить заявление</button></form><div class="section-head"><h3>Мои заявления</h3></div><div class="list">${state.apps.length?state.apps.map(a=>`<div class="card"><div class="row"><strong>${esc(a.kind==='citizenship'?'Гражданство':a.kind==='other'?'Другое обращение':a.kind||'Заявление')}</strong>${statusPill(a.status)}</div><p class="muted small">${esc(a.details||a.review_note||'Без дополнительной информации')}</p><small class="muted">${fmtDate(a.created_at)}</small></div>`).join(''):'<div class="empty">Заявлений пока нет</div>'}</div>`;
     return}
+  if(tab==='mandates'){
+    const mandates=(state.docs||{}).mandates||[];
+    if(!mandates.length){el.innerHTML='<div class="empty">Мандат появится здесь автоматически после избрания депутатом Госдумы.</div>';return}
+    el.innerHTML='<div class="section-head"><h3>Мои депутатские мандаты</h3></div><div class="list">'+mandates.map(m=>'<article class="card"><div class="row"><strong>🏛️ '+esc(m.title||'Мандат депутата Госдумы')+'</strong>'+statusPill(m.mandate_status==='active'?'Действует':'Истёк')+'</div><p style="white-space:pre-wrap">'+esc(m.text||'')+'</p><small class="muted">'+fmtDate(m.created_at)+'</small></article>').join('')+'</div>';
+    return
+  }
   if(tab==='laws'){
     const d=state.docs||{};const laws=d.laws||d.documents||[];const decrees=d.decrees||[];
     el.innerHTML='<div class="section-head"><h3>Законы</h3></div>'+renderItems(laws,'title','description')+'<div class="section-head"><h3>Указы</h3></div>'+renderItems(decrees,'title','text');
