@@ -1324,6 +1324,177 @@ def president_set_law_status(actor_id: int, law_id: int, status: str) -> dict:
 
 
 # ----------------------------------------------------------------------------
+# Заседания Государственной думы и рассмотрение законопроектов
+# Храним созывы и голоса в audit_log, чтобы не требовать новых таблиц Supabase.
+# ----------------------------------------------------------------------------
+
+def is_deputy(user: dict) -> bool:
+    if is_admin(user):
+        return True
+    subject = get_subject(int(user["id"]))
+    if not subject:
+        return False
+    return any(str(r.get("name", "")).strip().casefold() == "депутат"
+               for r in user_roles(int(subject["id"])))
+
+
+def require_deputy(user: dict) -> None:
+    if not is_deputy(user):
+        raise DKDError(403, "Раздел Государственной думы доступен только депутатам и администратору.")
+
+
+def _duma_events() -> list[dict]:
+    return fetch_all(lambda: db().table("audit_log").select(
+        "id,actor_user_id,action,target_user_id,details"
+    ).in_("action", [
+        "duma_session_opened", "duma_session_closed", "duma_law_submitted",
+        "duma_law_vote", "duma_law_passed", "duma_law_failed"
+    ]).order("id"))
+
+
+def duma_list(user: dict) -> dict:
+    require_deputy(user)
+    events = _duma_events()
+    sessions = []
+    for ev in events:
+        if ev.get("action") == "duma_session_opened":
+            try:
+                data = json.loads(ev.get("details") or "{}")
+            except (TypeError, ValueError):
+                data = {}
+            sessions.append({"id": int(ev["id"]), "title": data.get("title", "Заседание Государственной думы"),
+                             "created_by": ev.get("actor_user_id"), "created_at": data.get("created_at"),
+                             "closed": False, "laws": []})
+        elif ev.get("action") == "duma_session_closed":
+            try:
+                data = json.loads(ev.get("details") or "{}")
+            except (TypeError, ValueError):
+                data = {}
+            for s in sessions:
+                if s["id"] == int(data.get("session_id", 0)):
+                    s["closed"] = True
+    by_session = {s["id"]: s for s in sessions}
+    laws = rows(db().table("laws").select("id,title,description,status,created_at").order("id", desc=True).limit(100))
+    law_events = [ev for ev in events if ev.get("action") in ("duma_law_submitted", "duma_law_vote", "duma_law_passed", "duma_law_failed")]
+    submitted = {}
+    votes = {}
+    for ev in law_events:
+        try:
+            data = json.loads(ev.get("details") or "{}")
+        except (TypeError, ValueError):
+            continue
+        lid = int(data.get("law_id", 0))
+        if ev["action"] == "duma_law_submitted":
+            submitted[lid] = {"session_id": int(data.get("session_id", 0)), "author_id": int(ev["actor_user_id"])}
+        elif ev["action"] == "duma_law_vote":
+            votes.setdefault(lid, {})[int(ev["actor_user_id"])] = data.get("vote")
+    for law in laws:
+        lid = int(law["id"])
+        meta = submitted.get(lid)
+        if not meta:
+            continue
+        law["session_id"] = meta["session_id"]
+        law["author_id"] = meta["author_id"]
+        law["votes_for"] = sum(v == "for" for v in votes.get(lid, {}).values())
+        law["votes_against"] = sum(v == "against" for v in votes.get(lid, {}).values())
+        law["has_voted"] = int(user["id"]) in votes.get(lid, {})
+        law["can_vote"] = law["status"] == "under_duma_review" and not law["has_voted"]
+        session = by_session.get(meta["session_id"])
+        if session:
+            session["laws"].append(law)
+    return {"sessions": sessions[::-1], "laws": [law for law in laws if int(law["id"]) in submitted]}
+
+
+def duma_open_session(actor_id: int, title: str) -> dict:
+    title = clean_name(title)
+    if not 2 <= len(title) <= 160:
+        raise DKDError(422, "Название заседания должно содержать от 2 до 160 символов.")
+    row = execute(db().table("audit_log").insert({
+        "actor_user_id": int(actor_id), "action": "duma_session_opened",
+        "target_user_id": None, "details": json.dumps({"title": title, "created_at": now_iso()}, ensure_ascii=False)
+    }), "Не удалось открыть заседание Государственной думы.")[0]
+    audit(actor_id, "duma_session_opened", None, json.dumps({"session_id": row["id"], "title": title}, ensure_ascii=False))
+    return {"id": int(row["id"]), "title": title, "closed": False, "laws": []}
+
+
+def duma_close_session(actor_id: int, session_id: int) -> dict:
+    events = _duma_events()
+    opened = next((e for e in events if e.get("action") == "duma_session_opened" and int(e["id"]) == int(session_id)), None)
+    if not opened:
+        raise DKDError(404, "Заседание не найдено.")
+    if any(e.get("action") == "duma_session_closed" and str(session_id) in str(e.get("details", "")) for e in events):
+        raise DKDError(409, "Заседание уже закрыто.")
+    audit(actor_id, "duma_session_closed", None, json.dumps({"session_id": int(session_id)}, ensure_ascii=False))
+    return {"ok": True, "session_id": int(session_id), "closed": True}
+
+
+def duma_submit_law(actor_id: int, session_id: int, title: str, description: str) -> dict:
+    title = clean_name(title)
+    description = str(description or "").strip()
+    if not 2 <= len(title) <= 200:
+        raise DKDError(422, "Название законопроекта должно содержать от 2 до 200 символов.")
+    if not description or len(description) > 20000:
+        raise DKDError(422, "Текст законопроекта обязателен и не должен превышать 20000 символов.")
+    listing = duma_list({"id": actor_id})
+    session = next((s for s in listing["sessions"] if s["id"] == int(session_id)), None)
+    if not session:
+        raise DKDError(404, "Заседание не найдено.")
+    if session["closed"]:
+        raise DKDError(409, "Нельзя подать законопроект на закрытое заседание.")
+    law = execute(db().table("laws").insert({"title": title, "description": description, "status": "under_duma_review"}),
+                  "Не удалось подать законопроект.")[0]
+    audit(actor_id, "duma_law_submitted", None, json.dumps({"law_id": int(law["id"]), "session_id": int(session_id)}, ensure_ascii=False))
+    return law
+
+
+def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
+    if vote not in ("for", "against"):
+        raise DKDError(422, "Выберите голос «за» или «против».")
+    law = one(db().table("laws").select("id,title,status").eq("id", int(law_id)).limit(1))
+    if not law or law.get("status") != "under_duma_review":
+        raise DKDError(404, "Законопроект не найден или голосование уже завершено.")
+    events = _duma_events()
+    details = []
+    for ev in events:
+        if ev.get("action") in ("duma_law_submitted", "duma_law_vote"):
+            try: details.append((ev, json.loads(ev.get("details") or "{}")))
+            except (TypeError, ValueError): pass
+    submitted = next((d for e,d in details if e.get("action") == "duma_law_submitted" and int(d.get("law_id",0)) == int(law_id)), None)
+    if not submitted:
+        raise DKDError(403, "Этот законопроект не относится к заседанию Государственной думы.")
+    session = next((e for e in events if e.get("action") == "duma_session_opened" and int(e["id"]) == int(submitted.get("session_id",0))), None)
+    if not session:
+        raise DKDError(404, "Заседание не найдено.")
+    session_closed = any(e.get("action") == "duma_session_closed" and str(submitted.get("session_id")) in str(e.get("details","")) for e in events)
+    if session_closed:
+        raise DKDError(409, "Заседание закрыто.")
+    if any(e.get("action") == "duma_law_vote" and int(d.get("law_id",0)) == int(law_id) and int(e["actor_user_id"]) == int(actor_id) for e,d in details):
+        raise DKDError(409, "Вы уже голосовали по этому законопроекту.")
+    audit(actor_id, "duma_law_vote", None, json.dumps({"law_id": int(law_id), "vote": vote}, ensure_ascii=False))
+    votes = [d.get("vote") for e,d in details if e.get("action") == "duma_law_vote" and int(d.get("law_id",0)) == int(law_id)]
+    votes.append(vote)
+    yes, no = votes.count("for"), votes.count("against")
+    total_deputies = fetch_all(lambda: db().table("roles").select("id,name").ilike("name", "Депутат"))
+    deputy_role_ids = [int(r["id"]) for r in total_deputies]
+    deputies = []
+    for role_id in deputy_role_ids:
+        links = fetch_all(lambda: db().table("subject_roles").select("subject_id").eq("role_id", role_id))
+        deputies.extend(int(x["subject_id"]) for x in links)
+    majority_reached = yes > no and yes > (len(set(deputies)) / 2)
+    if majority_reached:
+        execute(db().table("laws").update({"status": "awaiting_president"}).eq("id", int(law_id)), "Не удалось передать закон Президенту.")
+        audit(actor_id, "duma_law_passed", None, json.dumps({"law_id": int(law_id), "votes_for": yes, "votes_against": no}, ensure_ascii=False))
+        status = "awaiting_president"
+    elif yes + no >= len(set(deputies)):
+        execute(db().table("laws").update({"status": "rejected_by_duma"}).eq("id", int(law_id)), "Не удалось завершить голосование.")
+        audit(actor_id, "duma_law_failed", None, json.dumps({"law_id": int(law_id), "votes_for": yes, "votes_against": no}, ensure_ascii=False))
+        status = "rejected_by_duma"
+    else:
+        status = "under_duma_review"
+    return {"ok": True, "status": status, "votes_for": yes, "votes_against": no, "deputies_total": len(set(deputies))}
+
+
+# ----------------------------------------------------------------------------
 # Самодиагностика схемы БД (только для администратора)
 # ----------------------------------------------------------------------------
 
