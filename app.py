@@ -96,6 +96,35 @@ def config():
 
 
 # ----------------------------------------------------------------------------
+# Личные уведомления
+# ----------------------------------------------------------------------------
+
+
+# ----------------------------------------------------------------------------
+# Личные уведомления
+# ----------------------------------------------------------------------------
+
+
+@app.get("/api/notifications")
+def get_notifications(user: dict = Depends(auth_user)):
+    return core.list_notifications(user)
+
+
+class NotificationRead(BaseModel):
+    notification_id: int = Field(gt=0)
+
+
+@app.post("/api/notifications/read")
+def read_notification(payload: NotificationRead, user: dict = Depends(auth_user)):
+    return core.mark_notification_read(user, payload.notification_id)
+
+
+@app.post("/api/notifications/read-all")
+def read_all_notifications(user: dict = Depends(auth_user)):
+    return core.mark_all_notifications_read(user)
+
+
+# ----------------------------------------------------------------------------
 # Профиль
 # ----------------------------------------------------------------------------
 
