@@ -959,6 +959,42 @@ def _sync_duma_term() -> None:
     audit(0, "duma_term_expired", None, json.dumps({"end_at": raw_end}, ensure_ascii=False))
 
 
+def _issue_duma_mandates(election_id: int, deputies: list[dict], term_start: str, term_end: str) -> int:
+    """Создаёт персональные документы-мандаты. Повторный вызов безопасен."""
+    created = 0
+    for deputy in deputies:
+        user_id = int(deputy.get("telegram_user_id") or 0)
+        full_name = clean_name(deputy.get("full_name") or "")
+        if not user_id or not full_name:
+            continue
+        title = f"Мандат депутата Госдумы · созыв №{int(election_id)}"
+        existing = one(db().table("decrees").select("id")
+                       .eq("title", title).eq("secret_for_user_id", user_id).limit(1))
+        if existing:
+            continue
+        party = clean_name(deputy.get("party_name") or "Без партии")
+        body = "\n".join([
+            "ДЕМОКРАТИЧЕСКАЯ КОНФЕДЕРАЦИЯ ДЕБИЛОВ",
+            "ГОСУДАРСТВЕННАЯ ДУМА",
+            "",
+            "УДОСТОВЕРЕНИЕ / МАНДАТ ДЕПУТАТА",
+            "",
+            f"Настоящим подтверждается, что {full_name} избран(а) депутатом Государственной Думы.",
+            f"Политическая партия: {party}.",
+            f"Номер созыва: {int(election_id)}.",
+            f"Дата выдачи: {term_start}.",
+            f"Действителен до: {term_end}.",
+            "",
+            "Мандат действует в течение трёхмесячного срока полномочий созыва.",
+        ])
+        execute(db().table("decrees").insert({
+            "title": title, "text": body, "is_secret": True,
+            "secret_for_user_id": user_id,
+        }), "Не удалось выдать мандат депутату.")
+        created += 1
+    return created
+
+
 def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
     """Подводит итоги парламентских выборов, назначает роли и срок нового созыва."""
     election = one(db().table("duma_elections").select(ELECTION_COLS).eq("id", int(election_id)).limit(1))
@@ -966,15 +1002,20 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         raise DKDError(404, "Выборы в Госдуму не найдены.")
     saved_results = election.get("results") if isinstance(election.get("results"), dict) else {}
     if saved_results.get("parliament_term_end"):
-        # Если состав и итоги уже сохранены, повторно не назначаем роли;
-        # лишь гарантируем, что новость с итогами существует.
+        # Повторный вызов не меняет состав, но гарантирует выдачу недостающих мандатов.
         vote_counts = {str(k): int(v) for k, v in saved_results.items()
                        if isinstance(v, (int, float)) and not isinstance(v, bool)}
+        mandate_count = _issue_duma_mandates(
+            int(election_id), saved_results.get("elected_deputies") or [],
+            str(saved_results.get("parliament_term_start") or ""),
+            str(saved_results["parliament_term_end"])
+        )
         _publish_election_results_news_once(
             actor_id, "duma", election, vote_counts,
             "Парламент сформирован на срок до " + str(saved_results["parliament_term_end"]) + "."
         )
-        return {"ok": True, "results": saved_results, "already_finalized": True}
+        return {"ok": True, "results": saved_results, "already_finalized": True,
+                "mandates_issued": mandate_count}
 
     lists = duma_party_lists(election_id)
     if not lists:
@@ -1051,13 +1092,17 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
     _setting_put(DUMA_TERM_END_KEY, ends.isoformat())
     _setting_put(DUMA_TERM_ELECTION_KEY, str(int(election_id)))
     _setting_put(DUMA_TERM_STATUS_KEY, "active")
+    mandates_issued = _issue_duma_mandates(
+        int(election_id), roster, started.isoformat(), ends.isoformat()
+    )
     audit(actor_id, "duma_election_finalized", None, json.dumps({
         "election_id": int(election_id), "term_start": started.isoformat(), "term_end": ends.isoformat(),
         "deputies": len(winners), "seats": parliament_seats
     }, ensure_ascii=False))
     _publish_election_results_news_once(actor_id, "duma", election, counts,
                                          "Парламент сформирован на срок до " + ends.isoformat() + ".")
-    return {"ok": True, "results": results, "deputies": roster, "term_start": started.isoformat(), "term_end": ends.isoformat()}
+    return {"ok": True, "results": results, "deputies": roster, "term_start": started.isoformat(),
+            "term_end": ends.isoformat(), "mandates_issued": mandates_issued}
 
 
 def _maybe_finalize_duma_elections() -> None:
@@ -1654,10 +1699,21 @@ def list_documents(user: dict, admin: bool) -> dict:
     uid = int(user["id"])
     laws = rows(db().table("laws").select("id,title,description,status,created_at").order("id", desc=True).limit(50))
     decrees = rows(db().table("decrees").select("id,title,text,is_secret,secret_for_user_id,created_at").order("id", desc=True).limit(150))
-    visible = [d for d in decrees if not d.get("is_secret") or admin or d.get("secret_for_user_id") == uid][:50]
-    for d in visible:
-        d.pop("secret_for_user_id", None)
-    return {"laws": laws, "decrees": visible}
+    visible = [d for d in decrees if not d.get("is_secret") or admin or d.get("secret_for_user_id") == uid][:150]
+    mandates = []
+    public_decrees = []
+    now = utcnow()
+    for item in visible:
+        if str(item.get("title") or "").startswith("Мандат депутата Госдумы"):
+            match = re.search(r"Действителен до: ([^\\n]+)", str(item.get("text") or ""))
+            expires = parse_dt(match.group(1).strip()) if match else None
+            item["mandate_status"] = "active" if expires and now < expires else "expired"
+            item.pop("secret_for_user_id", None)
+            mandates.append(item)
+        else:
+            item.pop("secret_for_user_id", None)
+            public_decrees.append(item)
+    return {"laws": laws, "decrees": public_decrees, "mandates": mandates}
 
 
 def _election_results_news(kind: str, election: dict, counts: dict[str, int], extra: str = "") -> str:
