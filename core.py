@@ -762,6 +762,66 @@ def president_schedule_duma_election(actor_id: int, title: str, starts_at: str, 
     return {**election, "starts_at": start.isoformat(), "status": "scheduled"}
 
 
+DUMA_PARTY_TEMPLATE_KEY_PREFIX = "duma_party_template:"
+
+
+def get_duma_party_template(user: dict) -> dict:
+    uid = int(user["id"])
+    parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
+    party = next((p for p in parties if int(p.get("leader_user_id") or 0) == uid), None)
+    if not party:
+        return {"party": None, "members": [], "selected_user_ids": []}
+    members = rows(db().table("party_members").select("user_id,username").eq("party_id", int(party["id"])))
+    ids = [int(m["user_id"]) for m in members if m.get("user_id") is not None]
+    subjects = select_in("subjects", "user_id,full_name", "user_id", ids) if ids else []
+    by_id = {int(x["user_id"]): x for x in subjects}
+    raw = _setting_get(DUMA_PARTY_TEMPLATE_KEY_PREFIX + str(int(party["id"])))
+    try:
+        selected = [int(x) for x in json.loads(raw or "[]")]
+    except (ValueError, TypeError, json.JSONDecodeError):
+        selected = []
+    selected = [x for x in selected if x in by_id]
+    return {"party": {"id": party["id"], "name": party["name"], "emoji": party.get("emoji") or "🎭"},
+            "members": [{"user_id": uid_, "full_name": by_id[uid_].get("full_name") or next(
+                (m.get("username") for m in members if int(m.get("user_id") or 0) == uid_), str(uid_))}
+                for uid_ in ids if uid_ in by_id], "selected_user_ids": selected}
+
+
+def save_duma_party_template(user: dict, candidate_user_ids: list[int]) -> dict:
+    uid = int(user["id"])
+    current = get_duma_party_template(user)
+    if not current["party"]:
+        raise DKDError(403, "Составлять партийный список может только председатель партии.")
+    allowed = {int(m["user_id"]) for m in current["members"]}
+    chosen = [int(x) for x in candidate_user_ids]
+    if not chosen or len(chosen) > 50:
+        raise DKDError(400, "Выберите от 1 до 50 кандидатов из состава своей партии.")
+    if len(set(chosen)) != len(chosen):
+        raise DKDError(400, "В списке не должно быть повторяющихся участников.")
+    if any(x not in allowed for x in chosen):
+        raise DKDError(422, "Кандидатами могут быть только действующие члены вашей партии.")
+    party_id = int(current["party"]["id"])
+    _setting_put(DUMA_PARTY_TEMPLATE_KEY_PREFIX + str(party_id), json.dumps(chosen))
+    # Синхронизируем сохранённый состав с уже назначенными выборами, не меняя завершённые.
+    elections = rows(db().table("duma_elections").select(ELECTION_COLS).order("id", desc=True).limit(50))
+    names = {int(m["user_id"]): m["full_name"] for m in current["members"]}
+    synced = 0
+    for election in elections:
+        if election.get("status") in CLOSED_STATUSES:
+            continue
+        lists = duma_party_lists(int(election["id"]))
+        lists[str(party_id)] = {"party_id": party_id, "party_name": current["party"]["name"],
+            "party_emoji": current["party"]["emoji"], "leader_user_id": uid,
+            "candidates": [names[x] for x in chosen], "candidate_user_ids": chosen,
+            "submitted_at": utcnow().isoformat()}
+        _setting_put(DUMA_LISTS_KEY_PREFIX + str(int(election["id"])), json.dumps(lists, ensure_ascii=False))
+        execute(db().table("duma_elections").update({"options": [x["party_name"] for x in lists.values()]})
+                .eq("id", int(election["id"])), "Не удалось синхронизировать список с выборами.")
+        synced += 1
+    audit(uid, "duma_party_template_saved", None, f"party:{party_id}:candidates:{len(chosen)}")
+    return {"ok": True, "selected_user_ids": chosen, "synced_elections": synced}
+
+
 def submit_duma_party_list(user: dict, election_id: int, candidates: list[str]) -> dict:
     uid = int(user["id"])
     parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
