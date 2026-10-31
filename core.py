@@ -1005,8 +1005,9 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         # Повторный вызов не меняет состав, но гарантирует выдачу недостающих мандатов.
         vote_counts = {str(k): int(v) for k, v in saved_results.items()
                        if isinstance(v, (int, float)) and not isinstance(v, bool)}
+        mandate_roster = saved_results.get("elected_deputies") or public_duma_roster().get("members") or []
         mandate_count = _issue_duma_mandates(
-            int(election_id), saved_results.get("elected_deputies") or [],
+            int(election_id), mandate_roster,
             str(saved_results.get("parliament_term_start") or ""),
             str(saved_results["parliament_term_end"])
         )
@@ -2504,7 +2505,9 @@ def public_duma_roster() -> dict:
     seats_total = election_seats or total_occupied
     return {"formed": bool(elected), "seats_total": seats_total, "seats_occupied": total_occupied,
         "members": [{"full_name": r.get("full_name"), "party_name": r.get("party_name"),
-                     "seats": int(r.get("seats") or 0)} for r in elected],
+                     "seats": int(r.get("seats") or 0),
+                     "telegram_user_id": int(r["telegram_user_id"]) if r.get("telegram_user_id") else None}
+                    for r in elected],
         "parties": list(parties.values()),
         "term_start": term_start or first.get("parliament_term_start"),
         "term_end": term_end or first.get("parliament_term_end"),
