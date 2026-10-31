@@ -1160,6 +1160,11 @@ def create_election(actor_id: int, kind: str, title: str, options: list[str], en
     if not 3 <= len(title) <= 160:
         raise DKDError(422, "Название выборов: от 3 до 160 символов.")
     cleaned = [clean_name(x) for x in options if clean_name(x)]
+    if kind == "presidential":
+        approved = {clean_name(x.get("full_name")).casefold() for x in _presidential_candidate_applications()
+                    if x.get("status") == "approved" and clean_name(x.get("full_name"))}
+        if len(cleaned) < 2 or any(name.casefold() not in approved for name in cleaned):
+            raise DKDError(409, "В президентский бюллетень можно включать только кандидатуры, утверждённые администратором.")
     if len(cleaned) < 2 or len({x.casefold() for x in cleaned}) != len(cleaned):
         raise DKDError(400, "Нужно минимум два разных варианта.")
     if len(cleaned) > 50 or any(len(x) > 200 for x in cleaned):
