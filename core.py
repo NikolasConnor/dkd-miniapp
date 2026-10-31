@@ -1893,29 +1893,33 @@ def list_documents(user: dict, admin: bool) -> dict:
     duma_active = not term_end or now < term_end
     president_end = parse_dt(_setting_get(PRESIDENT_TERM_END_KEY) or "")
     president_active = not president_end or now < president_end
+    mandate_added = False
+    president_certificate_added = False
     for item in visible:
         title = str(item.get("title") or "")
         body = str(item.get("text") or "")
         if title.startswith("Мандат депутата Госдумы"):
-            if not is_current_deputy or not duma_active:
+            if not is_current_deputy or not duma_active or mandate_added:
                 continue
-            match = re.search(r"Действителен до: ([^\n]+)", body)
+            match = re.search(r"Действителен до: ([^\\n]+)", body)
             expires = parse_dt(match.group(1).strip()) if match else None
             if expires and now >= expires:
                 continue
             item["mandate_status"] = "active"
             item.pop("secret_for_user_id", None)
             mandates.append(item)
+            mandate_added = True
         elif title == "Удостоверение Президента ДКД":
-            if not is_current_president or not president_active:
+            if not is_current_president or not president_active or president_certificate_added:
                 continue
-            match = re.search(r"Действительно до: ([^\n]+)", body)
+            match = re.search(r"Действительно до: ([^\\n]+)", body)
             expires = parse_dt(match.group(1).strip()) if match else None
             if expires and now >= expires:
                 continue
             item["certificate_status"] = "active"
             item.pop("secret_for_user_id", None)
             president_certificate.append(item)
+            president_certificate_added = True
         else:
             item.pop("secret_for_user_id", None)
             public_decrees.append(item)
