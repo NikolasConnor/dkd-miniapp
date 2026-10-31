@@ -259,8 +259,8 @@ class PresidentRoleAssignment(BaseModel):
 
 class PresidentElectionCreate(BaseModel):
     title: str = Field(min_length=2, max_length=200)
-    options: list[str] = Field(min_length=2, max_length=50)
-    ends_at: str | None = None
+    starts_at: str
+    ends_at: str
 
 
 class PresidentLawCreate(BaseModel):
@@ -295,7 +295,25 @@ def president_review_application(application_id: int, payload: PresidentApplicat
 
 @app.post("/api/president/elections/duma")
 def president_create_duma_election(payload: PresidentElectionCreate, user: dict = Depends(president_user)):
-    return {"ok": True, "election": core.president_create_duma_election(user["id"], payload.title, payload.options, payload.ends_at)}
+    return {"ok": True, "election": core.president_create_duma_election(user["id"], payload.title, payload.starts_at, payload.ends_at)}
+
+@app.get("/api/elections/duma/party-lists")
+def duma_party_lists(user: dict = Depends(auth_user)):
+    return core.list_duma_elections_for_party(user)
+
+
+class DumaPartyListSubmit(BaseModel):
+    candidates: list[str] = Field(min_length=1, max_length=50)
+
+
+@app.post("/api/elections/duma/{election_id}/party-list")
+def submit_duma_party_list(election_id: int, payload: DumaPartyListSubmit, user: dict = Depends(auth_user)):
+    return core.submit_duma_party_list(user, election_id, payload.candidates)
+
+
+@app.post("/api/admin/elections/duma/{election_id}/close")
+def admin_close_duma_election(election_id: int, user: dict = Depends(admin_user)):
+    return core.admin_close_duma_election(user["id"], election_id)
 
 
 @app.post("/api/president/laws")
