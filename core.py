@@ -1228,14 +1228,36 @@ def update_party_settings(user: dict, party_id: int, name: str, emoji: str = "�
     emoji = str(emoji or "🎭").strip()[:8] or "🎭"
     description = str(description or "").strip()
     color = str(color or "").strip()
-    if not 2 <= len(name) <= 60: raise DKDError(422, "Название партии: от 2 до 60 символов.")
-    if len(description) > 1000: raise DKDError(422, "Описание партии: не более 1000 символов.")
-    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color): raise DKDError(422, "Выберите корректный цвет партии.")
+    if not 2 <= len(name) <= 60:
+        raise DKDError(422, "Название партии: от 2 до 60 символов.")
+    if len(description) > 1000:
+        raise DKDError(422, "Описание партии: не более 1000 символов.")
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+        raise DKDError(422, "Выберите корректный цвет партии.")
     existing = rows(db().table("parties").select("id,name").eq("status", "active"))
     if any(int(p["id"]) != int(party_id) and clean_name(p["name"]).casefold() == name.casefold() for p in existing):
         raise DKDError(409, "Партия с таким названием уже существует.")
-    return execute(db().table("parties").update({"name": name, "emoji": emoji, "description": description, "color": color}).eq("id", int(party_id)), "Не удалось сохранить настройки партии.")[0]
 
+    updated = execute(
+        db().table("parties").update({
+            "name": name, "emoji": emoji, "description": description, "color": color
+        }).eq("id", int(party_id)),
+        "Не удалось сохранить настройки партии."
+    )[0]
+
+    # Синхронизируем исторический состав парламента с переименованной партией.
+    # Цвет остаётся в таблице parties и подхватывается схемой при каждом запросе.
+    old_name = str(party.get("name") or "")
+    old_emoji = str(party.get("emoji") or "🎭")
+    if old_name != name or old_emoji != emoji:
+        try:
+            db().table("duma_initial_roster").update({
+                "party_name": name, "party_emoji": emoji
+            }).eq("party_name", old_name).execute()
+        except Exception as exc:  # roster table may be absent in installations without election history
+            log.warning("Could not synchronize historical Duma party labels: %s", exc)
+    audit(uid, "party_settings_updated", None, f"party:{party_id};name:{name};color:{color}")
+    return updated
 
 def join_party(user: dict, party_id: int) -> dict:
     _require_citizen(user)
