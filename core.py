@@ -879,6 +879,14 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         raise DKDError(404, "Выборы в Госдуму не найдены.")
     saved_results = election.get("results") if isinstance(election.get("results"), dict) else {}
     if saved_results.get("parliament_term_end"):
+        # Если состав и итоги уже сохранены, повторно не назначаем роли;
+        # лишь гарантируем, что новость с итогами существует.
+        vote_counts = {str(k): int(v) for k, v in saved_results.items()
+                       if isinstance(v, (int, float)) and not isinstance(v, bool)}
+        _publish_election_results_news_once(
+            actor_id, "duma", election, vote_counts,
+            "Парламент сформирован на срок до " + str(saved_results["parliament_term_end"]) + "."
+        )
         return {"ok": True, "results": saved_results, "already_finalized": True}
 
     lists = duma_party_lists(election_id)
@@ -959,7 +967,8 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         "election_id": int(election_id), "term_start": started.isoformat(), "term_end": ends.isoformat(),
         "deputies": len(winners), "seats": 50
     }, ensure_ascii=False))
-    publish_news(actor_id, _election_results_news("duma", election, counts, "Парламент сформирован на срок до " + ends.isoformat() + "."))
+    _publish_election_results_news_once(actor_id, "duma", election, counts,
+                                         "Парламент сформирован на срок до " + ends.isoformat() + ".")
     return {"ok": True, "results": results, "deputies": roster, "term_start": started.isoformat(), "term_end": ends.isoformat()}
 
 
@@ -1632,13 +1641,16 @@ def list_news() -> list:
     return rows(db().table("news").select("id,text,created_at").order("id", desc=True).limit(30))
 
 
-def _publish_election_results_news_once(actor_id: int, kind: str, election: dict, counts: dict[str, int]) -> bool:
+def _publish_election_results_news_once(actor_id: int, kind: str, election: dict, counts: dict[str, int],
+                                           extra: str = "") -> bool:
     """Публикует итоговую новость идемпотентно по типу и ID выборов."""
     marker = f"[election-results:{kind}:{int(election['id'])}]"
     existing = rows(db().table("news").select("id,text").ilike("text", f"%{marker}%").limit(1))
     if existing:
         return False
-    text = marker + "\\n" + _election_results_news(kind, election, counts)
+    numeric_counts = {str(k): int(v) for k, v in counts.items()
+                      if isinstance(v, (int, float)) and not isinstance(v, bool)}
+    text = marker + "\\n" + _election_results_news(kind, election, numeric_counts, extra)
     publish_news(actor_id, text)
     return True
 
