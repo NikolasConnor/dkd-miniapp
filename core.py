@@ -700,6 +700,9 @@ def review_application(actor_id: int, application_id: int, status: str, note: st
     if not updated:
         raise DKDError(409, "Заявление уже рассмотрено.")
     audit(actor_id, "application_reviewed", app_row["user_id"], f"application:{application_id}:{status}")
+    decision_text = "одобрено" if status == "approved" else "отклонено"
+    create_notification(int(app_row["user_id"]), "Рассмотрено ваше заявление",
+        f"Ваше заявление («{app_row.get('kind', 'документ')}») {decision_text}." + (f"\nКомментарий: {note}" if note else ""))
     return {"ok": True, "status": status, "passport_number": passport["number"] if passport else None}
 
 
@@ -1342,6 +1345,15 @@ def create_election(actor_id: int, kind: str, title: str, options: list[str], en
         "title": title, "options": cleaned, "ends_at": end_iso, "status": "active", "results": {},
     }), "Не удалось создать выборы.")
     audit(actor_id, "election_created", None, f"{kind}:{created[0]['id']}")
+    try:
+        citizens = rows(db().table("subjects").select("user_id").eq("is_citizen", True))
+        election_label = "президентские выборы" if kind == "presidential" else "выборы в Государственную думу"
+        for citizen in citizens:
+            uid = int(citizen.get("user_id") or 0)
+            if uid:
+                create_notification(uid, "Началось голосование", f"Открыты {election_label}: «{title}». Перейдите в раздел «Выборы», чтобы ознакомиться с вариантами и проголосовать.")
+    except Exception as exc:
+        log.warning("Election-open notifications failed: %s", exc)
     return created[0]
 
 
@@ -1360,6 +1372,16 @@ def close_election(actor_id: int, kind: str, election_id: int) -> dict:
     # Повторный вызов безопасен: позволяет восстановить новость, если предыдущая
     # попытка завершила выборы, но упала при публикации результатов.
     news_published = _publish_election_results_news_once(actor_id, kind, election, counts)
+    if election.get("status") not in CLOSED_STATUSES:
+        try:
+            citizens = rows(db().table("subjects").select("user_id").eq("is_citizen", True))
+            result_text = ", ".join(f"{name}: {count}" for name, count in counts.items()) or "результаты отсутствуют"
+            for citizen in citizens:
+                uid = int(citizen.get("user_id") or 0)
+                if uid:
+                    create_notification(uid, "Опубликованы результаты выборов", f"Выборы «{election.get('title', '')}» завершены. Результаты: {result_text}.")
+        except Exception as exc:
+            log.warning("Election-result notifications failed: %s", exc)
     return {"ok": True, "results": counts, "news_published": news_published}
 
 
@@ -1498,6 +1520,10 @@ def join_party(user: dict, party_id: int) -> dict:
     purge_stale_memberships(uid)
     execute(db().table("party_members").insert({"party_id": party["id"], "username": _member_username(user), "user_id": uid}),
             "Не удалось вступить в партию.")
+    create_notification(uid, "Вы вступили в партию", f"Вы стали участником партии «{party.get('name', 'партия')}».")
+    leader_uid = int(party.get("leader_user_id") or 0)
+    if leader_uid and leader_uid != uid:
+        create_notification(leader_uid, "Новый участник партии", f"{clean_name(user.get('full_name') or user.get('username') or str(uid))} вступил(а) в партию «{party.get('name', 'партия')}».")
     return {"ok": True}
 
 
@@ -1970,6 +1996,11 @@ def submit_presidential_candidate(user: dict) -> dict:
     applications.append(entry)
     _setting_put(PRESIDENTIAL_CANDIDATES_KEY, json.dumps(applications, ensure_ascii=False))
     audit(int(user["id"]), "presidential_candidate_submitted", None, full_name)
+    try:
+        create_notification(ADMIN_ID, "Новая заявка кандидата в Президенты", f"{full_name} подал(а) заявку на участие в президентских выборах. Требуется рассмотрение.")
+    except Exception as exc:
+        log.warning("Could not notify admin about presidential candidate: %s", exc)
+    create_notification(int(user["id"]), "Заявка на пост Президента отправлена", "Ваша кандидатура отправлена администратору на рассмотрение.")
     return {"ok": True, "candidate": entry, "message": "Кандидатура отправлена администратору."}
 
 
@@ -1988,6 +2019,8 @@ def review_presidential_candidate(actor_id: int, candidate_user_id: int, status:
     entry["reviewed_at"] = utcnow().isoformat()
     _setting_put(PRESIDENTIAL_CANDIDATES_KEY, json.dumps(applications, ensure_ascii=False))
     audit(actor_id, "presidential_candidate_" + status, int(candidate_user_id), str(entry.get("full_name") or ""))
+    decision = "утверждена" if status == "approved" else "отклонена"
+    create_notification(int(candidate_user_id), "Решение по кандидатуре Президента", f"Ваша кандидатура {decision} администратором.")
     return {"ok": True, "candidate": entry}
 
 
@@ -2154,6 +2187,8 @@ def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bo
     elif not assigned and link:
         execute(db().table("subject_roles").delete().eq("subject_id", subject["id"]).eq("role_id", int(role_id)), "Не удалось снять роль.")
     audit(actor_id, "role_assigned" if assigned else "role_removed", subject["user_id"], f"role:{role_id}")
+    action = "назначена" if assigned else "снята"
+    create_notification(int(subject["user_id"]), "Изменение вашей должности", f"Вам {action} роль «{role['name']}».")
     return {"ok": True}
 
 
@@ -2196,6 +2231,8 @@ def president_set_law_status(actor_id: int, law_id: int, status: str) -> dict:
                       "Не удалось обновить статус закона.")
     audit(actor_id, "president_law_signed" if status == "signed" else "president_law_vetoed", None,
           f"law:{law_id}")
+    label = "подписан Президентом" if status == "signed" else "отправлен Президентом на вето"
+    _notify_current_deputies("Решение Президента по законопроекту", f"Законопроект «{law.get('title', '')}» {label}.")
     return updated[0] if updated else {"id": law_id, "status": status}
 
 
