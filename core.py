@@ -841,8 +841,23 @@ def _deputy_role_row() -> dict:
 
 
 def _sync_duma_term() -> None:
-    """Прекращает полномочия истёкшего созыва при первом обращении к API."""
+    """Синхронизирует срок парламента и прекращает полномочия после его окончания."""
     raw_end = _setting_get(DUMA_TERM_END_KEY)
+    if not raw_end:
+        # Первый созыв был внесён отдельной SQL-таблицей; переносим его даты в настройки
+        # Mini App, чтобы срок первого созыва тоже завершился автоматически.
+        try:
+            initial = rows(db().table("duma_initial_roster").select(
+                "parliament_term_start,parliament_term_end"
+            ).order("id").limit(1))
+            if initial and initial[0].get("parliament_term_end"):
+                raw_end = str(initial[0]["parliament_term_end"])
+                _setting_put(DUMA_TERM_END_KEY, raw_end)
+                if initial[0].get("parliament_term_start"):
+                    _setting_put(DUMA_TERM_START_KEY, str(initial[0]["parliament_term_start"]))
+                _setting_put(DUMA_TERM_STATUS_KEY, "active")
+        except Exception as exc:  # noqa: BLE001
+            log.info("Initial Duma term table is not available: %s", exc)
     if not raw_end or _setting_get(DUMA_TERM_STATUS_KEY) == "expired":
         return
     end = parse_dt(raw_end)
