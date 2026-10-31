@@ -423,12 +423,27 @@ async function disbandParty(id){const d=await api('/api/parties');const party=(d
 async function leaveParty(){const d=await api('/api/parties');const mine=(d.parties||[]).find(p=>p.is_member);if(!mine){notify('Вы не состоите в партии','error');return}const leader=!!mine.can_manage;const message=leader?'Вы действительно хотите выйти из партии и передать руководство старейшему участнику? Это действие нельзя отменить.':'Вы действительно хотите выйти из партии?';if(!confirm(message))return;try{await api('/api/parties/leave',{method:'POST',body:{}});notify(leader?'Вы вышли из партии, руководство передано':'Вы вышли из партии');await loadParties()}catch(e){notify(e.message,'error')}}
 async function createParty(e){e.preventDefault();try{await api('/api/parties',{method:'POST',body:{name:$('partyName').value.trim(),emoji:$('partyEmoji').value||'🎭',description:$('partyDescription').value.trim()}});e.target.reset();notify('Партия создана');await loadParties()}catch(err){notify(err.message,'error')}}
 async function loadDumaPartyLists(){
- const el=$('dumaPartyLists');if(!el)return;el.innerHTML='<div class="empty">Загрузка выборов…</div>';
- try{const d=await api('/api/elections/duma/party-lists');const arr=d.elections||[];
- el.innerHTML=arr.length?arr.map(e=>{const canSubmit=!!e.my_party&&e.status!=='closed';const list=e.party_lists||[];return '<article class="card"><div class="row"><strong>'+esc(e.title||'Выборы в Госдуму')+'</strong>'+statusPill(e.status==='scheduled'?'Ожидают начала':e.status==='active'?'Идут':'Завершены')+'</div><p class="muted small">Начало: '+fmtDate(e.starts_at)+' · окончание: '+fmtDate(e.ends_at)+'</p><p class="small">Подали списки: '+esc(list.map(x=>x.party_name).join(', ')||'пока никто')+'</p>'+(canSubmit?'<form class="form" onsubmit="submitDumaPartyList(event,'+Number(e.id)+')"><div class="field"><label>Кандидаты от партии '+esc(e.my_party.name)+' — по одному на строку</label><textarea name="candidates" required placeholder="ФИО кандидата 1&#10;ФИО кандидата 2">'+esc((list.find(x=>x.party_name===e.my_party.name)||{}).candidates?.join('\n')||'')+'</textarea></div><button class="btn primary">'+(e.my_list_submitted?'Обновить список партии':'Подать список партии')+'</button></form>':!e.my_party?'<p class="muted small">Подать список может только председатель партии.</p>':'<p class="muted small">Выборы завершены — приём списков закрыт.</p>')+'</article>'}).join(''):'<div class="empty">Выборы в Госдуму пока не назначены.</div>';
+ const el=$('dumaPartyLists');if(!el)return;el.innerHTML='<div class="empty">Загрузка партийного списка…</div>';
+ try{
+  const [d,t]=await Promise.all([api('/api/elections/duma/party-lists'),api('/api/elections/duma/party-template')]);
+  const arr=d.elections||[];
+  let template='';
+  if(t.party){
+   const selected=new Set((t.selected_user_ids||[]).map(Number));
+   template='<article class="card"><h3>Список кандидатов партии '+esc(t.party.emoji)+' '+esc(t.party.name)+'</h3><p class="muted small">Председатель может в любое время сформировать или изменить партийный список. Выбирать можно только действующих членов своей партии. Сохранённый состав автоматически применяется ко всем незавершённым выборам в Госдуму.</p>'+
+    ((t.members||[]).length?'<div class="form" id="dumaPartyTemplateMembers">'+t.members.map(m=>'<label class="row" style="justify-content:flex-start;gap:10px;padding:7px 0"><input type="checkbox" name="candidate_user_ids" value="'+Number(m.user_id)+'" '+(selected.has(Number(m.user_id))?'checked':'')+'><span>'+esc(m.full_name)+'</span></label>').join('')+'</div><button class="btn primary" onclick="saveDumaPartyTemplate()">Сохранить партийный список</button>':'<p class="muted">В партии пока нет участников с профилями граждан.</p>')+'</article>';
+  }else{
+   template='<article class="card"><p class="muted">Сформировать список кандидатов может председатель своей партии. Вступите в партию или создайте её, чтобы получить доступ к этому разделу.</p></article>';
+  }
+  const elections=arr.length?arr.map(e=>{const list=e.party_lists||[];return '<article class="card"><div class="row"><strong>'+esc(e.title||'Выборы в Госдуму')+'</strong>'+statusPill(e.status==='scheduled'?'Ожидают начала':e.status==='active'?'Идут':'Завершены')+'</div><p class="muted small">Начало: '+fmtDate(e.starts_at)+' · окончание: '+fmtDate(e.ends_at)+'</p><p class="small">Партийные списки: '+esc(list.map(x=>x.party_name+' ('+(x.candidates||[]).length+')').join(', ')||'пока не сформированы')+'</p></article>'}).join(''):'<div class="empty">Выборы в Госдуму пока не назначены. Партийный список можно подготовить заранее — он сохранится.</div>';
+  el.innerHTML=template+'<h3>Списки на выборах</h3>'+elections;
  }catch(e){showError(el,e)}
 }
-async function submitDumaPartyList(e,id){e.preventDefault();const candidates=new FormData(e.target).get('candidates').split(/\\n/).map(s=>s.trim()).filter(Boolean);try{await api('/api/elections/duma/'+id+'/party-list',{method:'POST',body:{candidates}});notify('Список кандидатов подан');await loadDumaPartyLists();await loadElections()}catch(err){notify(err.message,'error')}}
+async function saveDumaPartyTemplate(){
+ const box=$('dumaPartyTemplateMembers');if(!box)return;
+ const candidate_user_ids=[...box.querySelectorAll('input[name="candidate_user_ids"]:checked')].map(x=>Number(x.value));
+ try{const r=await api('/api/elections/duma/party-template',{method:'PUT',body:{candidate_user_ids}});notify('Список партии сохранён и применён к '+Number(r.synced_elections||0)+' незавершённым выборам');await loadDumaPartyLists();await loadElections()}catch(e){notify(e.message,'error')}
+}
 
 async function loadElections(){
  const el=$('electionsContent');el.innerHTML='<div class="empty">Загрузка…</div>';
