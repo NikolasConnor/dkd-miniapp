@@ -1795,16 +1795,10 @@ def _ensure_role_based_duma_mandates() -> None:
         full_name = clean_name(subject.get("full_name") or "")
         if not uid or not full_name:
             continue
-        existing = rows(db().table("decrees").select("id,title,text")
-                        .eq("secret_for_user_id", uid).like("title", "Мандат депутата Госдумы%"))
-        valid_existing = False
-        for doc in existing:
-            match = re.search(r"Действителен до: ([^\n]+)", str(doc.get("text") or ""))
-            expires = parse_dt(match.group(1).strip()) if match else None
-            if expires and now < expires:
-                valid_existing = True
-                break
-        if valid_existing:
+        # Один мандат на пользователя и текущий созыв; не отправлять повторное уведомление.
+        existing = one(db().table("decrees").select("id")
+                       .eq("title", title).eq("secret_for_user_id", uid).limit(1))
+        if existing:
             continue
         body = "\n".join([
             "ДЕМОКРАТИЧЕСКАЯ КОНФЕДЕРАЦИЯ ДЕБИЛОВ",
@@ -1849,6 +1843,7 @@ def _ensure_president_certificate() -> None:
         if term.get("expired"):
             continue
         title = "Удостоверение Президента ДКД"
+        # Одно удостоверение на пользователя; повторная проверка не создаёт дубликат.
         existing = one(db().table("decrees").select("id").eq("title", title).eq("secret_for_user_id", uid).limit(1))
         if existing:
             continue
