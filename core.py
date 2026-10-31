@@ -2431,15 +2431,39 @@ def duma_list(user: dict) -> dict:
     return {"sessions": sessions[::-1], "laws": [law for law in laws if int(law["id"]) in submitted]}
 
 
+def _notify_current_deputies(title: str, message: str, exclude_user_id: int | None = None) -> int:
+    """Рассылает персональные уведомления всем пользователям с ролью «Депутат»."""
+    try:
+        role = _deputy_role_row()
+        links = fetch_all(lambda: db().table("subject_roles").select("subject_id").eq("role_id", int(role["id"])))
+        subject_ids = sorted({int(row["subject_id"]) for row in links if row.get("subject_id")})
+        subjects = select_in("subjects", "id,user_id,full_name", "id", subject_ids)
+    except Exception as exc:
+        log.warning("Could not resolve deputies for notification: %s", exc)
+        return 0
+    sent = 0
+    for subject in subjects:
+        try:
+            uid = int(subject.get("user_id") or 0)
+            if not uid or (exclude_user_id is not None and uid == int(exclude_user_id)):
+                continue
+            create_notification(uid, title, message)
+            sent += 1
+        except Exception as exc:
+            log.warning("Deputy notification failed: %s", exc)
+    return sent
+
 def duma_open_session(actor_id: int, title: str) -> dict:
     title = clean_name(title)
     if not 2 <= len(title) <= 160:
         raise DKDError(422, "Название заседания должно содержать от 2 до 160 символов.")
+    created_at = now_iso()
     row = execute(db().table("audit_log").insert({
         "actor_user_id": int(actor_id), "action": "duma_session_opened",
-        "target_user_id": None, "details": json.dumps({"title": title, "created_at": now_iso()}, ensure_ascii=False)
+        "target_user_id": None, "details": json.dumps({"title": title, "created_at": created_at}, ensure_ascii=False)
     }), "Не удалось открыть заседание Государственной думы.")[0]
-    return {"id": int(row["id"]), "title": title, "created_at": now_iso(), "closed": False, "laws": []}
+    _notify_current_deputies("Открыто заседание Госдумы", f"Началось заседание Государственной думы: «{title}». Откройте Mini App → раздел Госдумы.")
+    return {"id": int(row["id"]), "title": title, "created_at": created_at, "closed": False, "laws": []}
 
 
 def duma_close_session(actor_id: int, session_id: int) -> dict:
@@ -2450,6 +2474,12 @@ def duma_close_session(actor_id: int, session_id: int) -> dict:
     if any(e.get("action") == "duma_session_closed" and str(session_id) in str(e.get("details", "")) for e in events):
         raise DKDError(409, "Заседание уже закрыто.")
     audit(actor_id, "duma_session_closed", None, json.dumps({"session_id": int(session_id)}, ensure_ascii=False))
+    try:
+        payload = json.loads(opened.get("details") or "{}")
+    except (TypeError, ValueError):
+        payload = {}
+    session_title = payload.get("title", "Заседание Государственной думы")
+    _notify_current_deputies("Заседание Госдумы завершено", f"Заседание «{session_title}» закрыто.")
     return {"ok": True, "session_id": int(session_id), "closed": True}
 
 
@@ -2469,6 +2499,8 @@ def duma_submit_law(actor_id: int, session_id: int, title: str, description: str
     law = execute(db().table("laws").insert({"title": title, "description": description, "status": "under_duma_review"}),
                   "Не удалось подать законопроект.")[0]
     audit(actor_id, "duma_law_submitted", None, json.dumps({"law_id": int(law["id"]), "session_id": int(session_id)}, ensure_ascii=False))
+    _notify_current_deputies("Началось голосование по законопроекту",
+        f"На заседании «{session.get('title', 'Государственная Дума')}» внесён законопроект «{title}». Голосование открыто: выберите «За» или «Против» в разделе Госдумы.")
     return law
 
 
@@ -2516,6 +2548,12 @@ def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
         status = "rejected_by_duma"
     else:
         status = "under_duma_review"
+    if status == "awaiting_president":
+        _notify_current_deputies("Законопроект принят Госдумой",
+            f"Законопроект «{law.get('title', '')}» принят большинством и направлен Президенту на рассмотрение. Результат: за — {yes}, против — {no}.")
+    elif status == "rejected_by_duma":
+        _notify_current_deputies("Законопроект отклонён",
+            f"Голосование по законопроекту «{law.get('title', '')}» завершено. Законопроект отклонён. Результат: за — {yes}, против — {no}.")
     return {"ok": True, "status": status, "votes_for": yes, "votes_against": no, "deputies_total": len(set(deputies))}
 
 
