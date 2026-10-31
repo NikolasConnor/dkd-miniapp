@@ -61,6 +61,7 @@
         <button class="tile" onclick="showDocTab('passport')"><span class="icon">🪪</span><strong>Мой паспорт</strong><span>Статус гражданства</span></button>
         <button class="tile" onclick="showDocTab('applications')"><span class="icon">📝</span><strong>Заявления</strong><span>Подать и отслеживать</span></button>
         <button class="tile" onclick="showDocTab('mandates')"><span class="icon">🏛️</span><strong>Мандат депутата</strong><span>Удостоверение и срок полномочий</span></button>
+        <button class="tile" onclick="showDocTab('president-id')"><span class="icon">👑</span><strong>Удостоверение Президента</strong><span>Президентские полномочия</span></button>
         <button class="tile" onclick="showDocTab('laws')"><span class="icon">⚖️</span><strong>Законы и указы</strong><span>Государственные документы</span></button>
       </div>
       <div id="docTabContent"></div>
@@ -402,6 +403,12 @@ function showDocTab(tab){
     const mandates=(state.docs||{}).mandates||[];
     if(!mandates.length){el.innerHTML='<div class="empty">Действующего депутатского мандата нет. Он выдаётся только действующим депутатам Госдумы и действует в течение срока созыва.</div>';return}
     el.innerHTML='<div class="section-head"><h3>Мои депутатские мандаты</h3></div><div class="list">'+mandates.map(m=>'<article class="card"><div class="row"><strong>🏛️ '+esc(m.title||'Мандат депутата Госдумы')+'</strong>'+statusPill(m.mandate_status==='active'?'Действует':'Истёк')+'</div><p style="white-space:pre-wrap">'+esc(m.text||'')+'</p><small class="muted">'+fmtDate(m.created_at)+'</small></article>').join('')+'</div>';
+    return
+  }
+  if(tab==='president-id'){
+    const certificates=(state.docs||{}).president_certificate||[];
+    if(!certificates.length){el.innerHTML='<div class="empty">Удостоверение доступно только действующему Президенту ДКД.</div>';return}
+    el.innerHTML='<div class="section-head"><h3>Моё удостоверение Президента</h3></div><div class="list">'+certificates.map(d=>'<article class="card"><div class="row"><strong>👑 '+esc(d.title||'Удостоверение Президента ДКД')+'</strong>'+statusPill(d.certificate_status==='active'?'Действует':'Истёк')+'</div><p style="white-space:pre-wrap">'+esc(d.text||'')+'</p><small class="muted">'+fmtDate(d.created_at)+'</small></article>').join('')+'</div>';
     return
   }
   if(tab==='laws'){
