@@ -1060,9 +1060,17 @@ def list_elections(user_id: int) -> dict:
                 view["vote_counts"] = counts
                 view["votes_total"] = sum(counts.values())
                 if e.get("status") not in CLOSED_STATUSES:
-                    execute(db().table(table).update({"status": "closed", "results": counts}).eq("id", int(e["id"])),
-                            "Не удалось сохранить итоги завершившихся выборов.")
-                    publish_news(0, _election_results_news(kind, e, counts))
+                    # Не ломаем загрузку списка выборов из-за сбоя публикации новости.
+                    try:
+                        execute(db().table(table).update({"status": "closed", "results": counts}).eq("id", int(e["id"])),
+                                "Не удалось сохранить итоги завершившихся выборов.")
+                    except Exception as exc:
+                        log.exception("Не удалось сохранить итоги выборов %s/%s", kind, e.get("id"))
+                    else:
+                        try:
+                            _publish_election_results_news_once(0, kind, e, counts)
+                        except Exception:
+                            log.exception("Не удалось опубликовать итоги выборов %s/%s", kind, e.get("id"))
             out.append(view)
         result[kind] = out
     return result
@@ -1195,14 +1203,15 @@ def close_election(actor_id: int, kind: str, election_id: int) -> dict:
     election = one(db().table(table).select(ELECTION_COLS).eq("id", int(election_id)).limit(1))
     if not election:
         raise DKDError(404, "Выборы не найдены.")
-    if election.get("status") in CLOSED_STATUSES:
-        raise DKDError(409, "Выборы уже завершены.")
     counts = tally(kind, election_id)
-    execute(db().table(table).update({"status": "closed", "results": counts}).eq("id", int(election_id)),
-            "Не удалось завершить выборы.")
-    audit(actor_id, "election_closed", None, f"{kind}:{election_id}")
-    publish_news(actor_id, _election_results_news(kind, election, counts))
-    return {"ok": True, "results": counts}
+    if election.get("status") not in CLOSED_STATUSES:
+        execute(db().table(table).update({"status": "closed", "results": counts}).eq("id", int(election_id)),
+                "Не удалось завершить выборы.")
+        audit(actor_id, "election_closed", None, f"{kind}:{election_id}")
+    # Повторный вызов безопасен: позволяет восстановить новость, если предыдущая
+    # попытка завершила выборы, но упала при публикации результатов.
+    news_published = _publish_election_results_news_once(actor_id, kind, election, counts)
+    return {"ok": True, "results": counts, "news_published": news_published}
 
 
 # ----------------------------------------------------------------------------
@@ -1621,6 +1630,17 @@ def review_presidential_candidate(actor_id: int, candidate_user_id: int, status:
 
 def list_news() -> list:
     return rows(db().table("news").select("id,text,created_at").order("id", desc=True).limit(30))
+
+
+def _publish_election_results_news_once(actor_id: int, kind: str, election: dict, counts: dict[str, int]) -> bool:
+    """Публикует итоговую новость идемпотентно по типу и ID выборов."""
+    marker = f"[election-results:{kind}:{int(election['id'])}]"
+    existing = rows(db().table("news").select("id,text").ilike("text", f"%{marker}%").limit(1))
+    if existing:
+        return False
+    text = marker + "\\n" + _election_results_news(kind, election, counts)
+    publish_news(actor_id, text)
+    return True
 
 
 def publish_news(actor_id: int, text: str) -> dict:
