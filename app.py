@@ -217,6 +217,63 @@ def disband_party(party_id: int, user: dict = Depends(auth_user)):
     return core.disband_party(user, core.is_admin(user), party_id)
 
 
+
+class AdminPartyCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=60)
+    emoji: str = Field(default="🎭", max_length=8)
+    description: str = Field(default="", max_length=1000)
+    color: str = Field(default="#4169e1", pattern="^#[0-9A-Fa-f]{6}$")
+    leader_telegram_id: int = Field(gt=0)
+    leader_full_name: str = Field(min_length=2, max_length=120)
+
+
+class AdminPartyMember(BaseModel):
+    telegram_id: int = Field(gt=0)
+    full_name: str = Field(min_length=2, max_length=120)
+
+
+@app.post("/api/admin/parties")
+def admin_create_party(payload: AdminPartyCreate, user: dict = Depends(admin_user)):
+    return core.admin_create_party(user["id"], payload.name, payload.emoji, payload.description,
+                                   payload.color, payload.leader_telegram_id, payload.leader_full_name)
+
+
+@app.post("/api/admin/parties/{party_id}/members")
+def admin_add_party_member(party_id: int, payload: AdminPartyMember, user: dict = Depends(admin_user)):
+    return core.admin_add_party_member(user["id"], party_id, payload.telegram_id, payload.full_name)
+
+
+@app.put("/api/admin/parties/{party_id}/leader")
+def admin_set_party_leader(party_id: int, payload: AdminPartyMember, user: dict = Depends(admin_user)):
+    return core.admin_set_party_leader(user["id"], party_id, payload.telegram_id, payload.full_name)
+
+
+class PastElectionResult(BaseModel):
+    option: str = Field(min_length=1, max_length=200)
+    votes: int = Field(ge=0)
+
+
+class PastElectionCreate(BaseModel):
+    kind: str = Field(pattern="^(president|presidential|duma)$")
+    title: str = Field(min_length=3, max_length=160)
+    election_date: str = Field(min_length=10, max_length=40)
+    results: list[PastElectionResult] = Field(min_length=2, max_length=50)
+    term_start: str | None = None
+    term_end: str | None = None
+
+
+@app.get("/api/admin/election-history")
+def admin_election_history(user: dict = Depends(admin_user)):
+    return {"elections": core.admin_list_election_history()}
+
+
+@app.post("/api/admin/election-history")
+def admin_create_past_election(payload: PastElectionCreate, user: dict = Depends(admin_user)):
+    return core.admin_add_past_election(user["id"], payload.kind, payload.title, payload.election_date,
+                                        [item.model_dump() for item in payload.results],
+                                        payload.term_start, payload.term_end)
+
+
 # ----------------------------------------------------------------------------
 # Выборы
 # ----------------------------------------------------------------------------
