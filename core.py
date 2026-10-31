@@ -1139,7 +1139,7 @@ def close_election(actor_id: int, kind: str, election_id: int) -> dict:
 # Партии
 # ----------------------------------------------------------------------------
 
-PARTY_COLS = "id,name,emoji,description,leader_username,leader_user_id,status"
+PARTY_COLS = "id,name,emoji,description,leader_username,leader_user_id,status,color"
 
 
 def _member_username(user: dict) -> str:
@@ -1165,7 +1165,7 @@ def list_parties(user: dict, admin: bool) -> dict:
         if is_mine:
             my_party_id = p["id"]
         out.append({
-            "id": p["id"], "name": p["name"], "emoji": p.get("emoji") or "🎭", "description": p.get("description"),
+            "id": p["id"], "name": p["name"], "emoji": p.get("emoji") or "🎭", "description": p.get("description"), "color": p.get("color") or "#4169e1",
             "leader_username": p.get("leader_username"), "status": p["status"],
             "members_count": len(ms),
             "members": [{
@@ -1215,6 +1215,26 @@ def create_party(user: dict, name: str, emoji: str = "🎭", description: str = 
         execute(db().table("parties").delete().eq("id", party["id"]))  # откат: партия без председателя не нужна
         raise
     return party
+
+
+def update_party_settings(user: dict, party_id: int, name: str, emoji: str = "🎭", description: str = "", color: str = "#4169e1") -> dict:
+    uid = int(user["id"])
+    party = one(db().table("parties").select(PARTY_COLS).eq("id", int(party_id)).limit(1))
+    if not party or party.get("status") != "active":
+        raise DKDError(404, "Партия не найдена.")
+    if int(party.get("leader_user_id") or 0) != uid:
+        raise DKDError(403, "Настройки партии может менять только её председатель.")
+    name = clean_name(name)
+    emoji = str(emoji or "🎭").strip()[:8] or "🎭"
+    description = str(description or "").strip()
+    color = str(color or "").strip()
+    if not 2 <= len(name) <= 60: raise DKDError(422, "Название партии: от 2 до 60 символов.")
+    if len(description) > 1000: raise DKDError(422, "Описание партии: не более 1000 символов.")
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color): raise DKDError(422, "Выберите корректный цвет партии.")
+    existing = rows(db().table("parties").select("id,name").eq("status", "active"))
+    if any(int(p["id"]) != int(party_id) and clean_name(p["name"]).casefold() == name.casefold() for p in existing):
+        raise DKDError(409, "Партия с таким названием уже существует.")
+    return execute(db().table("parties").update({"name": name, "emoji": emoji, "description": description, "color": color}).eq("id", int(party_id)), "Не удалось сохранить настройки партии.")[0]
 
 
 def join_party(user: dict, party_id: int) -> dict:
@@ -1816,7 +1836,14 @@ def public_duma_roster() -> dict:
     parties = {}
     for row in data:
         name = str(row.get("party_name") or "Без партии")
-        p = parties.setdefault(name, {"name": name, "emoji": row.get("party_emoji") or "🎭", "votes": int(row.get("party_votes") or 0), "vote_percent": float(row.get("party_vote_percent") or 0), "seats": 0, "members": []})
+        p = parties.setdefault(name, {"name": name, "emoji": row.get("party_emoji") or "🎭", "color": "#4169e1", "votes": int(row.get("party_votes") or 0), "vote_percent": float(row.get("party_vote_percent") or 0), "seats": 0, "members": []})
+        try:
+            live_party = one(db().table("parties").select("color,emoji").eq("name", name).limit(1))
+            if live_party:
+                p["color"] = live_party.get("color") or p["color"]
+                p["emoji"] = live_party.get("emoji") or p["emoji"]
+        except Exception:
+            pass
         if row.get("elected_to_duma"):
             seats = int(row.get("seats") or 0)
             p["seats"] += seats
