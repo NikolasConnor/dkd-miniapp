@@ -1516,6 +1516,148 @@ def _duma_events() -> list[dict]:
     ]).order("id"))
 
 
+PRESIDENTIAL_ELECTION_ACTION = "duma_presidential_election_called"
+IMPEACHMENT_PROPOSED = "president_impeachment_proposed"
+IMPEACHMENT_VOTE = "president_impeachment_vote"
+IMPEACHMENT_COMPLETED = "president_impeachment_completed"
+
+
+def _current_president_subject() -> dict | None:
+    role = one(db().table("roles").select("id,name").eq("name", president_role_name()).limit(1))
+    if not role:
+        return None
+    links = rows(db().table("subject_roles").select("subject_id").eq("role_id", int(role["id"])))
+    for link in links:
+        subject = one(db().table("subjects").select("id,user_id,full_name").eq("id", int(link["subject_id"])).limit(1))
+        if subject:
+            return subject
+    return None
+
+
+def _duma_impeachment_events() -> list[dict]:
+    return fetch_all(lambda: db().table("audit_log").select("id,actor_user_id,action,details")
+        .in_("action", [IMPEACHMENT_PROPOSED, IMPEACHMENT_VOTE, IMPEACHMENT_COMPLETED, PRESIDENTIAL_ELECTION_ACTION]).order("id"))
+
+
+def _latest_impeachment() -> dict | None:
+    latest = None
+    for event in _duma_impeachment_events():
+        if event.get("action") == IMPEACHMENT_PROPOSED:
+            try: payload = json.loads(event.get("details") or "{}")
+            except (TypeError, ValueError): payload = {}
+            latest = {"id": int(event["id"]), "reason": payload.get("reason", ""), "created_at": payload.get("created_at"),
+                      "votes_for": 0, "votes_against": 0, "status": "open", "voters": {}}
+            continue
+        if not latest: continue
+        try: payload = json.loads(event.get("details") or "{}")
+        except (TypeError, ValueError): payload = {}
+        if event.get("action") == IMPEACHMENT_VOTE and int(payload.get("motion_id", 0)) == latest["id"]:
+            latest["voters"][str(int(event["actor_user_id"]))] = {"vote": payload.get("vote"), "seats": int(payload.get("seats") or 1)}
+        elif event.get("action") == IMPEACHMENT_COMPLETED and int(payload.get("motion_id", 0)) == latest["id"]:
+            latest["status"] = payload.get("status", "closed")
+    latest = latest
+    if latest:
+        latest["votes_for"] = sum(v["seats"] for v in latest["voters"].values() if v["vote"] == "for")
+        latest["votes_against"] = sum(v["seats"] for v in latest["voters"].values() if v["vote"] == "against")
+        latest["required_seats"] = 34
+    return latest
+
+
+def duma_constitutional_status(user: dict) -> dict:
+    require_deputy(user)
+    _sync_duma_term()
+    presidential_end = _setting_value(PRESIDENT_TERM_END_KEY)
+    presidential_start = _setting_value(PRESIDENT_TERM_START_KEY)
+    president_uid = _setting_value(PRESIDENT_TERM_USER_KEY)
+    expired = False
+    if presidential_end:
+        dt = parse_dt(presidential_end)
+        expired = bool(dt and utcnow() >= dt)
+    else:
+        current = _current_president_subject()
+        if current:
+            term = _ensure_president_term(int(current["user_id"]))
+            presidential_start, presidential_end = term["start_at"], term["end_at"]
+            expired = term["expired"]
+            president_uid = str(current["user_id"])
+    election_already_called = False
+    for event in _duma_impeachment_events():
+        if event.get("action") == PRESIDENTIAL_ELECTION_ACTION:
+            try: payload = json.loads(event.get("details") or "{}")
+            except (TypeError, ValueError): payload = {}
+            if payload.get("term_end") == presidential_end:
+                election_already_called = True
+    return {"president_term_start": presidential_start, "president_term_end": presidential_end,
+            "president_term_expired": expired, "presidential_election_called": election_already_called,
+            "impeachment": _latest_impeachment()}
+
+
+def duma_call_presidential_election(actor_id: int) -> dict:
+    require_deputy({"id": actor_id})
+    status = duma_constitutional_status({"id": actor_id})
+    if not status["president_term_expired"]:
+        raise DKDError(409, "Назначить президентские выборы через парламент можно после истечения срока действующего Президента.")
+    if status["presidential_election_called"]:
+        raise DKDError(409, "Выборы Президента на этот срок уже назначены.")
+    subjects = rows(db().table("subjects").select("full_name,is_citizen").limit(1000))
+    candidates = sorted({clean_name(x.get("full_name")) for x in subjects
+                         if x.get("is_citizen") and clean_name(x.get("full_name"))}, key=str.casefold)
+    if len(candidates) < 2:
+        raise DKDError(409, "Для президентских выборов нужны минимум два гражданина с заполненным ФИО.")
+    now = utcnow()
+    end = now + timedelta(days=7)
+    election = create_election(actor_id, "president", "Выборы Президента ДКД", candidates, end.isoformat())
+    audit(actor_id, PRESIDENTIAL_ELECTION_ACTION, None, json.dumps({"election_id": int(election["id"]), "term_end": status["president_term_end"], "created_at": now.isoformat()}, ensure_ascii=False))
+    return {"ok": True, "election": election, "candidate_count": len(candidates), "ends_at": end.isoformat()}
+
+
+def duma_propose_impeachment(actor_id: int, reason: str) -> dict:
+    require_deputy({"id": actor_id})
+    reason = str(reason or "").strip()
+    if len(reason) < 10 or len(reason) > 3000:
+        raise DKDError(422, "Укажите обоснование импичмента длиной от 10 до 3000 символов.")
+    current = _latest_impeachment()
+    if current and current["status"] == "open":
+        raise DKDError(409, "Уже идёт голосование по импичменту.")
+    president = _current_president_subject()
+    if not president:
+        raise DKDError(409, "В базе не найден действующий Президент.")
+    event = audit(actor_id, IMPEACHMENT_PROPOSED, None, json.dumps({"reason": reason, "created_at": utcnow().isoformat()}, ensure_ascii=False))
+    return {"ok": True, "motion_id": int(event["id"]), "status": "open"}
+
+
+def duma_vote_impeachment(actor_id: int, vote: str) -> dict:
+    require_deputy({"id": actor_id})
+    if vote not in ("for", "against"):
+        raise DKDError(422, "Голос должен быть «за» или «против».")
+    motion = _latest_impeachment()
+    if not motion or motion["status"] != "open":
+        raise DKDError(409, "Нет открытого голосования по импичменту.")
+    if str(actor_id) in motion["voters"]:
+        raise DKDError(409, "Вы уже проголосовали по этому вопросу.")
+    subject = get_subject(actor_id)
+    if not subject:
+        raise DKDError(403, "Профиль депутата не найден.")
+    full_name = clean_name(subject.get("full_name")).casefold()
+    roster = public_duma_roster()
+    member = next((m for m in roster.get("members", []) if clean_name(m.get("full_name")).casefold() == full_name), None)
+    seats = int(member.get("seats") or 1) if member else 1
+    audit(actor_id, IMPEACHMENT_VOTE, None, json.dumps({"motion_id": motion["id"], "vote": vote, "seats": seats}, ensure_ascii=False))
+    motion = _latest_impeachment()
+    if motion["votes_for"] >= 34:
+        role = one(db().table("roles").select("id,name").eq("name", president_role_name()).limit(1))
+        president = _current_president_subject()
+        if role and president:
+            execute(db().table("subject_roles").delete().eq("subject_id", int(president["id"])).eq("role_id", int(role["id"])),
+                    "Не удалось прекратить президентские полномочия после импичмента.")
+        audit(actor_id, IMPEACHMENT_COMPLETED, None, json.dumps({"motion_id": motion["id"], "status": "approved", "votes_for": motion["votes_for"], "votes_against": motion["votes_against"]}, ensure_ascii=False))
+        motion["status"] = "approved"
+    elif motion["votes_against"] >= 34:
+        audit(actor_id, IMPEACHMENT_COMPLETED, None, json.dumps({"motion_id": motion["id"], "status": "rejected", "votes_for": motion["votes_for"], "votes_against": motion["votes_against"]}, ensure_ascii=False))
+        motion["status"] = "rejected"
+    return {"ok": True, "impeachment": motion}
+
+
 def duma_list(user: dict) -> dict:
     require_deputy(user)
     events = _duma_events()
