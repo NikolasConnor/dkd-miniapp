@@ -1768,9 +1768,72 @@ def mark_all_notifications_read(user: dict) -> dict:
 # ----------------------------------------------------------------------------
 
 
+def _ensure_role_based_duma_mandates() -> None:
+    """Выдаёт мандат каждому пользователю, у которого назначена роль «Депутат»."""
+    _sync_duma_term()
+    if _setting_get(DUMA_TERM_STATUS_KEY) == "expired":
+        return
+    role = _deputy_role_row()
+    links = fetch_all(lambda: db().table("subject_roles").select("subject_id")
+                      .eq("role_id", int(role["id"])))
+    if not links:
+        return
+    subject_ids = sorted({int(x["subject_id"]) for x in links if x.get("subject_id")})
+    subjects = select_in("subjects", "id,user_id,full_name", "id", subject_ids)
+    if not subjects:
+        return
+    start_raw = _setting_get(DUMA_TERM_START_KEY)
+    end_raw = _setting_get(DUMA_TERM_END_KEY)
+    start_dt = parse_dt(start_raw) if start_raw else None
+    end_dt = parse_dt(end_raw) if end_raw else None
+    now = utcnow()
+    if end_dt and now >= end_dt:
+        return
+    if not start_dt:
+        start_dt = now
+    if not end_dt:
+        end_dt = _add_months(start_dt, 3)
+        _setting_put(DUMA_TERM_START_KEY, start_dt.isoformat())
+        _setting_put(DUMA_TERM_END_KEY, end_dt.isoformat())
+        _setting_put(DUMA_TERM_STATUS_KEY, "active")
+    election_id_raw = _setting_get(DUMA_TERM_ELECTION_KEY)
+    election_id = int(election_id_raw) if election_id_raw and election_id_raw.isdigit() else 0
+    title = f"Мандат депутата Госдумы · созыв №{election_id}" if election_id else "Мандат депутата Госдумы"
+    for subject in subjects:
+        uid = int(subject.get("user_id") or 0)
+        full_name = clean_name(subject.get("full_name") or "")
+        if not uid or not full_name:
+            continue
+        existing = one(db().table("decrees").select("id")
+                       .eq("title", title).eq("secret_for_user_id", uid).limit(1))
+        if existing:
+            continue
+        body = "\\n".join([
+            "ДЕМОКРАТИЧЕСКАЯ КОНФЕДЕРАЦИЯ ДЕБИЛОВ",
+            "ГОСУДАРСТВЕННАЯ ДУМА",
+            "",
+            "УДОСТОВЕРЕНИЕ / МАНДАТ ДЕПУТАТА",
+            "",
+            f"Настоящим подтверждается, что {full_name} занимает должность депутата Государственной Думы.",
+            f"Дата выдачи: {start_dt.isoformat()}.",
+            f"Действителен до: {end_dt.isoformat()}.",
+            "",
+            "Мандат действует только при наличии должности депутата и в течение трёхмесячного срока полномочий.",
+        ])
+        execute(db().table("decrees").insert({
+            "title": title, "text": body, "is_secret": True, "secret_for_user_id": uid,
+        }), "Не удалось выдать мандат действующему депутату.")
+        try:
+            create_notification(uid, "Вам выдан депутатский мандат",
+                f"Вам выдан мандат депутата Госдумы. Он действует до {end_dt.isoformat()}. Документ доступен в разделе «Документы».")
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Mandate notification failed for user %s: %s", uid, exc)
+
+
 def list_documents(user: dict, admin: bool) -> dict:
     uid = int(user["id"])
     laws = rows(db().table("laws").select("id,title,description,status,created_at").order("id", desc=True).limit(50))
+    _ensure_role_based_duma_mandates()
     decrees = rows(db().table("decrees").select("id,title,text,is_secret,secret_for_user_id,created_at").order("id", desc=True).limit(150))
     visible = [d for d in decrees if not d.get("is_secret") or d.get("secret_for_user_id") == uid][:150]
     mandates = []
