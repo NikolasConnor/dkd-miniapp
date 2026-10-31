@@ -18,6 +18,8 @@ import re
 import secrets
 import time
 import uuid
+import urllib.error
+import urllib.request
 from collections import Counter
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -991,6 +993,10 @@ def _issue_duma_mandates(election_id: int, deputies: list[dict], term_start: str
             "title": title, "text": body, "is_secret": True,
             "secret_for_user_id": user_id,
         }), "Не удалось выдать мандат депутату.")
+        create_notification(
+            user_id, "Вам выдан депутатский мандат",
+            f"Вам выдан мандат депутата Госдумы. Срок полномочий действует до {term_end}. Документ доступен в разделе «Документы» Mini App."
+        )
         created += 1
     return created
 
@@ -1689,6 +1695,72 @@ def admin_list_election_history() -> list[dict]:
             })
     history.sort(key=lambda x: str(x.get("date") or x.get("created_at") or ""), reverse=True)
     return history[:100]
+
+
+# ----------------------------------------------------------------------------
+# Уведомления: лента Mini App + личные сообщения Telegram
+# ----------------------------------------------------------------------------
+
+
+def send_telegram_message(user_id: int, message: str) -> bool:
+    """Отправляет личное сообщение через BOT_TOKEN; ошибка Telegram не ломает основную операцию."""
+    token = env("BOT_TOKEN")
+    if not token or not user_id:
+        return False
+    payload = json.dumps({"chat_id": int(user_id), "text": str(message or "")[:4096]}).encode("utf-8")
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/sendMessage",
+        data=payload, headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        return bool(result.get("ok"))
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+        log.warning("Telegram notification to %s failed: %s", user_id, exc)
+        return False
+
+
+def create_notification(user_id: int, title: str, message: str, send_telegram: bool = True) -> dict:
+    """Сохраняет персональное уведомление и, если включено, дублирует его в Telegram."""
+    if not user_id:
+        return {}
+    row = execute(db().table("notifications").insert({
+        "user_id": int(user_id), "title": clean_name(title)[:160],
+        "message": str(message or "")[:4000], "is_read": False,
+    }), "Не удалось создать уведомление.")[0]
+    if send_telegram:
+        send_telegram_message(int(user_id), f"🔔 {clean_name(title)}\n\n{str(message or '')[:3900]}")
+    return row
+
+
+def list_notifications(user: dict) -> dict:
+    items = rows(db().table("notifications").select(
+        "id,title,message,is_read,created_at,read_at"
+    ).eq("user_id", int(user["id"])).order("id", desc=True).limit(100))
+    return {"notifications": items, "unread_count": sum(1 for item in items if not item.get("is_read"))}
+
+
+def mark_notification_read(user: dict, notification_id: int) -> dict:
+    uid = int(user["id"])
+    item = one(db().table("notifications").select("id,is_read")
+               .eq("id", int(notification_id)).eq("user_id", uid).limit(1))
+    if not item:
+        raise DKDError(404, "Уведомление не найдено.")
+    if not item.get("is_read"):
+        execute(db().table("notifications").update({
+            "is_read": True, "read_at": now_iso()
+        }).eq("id", int(notification_id)).eq("user_id", uid),
+            "Не удалось отметить уведомление прочитанным.")
+    return {"ok": True}
+
+
+def mark_all_notifications_read(user: dict) -> dict:
+    execute(db().table("notifications").update({
+        "is_read": True, "read_at": now_iso()
+    }).eq("user_id", int(user["id"])).eq("is_read", False),
+        "Не удалось отметить уведомления прочитанными.")
+    return {"ok": True}
 
 
 # ----------------------------------------------------------------------------
