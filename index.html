@@ -103,6 +103,16 @@
         </form>
         <div id="dumaSessions"><div class="empty">Загрузка заседаний…</div></div>
       </div>
+      <div class="card parliament-constitutional">
+        <div class="section-head"><h3>Конституционные полномочия парламента</h3><button class="btn secondary" onclick="loadDumaConstitutional()">Обновить</button></div>
+        <div id="dumaConstitutionalStatus"><div class="empty">Загрузка срока Президента…</div></div>
+        <div id="dumaCallElectionBox" class="form" style="display:none"><p class="muted small">Срок Президента истёк. Депутаты могут назначить новые президентские выборы.</p><button class="btn primary" onclick="callPresidentialElection()">Назначить выборы Президента</button></div>
+        <form class="form" onsubmit="proposeImpeachment(event)">
+          <div class="field"><label for="impeachmentReason">Основания для импичмента</label><textarea id="impeachmentReason" minlength="10" maxlength="3000" required placeholder="Опишите причины постановки вопроса об импичменте"></textarea></div>
+          <button class="btn secondary">Внести предложение об импичменте</button>
+        </form>
+        <div id="impeachmentVoteControls" class="row" style="display:none;gap:8px;margin-top:12px"><button class="btn primary" onclick="voteImpeachment('for')">За импичмент</button><button class="btn secondary" onclick="voteImpeachment('against')">Против</button></div>
+      </div>
       <div class="card parliament-next">
         <div class="section-head"><h3>Как сформируется парламент</h3></div>
         <div class="parliament-steps">
@@ -225,8 +235,23 @@ async function api(url, opts={}) {
 }
 function showError(target,err){if(target)target.innerHTML=`<div class="notice error">${esc(err.message||err)}</div>`}
 function canOpenParliament(){return true}
+async function loadDumaConstitutional(){
+ const box=$('dumaConstitutionalStatus');if(!box)return;
+ try{
+  const d=await api('/api/duma/constitutional-status');
+  const term=d.president_term_end?fmtDate(d.president_term_end):'не установлен';
+  box.innerHTML='<div class="notice '+(d.president_term_expired?'error':'')+'">Срок Президента: до '+esc(term)+'. '+(d.president_term_expired?'Срок истёк — парламент может назначить выборы.':'Назначить президентские выборы через парламент можно после окончания срока.')+'</div>';
+  $('dumaCallElectionBox').style.display=d.president_term_expired&&!d.presidential_election_called?'block':'none';
+  const m=d.impeachment;
+  if(m){box.innerHTML+='<div class="notice"><strong>Импичмент: '+esc(m.status==='open'?'идёт голосование':m.status==='approved'?'одобрен':m.status==='rejected'?'отклонён':m.status)+'</strong><p>'+esc(m.reason||'')+'</p><p>За: '+Number(m.votes_for||0)+' мест · против: '+Number(m.votes_against||0)+' мест · необходимо 34 из 50.</p></div>';const controls=$('impeachmentVoteControls');controls.style.display=m.status==='open'?'flex':'none';if(m.voters&&m.voters[String(state.profile?.user_id||'')])controls.style.display='none';}
+ }catch(e){box.innerHTML='<div class="notice error">'+esc(e.message||'Не удалось загрузить конституционные полномочия')+'</div>';}
+}
+async function callPresidentialElection(){if(!confirm('Назначить президентские выборы?'))return;try{const r=await api('/api/duma/presidential-election',{method:'POST',body:JSON.stringify({})});alert('Выборы Президента назначены. Кандидатов: '+r.candidate_count+'.');await loadDumaConstitutional();}catch(e){alert(e.message||'Не удалось назначить выборы');}}
+async function proposeImpeachment(e){e.preventDefault();try{await api('/api/duma/impeachment',{method:'POST',body:JSON.stringify({reason:$('impeachmentReason').value})});$('impeachmentReason').value='';await loadDumaConstitutional();alert('Предложение об импичменте внесено.');}catch(err){alert(err.message||'Не удалось внести предложение');}}
+async function voteImpeachment(vote){try{await api('/api/duma/impeachment/vote',{method:'POST',body:JSON.stringify({vote})});await loadDumaConstitutional();}catch(e){alert(e.message||'Не удалось проголосовать');}}
 async function loadParliament(){
  const view=$('parliamentView');if(view)view.scrollIntoView({block:'start',behavior:'smooth'});
+ if(state.isDeputy||state.isAdmin)loadDumaConstitutional();
  try{
   const r=await api('/api/parliament-roster');
   $('parliamentSeatsOccupied').textContent=Number(r.seats_occupied||0);
