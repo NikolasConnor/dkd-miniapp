@@ -71,10 +71,12 @@
       <div class="muted small">Председатели партий могут изменить цвет в разделе «Состав партии» → «Настройки партии».</div>
       <form class="card form" onsubmit="createParty(event)"><h3 style="margin:0">Создать партию</h3><div class="field"><label>Название</label><input id="partyName" minlength="2" maxlength="60" required></div><div class="field"><label>Эмодзи</label><input id="partyEmoji" value="🎭" maxlength="8"></div><div class="field"><label>Описание</label><textarea id="partyDescription" maxlength="1000"></textarea></div><button class="btn primary">Создать партию</button></form>
       <div class="party-actions"><button id="leavePartyBtn" class="btn secondary hidden" onclick="leaveParty()">Выйти из партии</button></div>
-    <div class="card"><div class="section-head"><h3>Списки кандидатов в Госдуму</h3><button class="btn secondary" onclick="loadDumaPartyLists()">Обновить</button></div><p class="muted small">Председатель партии может подать список кандидатов до начала выборов. Избиратели голосуют за партию, а не за отдельных кандидатов.</p><div id="dumaPartyLists" class="list"><div class="empty">Загрузка выборов…</div></div></div></section>
+    <div class="card"><div class="section-head"><h3>Списки кандидатов в Госдуму</h3><button class="btn secondary" onclick="loadDumaPartyLists()">Обновить</button></div><p class="muted small">Председатель партии может подать или обновить список в любое время, пока выборы не завершены. Избиратели голосуют за партию, а не за отдельных кандидатов.</p><div id="dumaPartyLists" class="list"><div class="empty">Загрузка выборов…</div></div></div></section>
 
     <section id="electionsView" class="view">
-      <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Выборы и голосование</h3><button class="btn secondary" onclick="loadElections()">Обновить</button></div><div id="electionsContent" class="list"></div>
+      <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Выборы и голосование</h3><button class="btn secondary" onclick="loadElections()">Обновить</button></div>
+      <div class="card form"><h3 style="margin:0">Кандидатура на пост Президента</h3><p class="muted small">Гражданин может отправить свою кандидатуру администратору. В бюллетень она попадёт только после утверждения и назначения президентских выборов.</p><button class="btn primary" type="button" onclick="submitPresidentialCandidate()">Подать кандидатуру</button></div>
+      <div id="electionsContent" class="list"></div>
     </section>
 
     <section id="newsView" class="view">
@@ -221,6 +223,7 @@
         </form>
         <div id="adminElectionHistory" class="list"></div>
 
+        <div class="section-head"><h3>Кандидаты в Президенты — утверждение</h3><button class="btn secondary" onclick="loadAdminPresidentialCandidates()">Обновить</button></div><div id="adminPresidentialCandidates" class="list"><div class="empty">Загрузка кандидатур…</div></div>
         <div class="section-head"><h3>Заявления</h3></div><div id="adminApplications" class="list"></div>
         <div class="section-head"><h3>Управление пользователями</h3></div>
         <div class="card form">
@@ -422,7 +425,7 @@ async function createParty(e){e.preventDefault();try{await api('/api/parties',{m
 async function loadDumaPartyLists(){
  const el=$('dumaPartyLists');if(!el)return;el.innerHTML='<div class="empty">Загрузка выборов…</div>';
  try{const d=await api('/api/elections/duma/party-lists');const arr=d.elections||[];
- el.innerHTML=arr.length?arr.map(e=>{const canSubmit=!!e.my_party&&e.status==='scheduled'&&!e.my_list_submitted;const list=e.party_lists||[];return '<article class="card"><div class="row"><strong>'+esc(e.title||'Выборы в Госдуму')+'</strong>'+statusPill(e.status==='scheduled'?'Ожидают начала':e.status==='active'?'Идут':'Завершены')+'</div><p class="muted small">Начало: '+fmtDate(e.starts_at)+' · окончание: '+fmtDate(e.ends_at)+'</p><p class="small">Подали списки: '+esc(list.map(x=>x.party_name).join(', ')||'пока никто')+'</p>'+(canSubmit?'<form class="form" onsubmit="submitDumaPartyList(event,'+Number(e.id)+')"><div class="field"><label>Кандидаты от партии '+esc(e.my_party.name)+' — по одному на строку</label><textarea name="candidates" required placeholder="ФИО кандидата 1&#10;ФИО кандидата 2"></textarea></div><button class="btn primary">Подать список партии</button></form>':e.my_party&&e.my_list_submitted?'<span class="status good">Ваша партия уже подала список</span>':!e.my_party?'<p class="muted small">Подать список может только председатель партии.</p>':'<p class="muted small">Приём списков закрыт.</p>')+'</article>'}).join(''):'<div class="empty">Выборы в Госдуму пока не назначены.</div>';
+ el.innerHTML=arr.length?arr.map(e=>{const canSubmit=!!e.my_party&&e.status!=='closed';const list=e.party_lists||[];return '<article class="card"><div class="row"><strong>'+esc(e.title||'Выборы в Госдуму')+'</strong>'+statusPill(e.status==='scheduled'?'Ожидают начала':e.status==='active'?'Идут':'Завершены')+'</div><p class="muted small">Начало: '+fmtDate(e.starts_at)+' · окончание: '+fmtDate(e.ends_at)+'</p><p class="small">Подали списки: '+esc(list.map(x=>x.party_name).join(', ')||'пока никто')+'</p>'+(canSubmit?'<form class="form" onsubmit="submitDumaPartyList(event,'+Number(e.id)+')"><div class="field"><label>Кандидаты от партии '+esc(e.my_party.name)+' — по одному на строку</label><textarea name="candidates" required placeholder="ФИО кандидата 1&#10;ФИО кандидата 2">'+esc((list.find(x=>x.party_name===e.my_party.name)||{}).candidates?.join('\n')||'')+'</textarea></div><button class="btn primary">'+(e.my_list_submitted?'Обновить список партии':'Подать список партии')+'</button></form>':!e.my_party?'<p class="muted small">Подать список может только председатель партии.</p>':'<p class="muted small">Выборы завершены — приём списков закрыт.</p>')+'</article>'}).join(''):'<div class="empty">Выборы в Госдуму пока не назначены.</div>';
  }catch(e){showError(el,e)}
 }
 async function submitDumaPartyList(e,id){e.preventDefault();const candidates=new FormData(e.target).get('candidates').split(/\\n/).map(s=>s.trim()).filter(Boolean);try{await api('/api/elections/duma/'+id+'/party-list',{method:'POST',body:{candidates}});notify('Список кандидатов подан');await loadDumaPartyLists();await loadElections()}catch(err){notify(err.message,'error')}}
@@ -459,6 +462,7 @@ async function decidePresidentLaw(id,status){const label=status==='signed'?'по
 async function presidentCreateElection(e){e.preventDefault();try{await api('/api/president/elections/duma',{method:'POST',body:{title:'Выборы в Государственную думу',starts_at:$('presidentElectionStarts').value.trim(),ends_at:$('presidentElectionEnds').value.trim()}});notify('Сроки выборов в Госдуму назначены');e.target.reset();await loadElections()}catch(err){notify(err.message,'error')}}
 
 async function loadAdmin(){
+  loadAdminPresidentialCandidates();
   try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory()])}}
   catch(e){$('adminStatus').textContent=e.message;$('claimBox').classList.remove('hidden');$('adminTools').classList.add('hidden')}
 }
@@ -534,6 +538,14 @@ async function adminSavePastElection(e){
   try{await api('/api/admin/election-history',{method:'POST',body:payload});notify('История выборов сохранена');f.reset();await loadAdminPartiesAndHistory()}catch(err){notify(err.message||'Не удалось сохранить результаты','error')}
 }
 
+async function loadAdminPresidentialCandidates(){
+ const el=$('adminPresidentialCandidates');if(!el)return;
+ try{const d=await api('/api/admin/presidential-candidates');const arr=d.candidates||[];
+ el.innerHTML=arr.length?arr.map(x=>'<article class="card"><div class="row"><strong>'+esc(x.full_name||'Без ФИО')+'</strong>'+statusPill(x.status==='pending'?'На рассмотрении':x.status==='approved'?'Утверждён':'Отклонён')+'</div><p class="muted small">Telegram ID: '+Number(x.user_id)+' · подано: '+esc(fmtDate(x.submitted_at))+'</p>'+(x.status==='pending'?'<div class="row"><button class="btn primary" onclick="reviewPresidentialCandidate('+Number(x.user_id)+',\'approved\')">Утвердить</button><button class="btn danger" onclick="reviewPresidentialCandidate('+Number(x.user_id)+',\'rejected\')">Отклонить</button></div>':'')+'</article>').join(''):'<div class="empty">Заявок на президентскую кандидатуру пока нет.</div>';
+ }catch(e){showError(el,e)}
+}
+async function reviewPresidentialCandidate(id,status){try{await api('/api/admin/presidential-candidates/'+id,{method:'PATCH',body:{status}});notify(status==='approved'?'Кандидат утверждён':'Кандидатура отклонена');await loadAdminPresidentialCandidates()}catch(e){notify(e.message||'Не удалось сохранить решение','error')}}
+async function submitPresidentialCandidate(){try{const r=await api('/api/presidential-candidates',{method:'POST',body:{}});notify(r.message||'Кандидатура отправлена');}catch(e){notify(e.message||'Не удалось отправить кандидатуру','error')}}
 async function loadAdminApplications(){try{const d=await api('/api/admin/applications');const a=d.applications||[];$('adminApplications').innerHTML=a.length?a.map(x=>`<div class="card"><div class="row"><strong>${esc(x.full_name||'Заявление')}</strong>${statusPill(x.status)}</div><p class="muted small">${esc(x.kind||'')} · ID ${esc(x.id)}</p><p>${esc(x.details||'')}</p><form class="form" onsubmit="reviewApplication(event,${Number(x.id)})"><div class="field"><label>Комментарий</label><input name="note" maxlength="2000"></div><div class="row"><button class="btn primary" name="decision" value="approved">Одобрить</button><button class="btn danger" name="decision" value="rejected">Отклонить</button></div></form></div>`).join(''):'<div class="empty">Заявлений на рассмотрении нет</div>'}catch(e){showError($('adminApplications'),e)}}
 async function reviewApplication(e,id){e.preventDefault();const decision=e.submitter?.value||'approved';try{await api(`/api/admin/applications/${id}`,{method:'PATCH',body:{status:decision,review_note:new FormData(e.target).get('note')||''}});notify(decision==='approved'?'Заявление одобрено':'Заявление отклонено');await loadAdminApplications()}catch(err){notify(err.message,'error')}}
 async function loadAdminSubjects(){
