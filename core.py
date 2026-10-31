@@ -849,7 +849,7 @@ def _sync_duma_term() -> None:
         try:
             initial = rows(db().table("duma_initial_roster").select(
                 "parliament_term_start,parliament_term_end"
-            ).order("id").limit(1))
+            ).limit(1))
             if initial and initial[0].get("parliament_term_end"):
                 raw_end = str(initial[0]["parliament_term_end"])
                 _setting_put(DUMA_TERM_END_KEY, raw_end)
