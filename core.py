@@ -301,7 +301,15 @@ def user_roles(subject_id: int) -> list[dict]:
 PRESIDENT_TERM_START_KEY = "president_term_start"
 PRESIDENT_TERM_USER_KEY = "president_term_user_id"
 PRESIDENT_TERM_END_KEY = "president_term_end"
-PRESIDENT_ALLOWED_APPOINTMENTS = {"премьер-министр", "министр иностранных дел"}
+ROLE_LIMITED_SINGLE = {"президент", "министр иностранных дел", "премьер-министр"}
+ROLE_CANONICAL = {
+    "президент": ("Президент", "👑"),
+    "министр иностранных дел": ("Министр иностранных дел", "🌐"),
+    "премьер-министр": ("Премьер-министр", "🏛️"),
+    "депутат": ("Депутат", "🏛️"),
+    "гражданин": ("Гражданин", "🪪"),
+}
+PRESIDENT_ASSIGNABLE_ROLES = {"министр иностранных дел", "премьер-министр", "депутат", "гражданин"}
 
 
 def _setting_value(key: str) -> str | None:
@@ -1043,7 +1051,8 @@ def publish_decree(actor_id: int, title: str, text: str, secret_for_user_id: int
 
 def admin_list_subjects() -> dict:
     subjects = fetch_all(lambda: db().table("subjects").select("id,user_id,username,full_name,is_citizen,reputation").order("id"))
-    roles = rows(db().table("roles").select("id,name,emoji").order("name"))
+    _ensure_canonical_role_rows()
+    roles = [r for r in rows(db().table("roles").select("id,name,emoji").order("name")) if _role_key(r.get("name", "")) in ROLE_CANONICAL or _role_key(r.get("name", "")) == "главный администратор"]
     links = fetch_all(lambda: db().table("subject_roles").select("subject_id,role_id").order("subject_id").order("role_id"))
     passports = fetch_all(lambda: db().table("passports").select("user_id,number,status").order("id"))
     pmap = {p["user_id"]: p for p in passports}
@@ -1087,57 +1096,68 @@ def admin_grant_by_telegram_id(actor_id: int, telegram_id: int, full_name: str) 
 
 def admin_create_role(actor_id: int, name: str, emoji: str = "👤") -> dict:
     name = clean_name(name)
-    if not 2 <= len(name) <= 80:
-        raise DKDError(422, "Название должности: от 2 до 80 символов.")
-    if any(clean_name(r["name"]).casefold() == name.casefold() for r in rows(db().table("roles").select("id,name"))):
-        raise DKDError(409, "Должность с таким названием уже существует.")
-    role = execute(db().table("roles").insert({"name": name, "emoji": (emoji or "👤").strip()[:12] or "👤"}),
-                   "Не удалось создать должность.")[0]
+    key = name.casefold()
+    if key not in ROLE_CANONICAL:
+        raise DKDError(422, "Разрешены только роли: Президент, Министр иностранных дел, Премьер-министр, Депутат, Гражданин.")
+    canonical_name, canonical_emoji = ROLE_CANONICAL[key]
+    existing = one(db().table("roles").select("id,name,emoji").eq("name", canonical_name).limit(1))
+    if existing:
+        return existing
+    role = execute(db().table("roles").insert({"name": canonical_name, "emoji": canonical_emoji}), "Не удалось создать роль.")[0]
     audit(actor_id, "role_created", None, f"role:{role['id']}")
     return role
+
+
+def _role_key(name: str) -> str:
+    return re.sub(r"\\s+", " ", clean_name(name).casefold()).strip()
+
+
+def _ensure_canonical_role_rows() -> list[dict]:
+    existing = rows(db().table("roles").select("id,name,emoji"))
+    by_key = {_role_key(r.get("name", "")): r for r in existing}
+    for key, (name, emoji) in ROLE_CANONICAL.items():
+        if key not in by_key:
+            row = execute(db().table("roles").insert({"name": name, "emoji": emoji}), "Не удалось подготовить системные роли.")[0]
+            by_key[key] = row
+    return [by_key[k] for k in ROLE_CANONICAL if k in by_key]
 
 
 def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bool) -> dict:
     subject = one(db().table("subjects").select("id,user_id").eq("id", int(subject_id)).limit(1))
     if not subject:
         raise DKDError(404, "Пользователь не найден.")
-    if not one(db().table("roles").select("id").eq("id", int(role_id)).limit(1)):
-        raise DKDError(404, "Должность не найдена.")
+    role = one(db().table("roles").select("id,name").eq("id", int(role_id)).limit(1))
+    if not role:
+        raise DKDError(404, "Роль не найдена.")
+    key = _role_key(role["name"])
+    if key not in ROLE_CANONICAL:
+        raise DKDError(403, "Можно назначать только пять системных ролей.")
     link = one(db().table("subject_roles").select("subject_id").eq("subject_id", subject["id"]).eq("role_id", int(role_id)).limit(1))
+    if assigned and key in ROLE_LIMITED_SINGLE:
+        links = fetch_all(lambda: db().table("subject_roles").select("subject_id").eq("role_id", int(role_id)))
+        if any(int(item["subject_id"]) != int(subject["id"]) for item in links):
+            raise DKDError(409, f"Роль «{role['name']}» уже назначена другому человеку.")
     if assigned and not link:
-        execute(db().table("subject_roles").insert({"subject_id": subject["id"], "role_id": int(role_id)}), "Не удалось назначить должность.")
+        execute(db().table("subject_roles").insert({"subject_id": subject["id"], "role_id": int(role_id)}), "Не удалось назначить роль.")
     elif not assigned and link:
-        execute(db().table("subject_roles").delete().eq("subject_id", subject["id"]).eq("role_id", int(role_id)), "Не удалось снять должность.")
+        execute(db().table("subject_roles").delete().eq("subject_id", subject["id"]).eq("role_id", int(role_id)), "Не удалось снять роль.")
     audit(actor_id, "role_assigned" if assigned else "role_removed", subject["user_id"], f"role:{role_id}")
     return {"ok": True}
 
 
 def president_list_subjects() -> dict:
-    """Возвращает участников и только две должности, которые разрешено назначать Президенту."""
+    """Список участников и ролей, которые Президент вправе назначать."""
     data = admin_list_subjects()
-    allowed = [r for r in data["roles"] if clean_name(r.get("name")).casefold() in PRESIDENT_ALLOWED_APPOINTMENTS]
+    allowed = [r for r in data["roles"] if _role_key(r.get("name", "")) in PRESIDENT_ASSIGNABLE_ROLES]
     data["roles"] = allowed
-    allowed_ids = {r["id"] for r in allowed}
-    for subject in data["subjects"]:
-        subject["roles"] = [r for r in subject.get("roles", []) if r["id"] in allowed_ids]
     return data
 
 
 def president_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bool) -> dict:
     role = one(db().table("roles").select("id,name").eq("id", int(role_id)).limit(1))
-    if not role or clean_name(role.get("name")).casefold() not in PRESIDENT_ALLOWED_APPOINTMENTS:
-        raise DKDError(403, "Президент может назначать только Премьер-министра и Министра иностранных дел.")
-    subject = one(db().table("subjects").select("id,user_id").eq("id", int(subject_id)).limit(1))
-    if not subject:
-        raise DKDError(404, "Участник не найден.")
-    if assigned:
-        links = fetch_all(lambda: db().table("subject_roles").select("subject_id").eq("role_id", int(role_id)))
-        if any(int(x["subject_id"]) != int(subject_id) for x in links):
-            raise DKDError(409, f"Должность «{role['name']}» уже занята. Сначала освободите её.")
-    result = admin_assign_role(actor_id, subject_id, role_id, assigned)
-    audit(actor_id, "president_role_assigned" if assigned else "president_role_removed", subject["user_id"],
-          f"subject:{subject_id}:role:{role_id}")
-    return result
+    if not role or _role_key(role.get("name", "")) not in PRESIDENT_ASSIGNABLE_ROLES:
+        raise DKDError(403, "Президент может назначать все роли, кроме Президента.")
+    return admin_assign_role(actor_id, subject_id, role_id, assigned)
 
 
 def president_review_application(actor_id: int, application_id: int, status: str, note: str = "") -> dict:
