@@ -263,7 +263,14 @@ async function api(url, opts={}) {
   if(initData) headers['X-Telegram-Init-Data']=initData;
   const res=await fetch(url,{method:opts.method||'GET',headers,body:opts.body===undefined?undefined:JSON.stringify(opts.body),cache:'no-store'});
   let data={};try{data=await res.json()}catch{}
-  if(!res.ok) throw new Error(data.detail || data.message || `Ошибка API (${res.status})`);
+  if(!res.ok) {
+    const raw = data.detail ?? data.message ?? data.error;
+    let message = `Ошибка API (${res.status})`;
+    if (typeof raw === 'string') message = raw;
+    else if (Array.isArray(raw)) message = raw.map(x => typeof x === 'string' ? x : (x?.msg || JSON.stringify(x))).join('; ');
+    else if (raw && typeof raw === 'object') message = raw.message || raw.msg || JSON.stringify(raw);
+    throw new Error(message);
+  }
   return data;
 }
 function showError(target,err){if(target)target.innerHTML=`<div class="notice error">${esc(err.message||err)}</div>`}
@@ -455,7 +462,11 @@ async function loadAdminPartiesAndHistory(){
     if(select) select.innerHTML='<option value="">Выберите партию</option>'+parties.map(p=>'<option value="'+Number(p.id)+'">'+esc((p.emoji||'🏛️')+' '+p.name)+'</option>').join('');
     const list=$('adminPartyList');
     if(list) list.innerHTML=parties.length?parties.map(p=>'<div class="card"><div class="row"><strong>'+esc((p.emoji||'🏛️')+' '+p.name)+'</strong><span class="status">'+Number(p.members_count||0)+' участн.</span></div><p class="muted small">Цвет: '+esc(p.color||'#4169e1')+' · Председатель: '+esc(p.leader_username||'не указан')+'</p><div class="row"><input id="leaderId'+Number(p.id)+'" type="number" min="1" placeholder="Telegram ID нового председателя" style="min-width:0;flex:1"><input id="leaderName'+Number(p.id)+'" placeholder="Полное ФИО" style="min-width:0;flex:1"><button class="btn secondary" onclick="adminChangePartyLeader('+Number(p.id)+')">Назначить председателя</button></div></div>').join(''):'<div class="empty">Активных партий пока нет.</div>';
-  }catch(e){showError($('adminPartyList'),e)}
+  }catch(e){
+    const select=$('adminPartySelect');
+    if(select) select.innerHTML='<option value="">Не удалось загрузить партии</option>';
+    showError($('adminPartyList'),e);
+  }
   try{
     const d=await api('/api/admin/election-history');
     const list=$('adminElectionHistory'), elections=d.elections||[];
@@ -466,7 +477,8 @@ async function adminCreateParty(e){
   e.preventDefault();const f=e.currentTarget;
   const payload={name:f.elements.name.value.trim(),emoji:f.elements.emoji.value.trim()||'🏛️',description:f.elements.description.value.trim(),color:f.elements.color.value,leader_telegram_id:Number(f.elements.leader_telegram_id.value),leader_full_name:f.elements.leader_full_name.value.trim()};
   if(!confirm('Создать партию и назначить указанного человека председателем?'))return;
-  try{await api('/api/admin/parties',{method:'POST',body:payload});notify('Партия создана');f.reset();await loadAdminPartiesAndHistory();await loadParties()}catch(err){notify(err.message||'Не удалось создать партию','error')}
+  const button=f.querySelector('button[type="submit"],button:not([type])');if(button){button.disabled=true;button.dataset.oldText=button.textContent;button.textContent='Создание…'}
+  try{await api('/api/admin/parties',{method:'POST',body:payload});notify('Партия создана');f.reset();await loadAdminPartiesAndHistory();await loadParties()}catch(err){notify(err.message||String(err)||'Не удалось создать партию','error')}finally{if(button){button.disabled=false;button.textContent=button.dataset.oldText||'Создать партию'}}
 }
 async function adminAddPartyMember(e){
   e.preventDefault();const f=e.currentTarget;const partyId=Number(f.elements.party_id.value);
