@@ -1093,6 +1093,64 @@ def cast_vote(user: dict, kind: str, election_id: int, option: str) -> dict:
     return {"ok": True, "message": "Ваш голос сохранён."}
 
 
+
+def admin_cast_vote(actor_id: int, kind: str, election_id: int, voter_user_id: int, option: str) -> dict:
+    """Администраторский голос от имени выбранного гражданина; повторный голос меняет выбор."""
+    if kind not in ELECTION_TABLES:
+        raise DKDError(404, "Неизвестный тип выборов.")
+    voter = get_subject(int(voter_user_id))
+    if not voter or not voter.get("is_citizen"):
+        raise DKDError(404, "Указанный пользователь не найден или не является гражданином.")
+    election = one(db().table(ELECTION_TABLES[kind]).select(ELECTION_COLS).eq("id", int(election_id)).limit(1))
+    if not election:
+        raise DKDError(404, "Выборы не найдены.")
+    if effective_status(election) != "active":
+        raise DKDError(409, "Можно голосовать от имени граждан только на открытых выборах.")
+    if option not in normalize_options(election.get("options")):
+        raise DKDError(400, "Выбранный кандидат отсутствует в списке вариантов.")
+    existing = one(db().table("votes").select("id,option").eq("user_id", int(voter_user_id)).eq("election_type", kind).eq("election_id", int(election_id)).limit(1))
+    if existing:
+        execute(db().table("votes").update({"option": option}).eq("id", int(existing["id"])), "Не удалось изменить голос.")
+        message = "Голос гражданина изменён."
+        action = "admin_vote_changed"
+    else:
+        execute(db().table("votes").insert({"user_id": int(voter_user_id), "election_type": kind, "election_id": int(election_id), "option": option}), "Не удалось сохранить голос от имени гражданина.")
+        message = "Голос от имени гражданина учтён."
+        action = "admin_vote_cast"
+    audit(actor_id, action, int(voter_user_id), f"{kind}:{int(election_id)};option={option}")
+    return {"ok": True, "message": message, "voter_user_id": int(voter_user_id), "election_id": int(election_id), "kind": kind, "option": option}
+
+
+def admin_reset_elections(actor_id: int) -> dict:
+    """Полностью очищает бюллетени, кампании, исторические результаты и состав Думы."""
+    existing_votes = fetch_all(lambda: db().table("votes").select("id").order("id"))
+    deleted_votes = len(existing_votes)
+    if existing_votes:
+        execute(db().table("votes").delete().gt("id", 0), "Не удалось удалить голоса.")
+    deleted_elections = 0
+    for table in ELECTION_TABLES.values():
+        old_rows = rows(db().table(table).select("id").order("id"))
+        deleted_elections += len(old_rows)
+        if old_rows:
+            execute(db().table(table).delete().gt("id", 0), f"Не удалось очистить таблицу {table}.")
+    for key in (DUMA_TERM_START_KEY, DUMA_TERM_END_KEY, DUMA_TERM_ELECTION_KEY, DUMA_TERM_STATUS_KEY):
+        execute(db().table("app_settings").delete().eq("key", key), "Не удалось сбросить сроки Думы.")
+    for prefix in (DUMA_START_KEY_PREFIX, DUMA_LISTS_KEY_PREFIX):
+        execute(db().table("app_settings").delete().like("key", prefix + "%"), "Не удалось удалить настройки кампаний.")
+    deputy = one(db().table("roles").select("id,name").eq("name", "Депутат").limit(1))
+    if deputy:
+        execute(db().table("subject_roles").delete().eq("role_id", int(deputy["id"])), "Не удалось снять полномочия депутатов.")
+    try:
+        initial = rows(db().table("duma_initial_roster").select("full_name").limit(1000))
+        if initial:
+            execute(db().table("duma_initial_roster").delete().gt("full_name", ""), "Не удалось очистить прежний состав Думы.")
+    except Exception as exc:
+        log.info("duma_initial_roster не очищен или отсутствует: %s", exc)
+    audit(actor_id, "all_elections_reset", None, json.dumps({"deleted_votes": deleted_votes, "deleted_elections": deleted_elections}, ensure_ascii=False))
+    return {"ok": True, "deleted_votes": deleted_votes, "deleted_elections": deleted_elections, "message": "Голоса, кампании, результаты и состав Думы очищены."}
+
+
+
 def create_election(actor_id: int, kind: str, title: str, options: list[str], ends_at: str | None) -> dict:
     if kind not in ELECTION_TABLES:
         raise DKDError(404, "Неизвестный тип выборов.")
