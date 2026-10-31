@@ -194,7 +194,7 @@ class PartySettingsUpdate(BaseModel):
 
 @app.put("/api/parties/{party_id}")
 def update_party_settings(party_id: int, payload: PartySettingsUpdate, user: dict = Depends(auth_user)):
-    return {"ok": True, "party": core.update_party_settings(user, party_id, payload.name, payload.emoji, payload.description, payload.color)}
+    return {"ok": True, "party": core.update_party_settings(user, party_id, payload.name, payload.emoji, payload.description, payload.color, core.is_admin(user))}
 
 
 @app.post("/api/parties/leave")
