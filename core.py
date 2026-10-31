@@ -757,7 +757,34 @@ def president_schedule_duma_election(actor_id: int, title: str, starts_at: str, 
         "title": title, "options": [], "ends_at": end.isoformat(), "status": "scheduled", "results": {},
     }), "Не удалось назначить выборы.")[0]
     _setting_put(DUMA_START_KEY_PREFIX + str(election["id"]), start.isoformat())
-    _setting_put(DUMA_LISTS_KEY_PREFIX + str(election["id"]), "{}")
+    # Подтягиваем заранее подготовленные списки председателей партий.
+    prepared = {}
+    parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
+    for party in parties:
+        raw_ids = _setting_get(DUMA_PARTY_TEMPLATE_KEY_PREFIX + str(int(party["id"])))
+        if not raw_ids:
+            continue
+        try:
+            candidate_ids = [int(x) for x in json.loads(raw_ids)]
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+        if not candidate_ids:
+            continue
+        candidates = select_in("subjects", "user_id,full_name", "user_id", candidate_ids)
+        names_by_id = {int(x["user_id"]): clean_name(x.get("full_name", "")) for x in candidates}
+        names = [names_by_id[x] for x in candidate_ids if x in names_by_id and names_by_id[x]]
+        if names:
+            prepared[str(int(party["id"]))] = {
+                "party_id": int(party["id"]), "party_name": party["name"],
+                "party_emoji": party.get("emoji") or "🎭",
+                "leader_user_id": int(party.get("leader_user_id") or 0),
+                "candidates": names, "candidate_user_ids": candidate_ids,
+                "submitted_at": utcnow().isoformat()
+            }
+    _setting_put(DUMA_LISTS_KEY_PREFIX + str(election["id"]), json.dumps(prepared, ensure_ascii=False))
+    if prepared:
+        execute(db().table("duma_elections").update({"options": [x["party_name"] for x in prepared.values()]})
+                .eq("id", int(election["id"])), "Не удалось применить подготовленные списки партий.")
     audit(actor_id, "duma_election_scheduled", None, f"duma:{election['id']}:{start.isoformat()}:{end.isoformat()}")
     return {**election, "starts_at": start.isoformat(), "status": "scheduled"}
 
