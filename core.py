@@ -1769,56 +1769,55 @@ def mark_all_notifications_read(user: dict) -> dict:
 
 
 def _ensure_role_based_duma_mandates() -> None:
-    """Выдаёт мандат каждому пользователю, у которого назначена роль «Депутат»."""
+    """Выдаёт мандат каждому пользователю с действующей ролью «Депутат»."""
     _sync_duma_term()
-    if _setting_get(DUMA_TERM_STATUS_KEY) == "expired":
-        return
     role = _deputy_role_row()
-    links = fetch_all(lambda: db().table("subject_roles").select("subject_id")
-                      .eq("role_id", int(role["id"])))
-    if not links:
-        return
+    links = fetch_all(lambda: db().table("subject_roles").select("subject_id").eq("role_id", int(role["id"])))
     subject_ids = sorted({int(x["subject_id"]) for x in links if x.get("subject_id")})
-    subjects = select_in("subjects", "id,user_id,full_name", "id", subject_ids)
-    if not subjects:
+    if not subject_ids:
         return
-    start_raw = _setting_get(DUMA_TERM_START_KEY)
-    end_raw = _setting_get(DUMA_TERM_END_KEY)
-    start_dt = parse_dt(start_raw) if start_raw else None
-    end_dt = parse_dt(end_raw) if end_raw else None
+    subjects = select_in("subjects", "id,user_id,full_name", "id", subject_ids)
+    start_dt = parse_dt(_setting_get(DUMA_TERM_START_KEY) or "") or utcnow()
+    end_dt = parse_dt(_setting_get(DUMA_TERM_END_KEY) or "")
     now = utcnow()
     if end_dt and now >= end_dt:
         return
-    if not start_dt:
-        start_dt = now
     if not end_dt:
         end_dt = _add_months(start_dt, 3)
         _setting_put(DUMA_TERM_START_KEY, start_dt.isoformat())
         _setting_put(DUMA_TERM_END_KEY, end_dt.isoformat())
         _setting_put(DUMA_TERM_STATUS_KEY, "active")
-    election_id_raw = _setting_get(DUMA_TERM_ELECTION_KEY)
-    election_id = int(election_id_raw) if election_id_raw and election_id_raw.isdigit() else 0
+    election_raw = _setting_get(DUMA_TERM_ELECTION_KEY)
+    election_id = int(election_raw) if election_raw and election_raw.isdigit() else 0
     title = f"Мандат депутата Госдумы · созыв №{election_id}" if election_id else "Мандат депутата Госдумы"
     for subject in subjects:
         uid = int(subject.get("user_id") or 0)
         full_name = clean_name(subject.get("full_name") or "")
         if not uid or not full_name:
             continue
-        existing = one(db().table("decrees").select("id")
-                       .eq("title", title).eq("secret_for_user_id", uid).limit(1))
-        if existing:
+        existing = rows(db().table("decrees").select("id,title,text")
+                        .eq("secret_for_user_id", uid).like("title", "Мандат депутата Госдумы%"))
+        valid_existing = False
+        for doc in existing:
+            match = re.search(r"Действителен до: ([^\n]+)", str(doc.get("text") or ""))
+            expires = parse_dt(match.group(1).strip()) if match else None
+            if expires and now < expires:
+                valid_existing = True
+                break
+        if valid_existing:
             continue
-        body = "\\n".join([
+        body = "\n".join([
             "ДЕМОКРАТИЧЕСКАЯ КОНФЕДЕРАЦИЯ ДЕБИЛОВ",
             "ГОСУДАРСТВЕННАЯ ДУМА",
             "",
             "УДОСТОВЕРЕНИЕ / МАНДАТ ДЕПУТАТА",
             "",
-            f"Настоящим подтверждается, что {full_name} занимает должность депутата Государственной Думы.",
+            f"ФИО: {full_name}.",
+            "Должность: депутат Государственной Думы.",
             f"Дата выдачи: {start_dt.isoformat()}.",
             f"Действителен до: {end_dt.isoformat()}.",
             "",
-            "Мандат действует только при наличии должности депутата и в течение трёхмесячного срока полномочий.",
+            "Мандат действует в течение трёхмесячного срока и только при наличии должности депутата.",
         ])
         execute(db().table("decrees").insert({
             "title": title, "text": body, "is_secret": True, "secret_for_user_id": uid,
@@ -1826,51 +1825,107 @@ def _ensure_role_based_duma_mandates() -> None:
         try:
             create_notification(uid, "Вам выдан депутатский мандат",
                 f"Вам выдан мандат депутата Госдумы. Он действует до {end_dt.isoformat()}. Документ доступен в разделе «Документы».")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("Mandate notification failed for user %s: %s", uid, exc)
+
+
+def _ensure_president_certificate() -> None:
+    """Выдаёт удостоверение человеку с назначенной ролью «Президент»."""
+    roles = _ensure_canonical_role_rows()
+    role = next((r for r in roles if _role_key(r.get("name", "")) == "президент"), None)
+    if not role:
+        return
+    links = fetch_all(lambda: db().table("subject_roles").select("subject_id").eq("role_id", int(role["id"])))
+    subject_ids = sorted({int(x["subject_id"]) for x in links if x.get("subject_id")})
+    if not subject_ids:
+        return
+    subjects = select_in("subjects", "id,user_id,full_name", "id", subject_ids)
+    for subject in subjects:
+        uid = int(subject.get("user_id") or 0)
+        full_name = clean_name(subject.get("full_name") or "")
+        if not uid or not full_name:
+            continue
+        term = _ensure_president_term(uid)
+        if term.get("expired"):
+            continue
+        title = "Удостоверение Президента ДКД"
+        existing = one(db().table("decrees").select("id").eq("title", title).eq("secret_for_user_id", uid).limit(1))
+        if existing:
+            continue
+        body = "\n".join([
+            "ДЕМОКРАТИЧЕСКАЯ КОНФЕДЕРАЦИЯ ДЕБИЛОВ",
+            "АДМИНИСТРАЦИЯ ПРЕЗИДЕНТА",
+            "",
+            "УДОСТОВЕРЕНИЕ ПРЕЗИДЕНТА",
+            "",
+            f"ФИО: {full_name}.",
+            "Должность: Президент ДКД.",
+            f"Дата выдачи: {term['start_at']}.",
+            f"Действительно до: {term['end_at']}.",
+            "",
+            "Удостоверение действует в течение трёхмесячного президентского срока.",
+        ])
+        execute(db().table("decrees").insert({
+            "title": title, "text": body, "is_secret": True, "secret_for_user_id": uid,
+        }), "Не удалось выдать удостоверение Президента.")
+        try:
+            create_notification(uid, "Вам выдано удостоверение Президента",
+                f"Ваше удостоверение Президента ДКД действует до {term['end_at']}. Документ доступен в разделе «Документы».")
+        except Exception as exc:
+            log.warning("President certificate notification failed for user %s: %s", uid, exc)
 
 
 def list_documents(user: dict, admin: bool) -> dict:
     uid = int(user["id"])
     laws = rows(db().table("laws").select("id,title,description,status,created_at").order("id", desc=True).limit(50))
     _ensure_role_based_duma_mandates()
-    decrees = rows(db().table("decrees").select("id,title,text,is_secret,secret_for_user_id,created_at").order("id", desc=True).limit(150))
-    visible = [d for d in decrees if not d.get("is_secret") or d.get("secret_for_user_id") == uid][:150]
-    mandates = []
-    public_decrees = []
+    _ensure_president_certificate()
+    decrees = rows(db().table("decrees").select("id,title,text,is_secret,secret_for_user_id,created_at").order("id", desc=True).limit(300))
+    visible = [d for d in decrees if not d.get("is_secret") or int(d.get("secret_for_user_id") or 0) == uid]
+    mandates, president_certificate, public_decrees = [], [], []
     now = utcnow()
-    # Мандат доступен только человеку с действующей ролью депутата
-    # и только в пределах текущего срока полномочий созыва.
     _sync_duma_term()
+    subject = one(db().table("subjects").select("id").eq("user_id", uid).limit(1))
+    subject_id = int(subject["id"]) if subject else int(user.get("subject_id") or user.get("profile_id") or 0)
     deputy_role = _deputy_role_row()
-    is_current_deputy = False
-    if _setting_get(DUMA_TERM_STATUS_KEY) != "expired":
-        subject = one(db().table("subjects").select("id").eq("user_id", uid).limit(1))
-        subject_id = int(subject["id"]) if subject else int(user.get("subject_id") or user.get("profile_id") or 0)
-        if subject_id:
-            link = one(db().table("subject_roles").select("subject_id")
-                       .eq("role_id", int(deputy_role["id"])).eq("subject_id", subject_id).limit(1))
-            is_current_deputy = bool(link)
-    current_election_id = _setting_get(DUMA_TERM_ELECTION_KEY)
+    deputy_link = one(db().table("subject_roles").select("subject_id").eq("role_id", int(deputy_role["id"])).eq("subject_id", subject_id).limit(1)) if subject_id else None
+    is_current_deputy = bool(deputy_link)
+    roles = _ensure_canonical_role_rows()
+    president_role = next((r for r in roles if _role_key(r.get("name", "")) == "президент"), None)
+    president_link = one(db().table("subject_roles").select("subject_id").eq("role_id", int(president_role["id"])).eq("subject_id", subject_id).limit(1)) if subject_id and president_role else None
+    is_current_president = bool(president_link)
+    term_end = parse_dt(_setting_get(DUMA_TERM_END_KEY) or "")
+    duma_active = not term_end or now < term_end
+    president_end = parse_dt(_setting_get(PRESIDENT_TERM_END_KEY) or "")
+    president_active = not president_end or now < president_end
     for item in visible:
-        if str(item.get("title") or "").startswith("Мандат депутата Госдумы"):
-            # Не показываем мандаты бывшим депутатам или после окончания срока.
-            if not is_current_deputy or _setting_get(DUMA_TERM_STATUS_KEY) == "expired":
+        title = str(item.get("title") or "")
+        body = str(item.get("text") or "")
+        if title.startswith("Мандат депутата Госдумы"):
+            if not is_current_deputy or not duma_active:
                 continue
-            if current_election_id and f"созыв №{current_election_id}" not in str(item.get("title") or ""):
-                continue
-            match = re.search(r"Действителен до: ([^\\n]+)", str(item.get("text") or ""))
+            match = re.search(r"Действителен до: ([^\n]+)", body)
             expires = parse_dt(match.group(1).strip()) if match else None
-            if not expires or now >= expires:
+            if expires and now >= expires:
                 continue
             item["mandate_status"] = "active"
             item.pop("secret_for_user_id", None)
             mandates.append(item)
+        elif title == "Удостоверение Президента ДКД":
+            if not is_current_president or not president_active:
+                continue
+            match = re.search(r"Действительно до: ([^\n]+)", body)
+            expires = parse_dt(match.group(1).strip()) if match else None
+            if expires and now >= expires:
+                continue
+            item["certificate_status"] = "active"
+            item.pop("secret_for_user_id", None)
+            president_certificate.append(item)
         else:
             item.pop("secret_for_user_id", None)
             public_decrees.append(item)
-    return {"laws": laws, "decrees": public_decrees, "mandates": mandates}
-
+    return {"laws": laws, "decrees": public_decrees, "mandates": mandates,
+            "president_certificate": president_certificate}
 
 def _election_results_news(kind: str, election: dict, counts: dict[str, int], extra: str = "") -> str:
     title = clean_name(election.get("title")) or ("Выборы в Госдуму" if kind == "duma" else "Президентские выборы")
