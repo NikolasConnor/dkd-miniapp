@@ -100,6 +100,14 @@
         </div>
         <div class="empty-parliament-note"><div class="empty-parliament-icon">🏛️</div><div><strong>Государственная дума пока пуста</strong><p>Выборы ещё не проводились. Участники смогут создавать партии и подавать партийные списки самостоятельно. После выборов состав парламента и распределение мест будут отражать результаты голосования.</p></div></div>
       </div>
+      <div class="card parliament-work">
+        <div class="section-head"><h3>Заседания и законопроекты</h3><button class="btn secondary" onclick="loadParliament()">Обновить</button></div>
+        <form class="form" onsubmit="openDumaSession(event)">
+          <div class="field"><label for="dumaSessionTitle">Название созыва / заседания</label><input id="dumaSessionTitle" name="title" required minlength="2" maxlength="160" placeholder="Например, Первое заседание Госдумы"></div>
+          <button class="btn primary">Созвать заседание</button>
+        </form>
+        <div id="dumaSessions"><div class="empty">Загрузка заседаний…</div></div>
+      </div>
       <div class="card parliament-next">
         <div class="section-head"><h3>Как сформируется парламент</h3></div>
         <div class="parliament-steps">
@@ -222,7 +230,25 @@ async function api(url, opts={}) {
 }
 function showError(target,err){if(target)target.innerHTML=`<div class="notice error">${esc(err.message||err)}</div>`}
 function canOpenParliament(){return !!state.isAdmin||!!state.isDeputy}
-async function loadParliament(){if(!canOpenParliament())return;const view=$('parliamentView');if(view)view.scrollIntoView({block:'start',behavior:'smooth'})}
+async function loadParliament(){
+ if(!canOpenParliament())return;
+ const view=$('parliamentView');if(view)view.scrollIntoView({block:'start',behavior:'smooth'});
+ const el=$('dumaSessions');if(!el)return;el.innerHTML='<div class="empty">Загрузка заседаний…</div>';
+ try{
+  const d=await api('/api/duma');const sessions=d.sessions||[];const laws=d.laws||[];
+  el.innerHTML=sessions.length?sessions.map(s=>{
+   const own=(s.laws||laws.filter(l=>Number(l.session_id)===Number(s.id)));
+   return '<article class="card duma-session"><div class="row"><div><h4>'+esc(s.title)+'</h4><small class="muted">Созыв №'+Number(s.id)+' · '+fmtDate(s.created_at)+'</small></div>'+statusPill(s.closed?'Закрыто':'Идёт')+'</div>'+
+    (!s.closed?'<form class="form" onsubmit="submitDumaLaw(event,'+Number(s.id)+')"><div class="field"><label>Название законопроекта</label><input name="title" required minlength="2" maxlength="200"></div><div class="field"><label>Текст законопроекта</label><textarea name="description" required maxlength="20000" placeholder="Изложите предлагаемый закон"></textarea></div><button class="btn primary">Подать законопроект</button></form><div class="row"><button class="btn danger" onclick="closeDumaSession('+Number(s.id)+')">Закрыть заседание</button></div>':'')+
+    (own.length?own.map(l=>'<div class="duma-bill"><div class="row"><strong>'+esc(l.title)+'</strong>'+statusPill(dumaLawStatus(l.status))+'</div><p class="muted" style="white-space:pre-wrap">'+esc(l.description||'')+'</p><div class="notice small">За: '+Number(l.votes_for||0)+' · Против: '+Number(l.votes_against||0)+(l.status==='under_duma_review'?' · Требуется большинство всех депутатов':'')+'</div>'+(l.can_vote?'<div class="row"><button class="btn primary" onclick="voteDumaLaw('+Number(l.id)+',\'for\')">За</button><button class="btn danger" onclick="voteDumaLaw('+Number(l.id)+',\'against\')">Против</button></div>':l.has_voted?'<small class="muted">Вы уже проголосовали</small>':'')+'</div>').join(''):'<p class="muted small">Законопроектов на этом заседании пока нет.</p>')+'</article>'
+  }).join(''):'<div class="empty">Заседаний пока нет. Депутат или администратор может созвать первое заседание.</div>';
+ }catch(e){showError(el,e)}
+}
+function dumaLawStatus(s){return ({under_duma_review:'На рассмотрении Думы',awaiting_president:'Передан Президенту',signed:'Подписан — принят',vetoed:'Вето Президента',rejected_by_duma:'Отклонён Думой'})[s]||s||'Статус не указан'}
+async function openDumaSession(e){e.preventDefault();try{await api('/api/duma/sessions',{method:'POST',body:{title:$('dumaSessionTitle').value.trim()}});e.target.reset();notify('Заседание созвано');await loadParliament()}catch(err){notify(err.message,'error')}}
+async function closeDumaSession(id){if(!confirm('Закрыть заседание? Голосования по законопроектам этого заседания завершатся.'))return;try{await api('/api/duma/sessions/'+id+'/close',{method:'POST'});notify('Заседание закрыто');await loadParliament()}catch(e){notify(e.message,'error')}}
+async function submitDumaLaw(e,id){e.preventDefault();const f=e.target;try{await api('/api/duma/sessions/'+id+'/laws',{method:'POST',body:{title:new FormData(f).get('title'),description:new FormData(f).get('description')}});notify('Законопроект подан на рассмотрение');await loadParliament()}catch(err){notify(err.message,'error')}}
+async function voteDumaLaw(id,vote){try{const d=await api('/api/duma/laws/'+id+'/vote',{method:'POST',body:{vote}});notify(d.status==='awaiting_president'?'Закон принят Думой и отправлен Президенту':d.status==='rejected_by_duma'?'Законопроект отклонён':'Голос учтён');await loadParliament()}catch(e){notify(e.message,'error')}}
 function openView(name){
   if(name==='parliament'&&!canOpenParliament()){notify('Панель парламента доступна только администратору и депутатам.','error');return}
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
@@ -346,7 +372,7 @@ async function assignPresidentRole(e){e.preventDefault();try{await api('/api/pre
 async function loadPresidentApplications(){const el=$('presidentApplicationsList');el.innerHTML='<div class="empty">Загрузка заявлений…</div>';scrollPresident('presidentApplications');try{const d=await api('/api/president/applications');const apps=d.applications||[];el.innerHTML=apps.length?apps.map(a=>'<article class="card"><div class="row"><strong>'+esc(a.full_name||'Заявитель')+' · '+esc(a.kind==='citizenship'?'Гражданство':a.kind||'Обращение')+'</strong>'+statusPill(a.status)+'</div><p class="muted small">'+esc(a.details||'Без описания')+'</p><small class="muted">Telegram ID: '+esc(a.user_id)+' · '+fmtDate(a.created_at)+'</small>'+(a.status==='pending'?'<div class="row" style="margin-top:10px"><button class="btn primary" onclick="decidePresidentApplication('+Number(a.id)+',\'approved\')">Одобрить</button><button class="btn danger" onclick="decidePresidentApplication('+Number(a.id)+',\'rejected\')">Отклонить</button></div>':'')+'</article>').join(''):'<div class="empty">Заявлений пока нет</div>'}catch(e){showError(el,e)}finally{scrollPresident('presidentApplications')}}
 async function decidePresidentApplication(id,status){const note=status==='rejected'?(prompt('Причина отклонения (необязательно):')||'') : '';try{await api('/api/president/applications/'+id,{method:'PATCH',body:{status,note}});notify(status==='approved'?'Заявление одобрено':'Заявление отклонено');await loadPresidentApplications()}catch(e){notify(e.message,'error')}}
 async function presidentCreateLaw(e){e.preventDefault();try{await api('/api/president/laws',{method:'POST',body:{title:$('presidentLawTitle').value.trim(),description:$('presidentLawText').value.trim()}});notify('Закон опубликован');e.target.reset();await loadPresidentLaws()}catch(err){notify(err.message,'error')}}
-async function loadPresidentLaws(){const el=$('presidentLawList');try{const d=await api('/api/documents');const laws=d.laws||[];el.innerHTML=laws.length?laws.map(l=>'<article class="card"><div class="row"><strong>'+esc(l.title||'Закон')+'</strong>'+statusPill(l.status)+'</div><p class="muted" style="white-space:pre-wrap">'+esc(l.description||'')+'</p>'+(l.status==='active'?'<div class="row"><button class="btn primary" onclick="decidePresidentLaw('+Number(l.id)+',\'signed\')">Подписать</button><button class="btn danger" onclick="decidePresidentLaw('+Number(l.id)+',\'vetoed\')">Вето</button></div>':'')+'</article>').join(''):'<div class="empty">Законов пока нет</div>'}catch(e){showError(el,e)}finally{scrollPresident('presidentLaws')}}
+async function loadPresidentLaws(){const el=$('presidentLawList');try{const d=await api('/api/documents');const laws=d.laws||[];el.innerHTML=laws.length?laws.map(l=>'<article class="card"><div class="row"><strong>'+esc(l.title||'Закон')+'</strong>'+statusPill(l.status)+'</div><p class="muted" style="white-space:pre-wrap">'+esc(l.description||'')+'</p>'+(l.status==='awaiting_president'?'<div class="row"><button class="btn primary" onclick="decidePresidentLaw('+Number(l.id)+',\'signed\')">Подписать закон</button><button class="btn danger" onclick="decidePresidentLaw('+Number(l.id)+',\'vetoed\')">Наложить вето</button></div>':'')+'</article>').join(''):'<div class="empty">Законов пока нет</div>'}catch(e){showError(el,e)}finally{scrollPresident('presidentLaws')}}
 async function decidePresidentLaw(id,status){const label=status==='signed'?'подписать':'наложить вето';if(!confirm('Вы действительно хотите '+label+' на этот закон?'))return;try{await api('/api/president/laws/'+id,{method:'PATCH',body:{status}});notify(status==='signed'?'Закон подписан':'Президент наложил вето');await loadPresidentLaws();await loadDocuments()}catch(e){notify(e.message,'error')}}
 async function presidentCreateElection(e){e.preventDefault();try{await api('/api/president/elections/duma',{method:'POST',body:{title:'Выборы в Государственную думу',starts_at:$('presidentElectionStarts').value.trim(),ends_at:$('presidentElectionEnds').value.trim()}});notify('Сроки выборов в Госдуму назначены');e.target.reset();await loadElections()}catch(err){notify(err.message,'error')}}
 
