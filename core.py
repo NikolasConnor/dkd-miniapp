@@ -2270,7 +2270,41 @@ def public_duma_roster() -> dict:
             result = election.get("results") if isinstance(election.get("results"), dict) else {}
             deputies = result.get("elected_deputies")
             if not isinstance(deputies, list) or not deputies:
-                continue
+                # Старые результаты могут содержать только количество голосов.
+                # Восстанавливаем отображаемый состав из сохранённых партийных списков.
+                lists = duma_party_lists(int(election["id"]))
+                counts = {str(k): int(v) for k, v in result.items()
+                          if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                valid = [(name, votes, next((p for p in lists.values()
+                          if str(p.get("party_name", "")).casefold() == name.casefold()), None))
+                         for name, votes in counts.items()]
+                valid = [(name, votes, party) for name, votes, party in valid
+                         if party and party.get("candidates") and votes >= 0]
+                total = sum(v for _, v, _ in valid)
+                if not valid or total <= 0:
+                    continue
+                raw_seats = [(name, votes, party, votes * 50 / total) for name, votes, party in valid]
+                seat_map = {name: int(quota) for name, _, _, quota in raw_seats}
+                remainder = 50 - sum(seat_map.values())
+                for name, _, _, quota in sorted(raw_seats,
+                        key=lambda x: (x[3] - int(x[3]), x[1]), reverse=True)[:remainder]:
+                    seat_map[name] += 1
+                deputies = []
+                for name, votes, party, _ in raw_seats:
+                    candidates = party.get("candidates") or []
+                    if not candidates:
+                        continue
+                    count = min(len(candidates), seat_map[name])
+                    if not count:
+                        continue
+                    base, extra = divmod(seat_map[name], count)
+                    for idx, full_name in enumerate(candidates[:count]):
+                        deputies.append({"full_name": full_name, "party_name": name,
+                            "party_emoji": party.get("party_emoji") or "🎭", "votes": votes,
+                            "seats": base + (1 if idx < extra else 0),
+                            "is_party_leader": idx == 0})
+                if not deputies:
+                    continue
             term_start = result.get("parliament_term_start")
             term_end = result.get("parliament_term_end")
             completed_at = election.get("updated_at") or election.get("created_at")
