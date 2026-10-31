@@ -712,6 +712,7 @@ ELECTION_COLS = "id,title,options,ends_at,status,results,created_at"
 
 DUMA_START_KEY_PREFIX = "duma_election_start:"
 DUMA_LISTS_KEY_PREFIX = "duma_election_lists:"
+PRESIDENTIAL_CANDIDATES_KEY = "presidential_candidate_applications"
 
 
 def _setting_get(key: str) -> str | None:
@@ -771,8 +772,8 @@ def submit_duma_party_list(user: dict, election_id: int, candidates: list[str]) 
     if not election:
         raise DKDError(404, "Выборы в Госдуму не найдены.")
     start, end = duma_start_at(election_id), parse_dt(election.get("ends_at"))
-    if not start or utcnow() >= start or (end and utcnow() >= end) or election.get("status") in CLOSED_STATUSES:
-        raise DKDError(409, "Список кандидатов можно подать только до начала выборов.")
+    if election.get("status") in CLOSED_STATUSES or (end and utcnow() >= end):
+        raise DKDError(409, "Приём списков для этих выборов завершён.")
     cleaned = [clean_name(x) for x in candidates if clean_name(x)]
     if not cleaned or len(cleaned) > 50 or any(len(x) > 120 for x in cleaned):
         raise DKDError(400, "Укажите от 1 до 50 кандидатов; имя каждого — до 120 символов.")
@@ -958,6 +959,7 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         "election_id": int(election_id), "term_start": started.isoformat(), "term_end": ends.isoformat(),
         "deputies": len(winners), "seats": 50
     }, ensure_ascii=False))
+    publish_news(actor_id, _election_results_news("duma", election, counts, "Парламент сформирован на срок до " + ends.isoformat() + "."))
     return {"ok": True, "results": results, "deputies": roster, "term_start": started.isoformat(), "term_end": ends.isoformat()}
 
 
@@ -1190,6 +1192,7 @@ def close_election(actor_id: int, kind: str, election_id: int) -> dict:
     execute(db().table(table).update({"status": "closed", "results": counts}).eq("id", int(election_id)),
             "Не удалось завершить выборы.")
     audit(actor_id, "election_closed", None, f"{kind}:{election_id}")
+    publish_news(actor_id, _election_results_news(kind, election, counts))
     return {"ok": True, "results": counts}
 
 
@@ -1542,6 +1545,71 @@ def list_documents(user: dict, admin: bool) -> dict:
     return {"laws": laws, "decrees": visible}
 
 
+def _election_results_news(kind: str, election: dict, counts: dict[str, int], extra: str = "") -> str:
+    title = clean_name(election.get("title")) or ("Выборы в Госдуму" if kind == "duma" else "Президентские выборы")
+    labels = sorted(counts.items(), key=lambda item: (-int(item[1]), str(item[0]).casefold()))
+    total = sum(int(votes) for _, votes in labels)
+    lines = ["🗳️ ИТОГИ ВЫБОРОВ", "", title, "", "Результаты голосования:"]
+    lines.extend(f"• {name} — {int(votes)} голос(ов)" for name, votes in labels)
+    lines.extend(["", f"Всего учтено голосов: {total}."])
+    if labels and int(labels[0][1]) > 0:
+        winners = [name for name, votes in labels if int(votes) == int(labels[0][1])]
+        lines.extend(["", "Победитель: " + (", ".join(winners) if len(winners) == 1 else "ничья между " + ", ".join(winners)) + "."])
+    if extra:
+        lines.extend(["", extra])
+    return "\n".join(lines)
+
+
+def _presidential_candidate_applications() -> list[dict]:
+    raw = _setting_get(PRESIDENTIAL_CANDIDATES_KEY)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def submit_presidential_candidate(user: dict) -> dict:
+    subject = get_subject(int(user["id"]))
+    if not subject or not subject.get("is_citizen"):
+        raise DKDError(403, "Подать кандидатуру может только гражданин ДКД.")
+    full_name = clean_name(subject.get("full_name"))
+    if not full_name:
+        raise DKDError(422, "Сначала заполните ФИО в профиле.")
+    applications = _presidential_candidate_applications()
+    current = next((x for x in applications if int(x.get("user_id") or 0) == int(user["id"])), None)
+    if current and current.get("status") == "approved":
+        raise DKDError(409, "Ваша кандидатура уже утверждена администратором.")
+    if current and current.get("status") == "pending":
+        raise DKDError(409, "Ваша кандидатура уже отправлена администратору на утверждение.")
+    entry = {"user_id": int(user["id"]), "full_name": full_name, "status": "pending", "submitted_at": utcnow().isoformat()}
+    applications = [x for x in applications if int(x.get("user_id") or 0) != int(user["id"])]
+    applications.append(entry)
+    _setting_put(PRESIDENTIAL_CANDIDATES_KEY, json.dumps(applications, ensure_ascii=False))
+    audit(int(user["id"]), "presidential_candidate_submitted", None, full_name)
+    return {"ok": True, "candidate": entry, "message": "Кандидатура отправлена администратору."}
+
+
+def list_presidential_candidates() -> list[dict]:
+    return sorted(_presidential_candidate_applications(), key=lambda x: str(x.get("submitted_at") or ""), reverse=True)
+
+
+def review_presidential_candidate(actor_id: int, candidate_user_id: int, status: str) -> dict:
+    if status not in ("approved", "rejected"):
+        raise DKDError(400, "Допустимые решения: approved или rejected.")
+    applications = _presidential_candidate_applications()
+    entry = next((x for x in applications if int(x.get("user_id") or 0) == int(candidate_user_id)), None)
+    if not entry:
+        raise DKDError(404, "Заявка кандидата не найдена.")
+    entry["status"] = status
+    entry["reviewed_at"] = utcnow().isoformat()
+    _setting_put(PRESIDENTIAL_CANDIDATES_KEY, json.dumps(applications, ensure_ascii=False))
+    audit(actor_id, "presidential_candidate_" + status, int(candidate_user_id), str(entry.get("full_name") or ""))
+    return {"ok": True, "candidate": entry}
+
+
 def list_news() -> list:
     return rows(db().table("news").select("id,text,created_at").order("id", desc=True).limit(30))
 
@@ -1856,8 +1924,14 @@ def duma_call_presidential_election(actor_id: int) -> dict:
         raise DKDError(409, "Для президентских выборов нужны минимум два гражданина с заполненным ФИО.")
     now = utcnow()
     end = now + timedelta(days=7)
+    applications = _presidential_candidate_applications()
+    candidates = sorted({clean_name(x.get("full_name")) for x in applications
+                         if x.get("status") == "approved" and clean_name(x.get("full_name"))}, key=str.casefold)
+    if len(candidates) < 2:
+        raise DKDError(409, "Для назначения выборов нужно минимум два кандидата, утверждённых администратором.")
     election = create_election(actor_id, "president", "Выборы Президента ДКД", candidates, end.isoformat())
-    audit(actor_id, PRESIDENTIAL_ELECTION_ACTION, None, json.dumps({"election_id": int(election["id"]), "term_end": status["president_term_end"], "created_at": now.isoformat()}, ensure_ascii=False))
+    audit(actor_id, PRESIDENTIAL_ELECTION_ACTION, None, json.dumps({"election_id": int(election["id"]), "term_end": status["president_term_end"], "created_at": now.isoformat(), "candidates": candidates}, ensure_ascii=False))
+    publish_news(actor_id, "🗳️ Назначены выборы Президента ДКД.\n\nВ бюллетень включены утверждённые кандидаты:\n" + "\n".join("• " + name for name in candidates) + "\n\nОкончание голосования: " + end.isoformat())
     return {"ok": True, "election": election, "candidate_count": len(candidates), "ends_at": end.isoformat()}
 
 
