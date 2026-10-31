@@ -413,6 +413,20 @@ class DumaPartyListSubmit(BaseModel):
     candidates: list[str] = Field(min_length=1, max_length=50)
 
 
+class DumaPartyTemplateSubmit(BaseModel):
+    candidate_user_ids: list[int] = Field(min_length=1, max_length=50)
+
+
+@app.get("/api/elections/duma/party-template")
+def get_duma_party_template(user: dict = Depends(auth_user)):
+    return core.get_duma_party_template(user)
+
+
+@app.put("/api/elections/duma/party-template")
+def save_duma_party_template(payload: DumaPartyTemplateSubmit, user: dict = Depends(auth_user)):
+    return core.save_duma_party_template(user, payload.candidate_user_ids)
+
+
 @app.post("/api/elections/duma/{election_id}/party-list")
 def submit_duma_party_list(election_id: int, payload: DumaPartyListSubmit, user: dict = Depends(auth_user)):
     return core.submit_duma_party_list(user, election_id, payload.candidates)
