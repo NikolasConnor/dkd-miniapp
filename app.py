@@ -389,6 +389,26 @@ def duma_party_lists(user: dict = Depends(auth_user)):
     return core.list_duma_elections_for_party(user)
 
 
+@app.post("/api/presidential-candidates")
+def submit_presidential_candidate(user: dict = Depends(auth_user)):
+    return core.submit_presidential_candidate(user)
+
+
+@app.get("/api/admin/presidential-candidates")
+def admin_presidential_candidates(user: dict = Depends(admin_user)):
+    return {"candidates": core.list_presidential_candidates()}
+
+
+class PresidentialCandidateReview(BaseModel):
+    status: str = Field(pattern="^(approved|rejected)$")
+
+
+@app.patch("/api/admin/presidential-candidates/{candidate_user_id}")
+def review_presidential_candidate(candidate_user_id: int, payload: PresidentialCandidateReview,
+                                 user: dict = Depends(admin_user)):
+    return core.review_presidential_candidate(user["id"], candidate_user_id, payload.status)
+
+
 class DumaPartyListSubmit(BaseModel):
     candidates: list[str] = Field(min_length=1, max_length=50)
 
