@@ -1059,6 +1059,10 @@ def list_elections(user_id: int) -> dict:
                 counts = tally(kind, e["id"])
                 view["vote_counts"] = counts
                 view["votes_total"] = sum(counts.values())
+                if e.get("status") not in CLOSED_STATUSES:
+                    execute(db().table(table).update({"status": "closed", "results": counts}).eq("id", int(e["id"])),
+                            "Не удалось сохранить итоги завершившихся выборов.")
+                    publish_news(0, _election_results_news(kind, e, counts))
             out.append(view)
         result[kind] = out
     return result
