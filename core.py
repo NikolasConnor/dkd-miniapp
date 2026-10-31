@@ -1217,13 +1217,13 @@ def create_party(user: dict, name: str, emoji: str = "🎭", description: str = 
     return party
 
 
-def update_party_settings(user: dict, party_id: int, name: str, emoji: str = "🎭", description: str = "", color: str = "#4169e1") -> dict:
+def update_party_settings(user: dict, party_id: int, name: str, emoji: str = "🎭", description: str = "", color: str = "#4169e1", admin: bool = False) -> dict:
     uid = int(user["id"])
     party = one(db().table("parties").select(PARTY_COLS).eq("id", int(party_id)).limit(1))
     if not party or party.get("status") != "active":
         raise DKDError(404, "Партия не найдена.")
-    if int(party.get("leader_user_id") or 0) != uid:
-        raise DKDError(403, "Настройки партии может менять только её председатель.")
+    if not admin and int(party.get("leader_user_id") or 0) != uid:
+        raise DKDError(403, "Настройки партии может менять только её председатель или администратор.")
     name = clean_name(name)
     emoji = str(emoji or "🎭").strip()[:8] or "🎭"
     description = str(description or "").strip()
