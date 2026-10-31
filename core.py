@@ -2256,19 +2256,58 @@ def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
 # ----------------------------------------------------------------------------
 
 def public_duma_roster() -> dict:
-    """Публичный состав парламента из внесённых результатов выборов."""
+    """Публичный состав парламента из последнего завершённого созыва.
+    Сначала читаем elected_deputies из результатов выборов; legacy-таблица
+    duma_initial_roster используется только для старых вручную внесённых данных.
+    """
+    data = []
+    term_start = term_end = completed_at = None
+    # Основной источник — результаты настоящих выборов в Госдуму.
     try:
-        data = rows(db().table("duma_initial_roster").select(
-            "full_name,party_name,party_emoji,party_votes,party_vote_percent,elected_to_duma,seats,is_party_leader,election_completed_at,parliament_term_start,parliament_term_end"
-        ))
+        elections = rows(db().table("duma_elections").select(ELECTION_COLS)
+                         .order("id", desc=True).limit(30))
+        for election in elections:
+            result = election.get("results") if isinstance(election.get("results"), dict) else {}
+            deputies = result.get("elected_deputies")
+            if not isinstance(deputies, list) or not deputies:
+                continue
+            term_start = result.get("parliament_term_start")
+            term_end = result.get("parliament_term_end")
+            completed_at = election.get("updated_at") or election.get("created_at")
+            data = [{
+                "full_name": x.get("full_name"),
+                "party_name": x.get("party_name") or "Без партии",
+                "party_emoji": x.get("party_emoji") or "🎭",
+                "party_votes": int(x.get("votes") or 0),
+                "party_vote_percent": 0,
+                "elected_to_duma": True,
+                "seats": int(x.get("seats") or 0),
+                "is_party_leader": bool(x.get("is_party_leader")),
+                "parliament_term_start": term_start,
+                "parliament_term_end": term_end,
+                "telegram_user_id": x.get("telegram_user_id"),
+            } for x in deputies]
+            break
     except Exception as exc:
-        log.warning("Initial parliament roster unavailable: %s", exc)
-        data = []
-    elected = [r for r in data if r.get("elected_to_duma")]
+        log.warning("Election-based parliament roster unavailable: %s", exc)
+
+    # Совместимость с ранее внесённым первым созывом.
+    if not data:
+        try:
+            data = rows(db().table("duma_initial_roster").select(
+                "full_name,party_name,party_emoji,party_votes,party_vote_percent,elected_to_duma,seats,is_party_leader,election_completed_at,parliament_term_start,parliament_term_end"
+            ))
+        except Exception as exc:
+            log.warning("Initial parliament roster unavailable: %s", exc)
+            data = []
+
+    elected = [r for r in data if r.get("elected_to_duma", True)]
     parties = {}
     for row in data:
         name = str(row.get("party_name") or "Без партии")
-        p = parties.setdefault(name, {"name": name, "emoji": row.get("party_emoji") or "🎭", "color": "#4169e1", "votes": int(row.get("party_votes") or 0), "vote_percent": float(row.get("party_vote_percent") or 0), "seats": 0, "members": []})
+        p = parties.setdefault(name, {"name": name, "emoji": row.get("party_emoji") or "🎭",
+            "color": "#4169e1", "votes": int(row.get("party_votes") or 0),
+            "vote_percent": float(row.get("party_vote_percent") or 0), "seats": 0, "members": []})
         try:
             live_party = one(db().table("parties").select("color,emoji").eq("name", name).limit(1))
             if live_party:
@@ -2276,12 +2315,20 @@ def public_duma_roster() -> dict:
                 p["emoji"] = live_party.get("emoji") or p["emoji"]
         except Exception:
             pass
-        if row.get("elected_to_duma"):
+        if row.get("elected_to_duma", True):
             seats = int(row.get("seats") or 0)
             p["seats"] += seats
-            p["members"].append({"full_name": row.get("full_name"), "seats": seats, "is_party_leader": bool(row.get("is_party_leader"))})
+            p["members"].append({"full_name": row.get("full_name"), "seats": seats,
+                                 "is_party_leader": bool(row.get("is_party_leader"))})
     first = data[0] if data else {}
-    return {"formed": bool(elected), "seats_total": 50, "seats_occupied": sum(int(r.get("seats") or 0) for r in elected), "members": [{"full_name": r.get("full_name"), "party_name": r.get("party_name"), "seats": int(r.get("seats") or 0)} for r in elected], "parties": list(parties.values()), "term_start": first.get("parliament_term_start"), "term_end": first.get("parliament_term_end"), "election_completed_at": first.get("election_completed_at")}
+    total_occupied = sum(int(r.get("seats") or 0) for r in elected)
+    return {"formed": bool(elected), "seats_total": 50, "seats_occupied": total_occupied,
+        "members": [{"full_name": r.get("full_name"), "party_name": r.get("party_name"),
+                     "seats": int(r.get("seats") or 0)} for r in elected],
+        "parties": list(parties.values()),
+        "term_start": term_start or first.get("parliament_term_start"),
+        "term_end": term_end or first.get("parliament_term_end"),
+        "election_completed_at": completed_at or first.get("election_completed_at")}
 
 
 REQUIRED_SCHEMA = {
