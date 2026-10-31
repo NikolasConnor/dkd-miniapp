@@ -1297,6 +1297,156 @@ def disband_party(actor: dict, admin: bool, party_id: int) -> dict:
     return {"ok": True}
 
 
+
+def admin_create_party(actor_id: int, name: str, emoji: str, description: str, color: str,
+                       leader_telegram_id: int, leader_full_name: str) -> dict:
+    """Создаёт партию от имени указанного Telegram-пользователя."""
+    if int(leader_telegram_id) <= 0:
+        raise DKDError(422, "Telegram ID председателя должен быть положительным числом.")
+    name = clean_name(name)
+    emoji = str(emoji or "🎭").strip()[:8] or "🎭"
+    description = str(description or "").strip()
+    color = str(color or "#4169e1").strip()
+    leader_full_name = clean_name(leader_full_name)
+    if not 2 <= len(name) <= 60:
+        raise DKDError(422, "Название партии: от 2 до 60 символов.")
+    if not 2 <= len(leader_full_name) <= 120:
+        raise DKDError(422, "Укажите ФИО председателя.")
+    if len(description) > 1000:
+        raise DKDError(422, "Описание партии: не более 1000 символов.")
+    if not re.fullmatch(r"#[0-9A-Fa-f]{6}", color):
+        raise DKDError(422, "Выберите корректный цвет партии.")
+    existing = rows(db().table("parties").select("id,name").eq("status", "active"))
+    if any(clean_name(p["name"]).casefold() == name.casefold() for p in existing):
+        raise DKDError(409, "Партия с таким названием уже существует.")
+    subject = ensure_subject(int(leader_telegram_id), None, leader_full_name)
+    if subject.get("full_name") != leader_full_name:
+        execute(db().table("subjects").update({"full_name": leader_full_name}).eq("id", subject["id"]),
+                "Не удалось обновить ФИО председателя.")
+    party = execute(db().table("parties").insert({
+        "name": name, "emoji": emoji, "description": description, "color": color,
+        "leader_username": subject.get("username") or str(leader_telegram_id),
+        "leader_user_id": int(leader_telegram_id), "status": "active",
+    }), "Не удалось создать партию.")[0]
+    try:
+        execute(db().table("party_members").delete().eq("user_id", int(leader_telegram_id)))
+        execute(db().table("party_members").insert({
+            "party_id": party["id"], "username": subject.get("username") or str(leader_telegram_id),
+            "user_id": int(leader_telegram_id),
+        }), "Не удалось назначить председателя партии.")
+    except Exception:
+        try:
+            db().table("parties").delete().eq("id", party["id"]).execute()
+        except Exception:
+            pass
+        raise
+    audit(actor_id, "admin_party_created", int(leader_telegram_id), f"party:{party['id']}")
+    return {"ok": True, "party": party}
+
+
+def admin_add_party_member(actor_id: int, party_id: int, telegram_id: int, full_name: str) -> dict:
+    """Добавляет участника в выбранную партию, переводя его из прежней."""
+    if int(telegram_id) <= 0:
+        raise DKDError(422, "Telegram ID должен быть положительным числом.")
+    full_name = clean_name(full_name)
+    if not 2 <= len(full_name) <= 120:
+        raise DKDError(422, "Укажите полное ФИО участника.")
+    party = one(db().table("parties").select(PARTY_COLS).eq("id", int(party_id)).limit(1))
+    if not party or party.get("status") != "active":
+        raise DKDError(404, "Активная партия не найдена.")
+    subject = ensure_subject(int(telegram_id), None, full_name)
+    if subject.get("full_name") != full_name:
+        execute(db().table("subjects").update({"full_name": full_name}).eq("id", subject["id"]),
+                "Не удалось обновить ФИО участника.")
+    existing = rows(db().table("party_members").select("id,party_id").eq("user_id", int(telegram_id)))
+    if any(int(m["party_id"]) == int(party_id) for m in existing):
+        return {"ok": True, "message": "Пользователь уже состоит в этой партии."}
+    for member in existing:
+        execute(db().table("party_members").delete().eq("id", member["id"]), "Не удалось перевести участника.")
+    username = subject.get("username") or str(telegram_id)
+    execute(db().table("party_members").insert({
+        "party_id": int(party_id), "username": username, "user_id": int(telegram_id)
+    }), "Не удалось добавить участника.")
+    audit(actor_id, "admin_party_member_added", int(telegram_id), f"party:{party_id}")
+    return {"ok": True}
+
+
+def admin_set_party_leader(actor_id: int, party_id: int, telegram_id: int, full_name: str) -> dict:
+    party = one(db().table("parties").select(PARTY_COLS).eq("id", int(party_id)).limit(1))
+    if not party or party.get("status") != "active":
+        raise DKDError(404, "Активная партия не найдена.")
+    result = admin_add_party_member(actor_id, party_id, telegram_id, full_name)
+    subject = get_subject(int(telegram_id))
+    username = (subject or {}).get("username") or str(telegram_id)
+    execute(db().table("parties").update({
+        "leader_user_id": int(telegram_id), "leader_username": username
+    }).eq("id", int(party_id)), "Не удалось назначить председателя.")
+    audit(actor_id, "admin_party_leader_changed", int(telegram_id), f"party:{party_id}")
+    return {"ok": True, "message": result.get("message", "Председатель назначен.")}
+
+
+def _normal_election_kind(kind: str) -> str:
+    kind = "presidential" if kind == "president" else kind
+    if kind not in ELECTION_TABLES:
+        raise DKDError(404, "Неизвестный тип выборов.")
+    return kind
+
+
+def admin_add_past_election(actor_id: int, kind: str, title: str, election_date: str,
+                            results: list[dict], term_start: str | None = None,
+                            term_end: str | None = None) -> dict:
+    """Вносит завершённую кампанию без запуска голосования."""
+    kind = _normal_election_kind(kind)
+    title = clean_name(title)
+    if not 3 <= len(title) <= 160:
+        raise DKDError(422, "Название выборов: от 3 до 160 символов.")
+    date_value = parse_dt(election_date)
+    if not date_value:
+        try:
+            date_value = datetime.fromisoformat(election_date[:10]).replace(tzinfo=timezone.utc)
+        except Exception as exc:
+            raise DKDError(422, "Укажите дату завершения выборов в формате YYYY-MM-DD.") from exc
+    cleaned_results = {}
+    for item in results:
+        option = clean_name(str(item.get("option", "")))
+        try:
+            votes = int(item.get("votes", 0))
+        except (TypeError, ValueError) as exc:
+            raise DKDError(422, "Количество голосов должно быть целым числом.") from exc
+        if not option or len(option) > 200 or votes < 0:
+            raise DKDError(422, "Проверьте названия участников и количество голосов.")
+        if option in cleaned_results:
+            raise DKDError(422, "Названия участников выборов должны быть уникальными.")
+        cleaned_results[option] = votes
+    if len(cleaned_results) < 2:
+        raise DKDError(422, "Укажите минимум два участника/варианта с результатами.")
+    table = ELECTION_TABLES[kind]
+    row = execute(db().table(table).insert({
+        "title": title,
+        "options": list(cleaned_results.keys()),
+        "ends_at": date_value.astimezone(timezone.utc).isoformat(),
+        "status": "closed",
+        "results": cleaned_results,
+    }), "Не удалось сохранить результаты прошедших выборов.")[0]
+    audit(actor_id, "past_election_added", None,
+          f"{kind}:{row.get('id')};term_start={term_start or ''};term_end={term_end or ''}")
+    return {"ok": True, "kind": kind, "election": row}
+
+
+def admin_list_election_history() -> list[dict]:
+    history = []
+    for kind, table in ELECTION_TABLES.items():
+        for row in rows(db().table(table).select(ELECTION_COLS).order("id", desc=True).limit(100)):
+            history.append({
+                "id": row.get("id"), "kind": kind, "title": row.get("title"),
+                "date": row.get("ends_at"), "status": row.get("status"),
+                "results": row.get("results") or {}, "options": row.get("options") or [],
+                "created_at": row.get("created_at"),
+            })
+    history.sort(key=lambda x: str(x.get("date") or x.get("created_at") or ""), reverse=True)
+    return history[:100]
+
+
 # ----------------------------------------------------------------------------
 # Документы, новости, публикации
 # ----------------------------------------------------------------------------
