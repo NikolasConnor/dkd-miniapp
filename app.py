@@ -344,6 +344,38 @@ def parliament_roster(user: dict = Depends(auth_user)):
     return core.public_duma_roster()
 
 
+@app.get("/api/duma/constitutional-status")
+def duma_constitutional_status(user: dict = Depends(auth_user)):
+    core.require_deputy(user)
+    return core.duma_constitutional_status(user)
+
+
+@app.post("/api/duma/presidential-election")
+def duma_call_presidential_election(user: dict = Depends(auth_user)):
+    core.require_deputy(user)
+    return core.duma_call_presidential_election(user["id"])
+
+
+class ImpeachmentProposal(BaseModel):
+    reason: str = Field(min_length=10, max_length=3000)
+
+
+class ImpeachmentVote(BaseModel):
+    vote: str = Field(pattern="^(for|against)$")
+
+
+@app.post("/api/duma/impeachment")
+def duma_propose_impeachment(payload: ImpeachmentProposal, user: dict = Depends(auth_user)):
+    core.require_deputy(user)
+    return core.duma_propose_impeachment(user["id"], payload.reason)
+
+
+@app.post("/api/duma/impeachment/vote")
+def duma_vote_impeachment(payload: ImpeachmentVote, user: dict = Depends(auth_user)):
+    core.require_deputy(user)
+    return core.duma_vote_impeachment(user["id"], payload.vote)
+
+
 @app.get("/api/duma")
 def duma_list(user: dict = Depends(auth_user)):
     core.require_deputy(user)
