@@ -2325,6 +2325,85 @@ def public_duma_roster() -> dict:
     except Exception as exc:
         log.warning("Election-based parliament roster unavailable: %s", exc)
 
+    # Восстановление старого результата, где сохранены только голоса,
+    # а партийные списки для той кампании отсутствуют. Берём фактический
+    # состав партий из party_members; действующего Президента исключаем.
+    if not data:
+        try:
+            elections = rows(db().table("duma_elections").select(ELECTION_COLS)
+                             .eq("status", "closed").order("id", desc=True).limit(30))
+            election = next((e for e in elections
+                             if isinstance(e.get("results"), dict)
+                             and any(isinstance(v, (int, float)) and not isinstance(v, bool)
+                                     for v in e["results"].values())), None)
+            if election:
+                result = election.get("results") or {}
+                counts = {str(k): int(v) for k, v in result.items()
+                          if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                total_votes = sum(max(0, v) for v in counts.values())
+                if total_votes > 0:
+                    parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
+                    party_by_name = {clean_name(p.get("name")).casefold(): p for p in parties}
+                    subjects = rows(db().table("subjects").select("id,user_id,full_name"))
+                    subject_by_user = {int(s["user_id"]): s for s in subjects if s.get("user_id") is not None}
+                    role_rows = rows(db().table("roles").select("id,name"))
+                    president_role_ids = [int(r["id"]) for r in role_rows
+                                           if _role_key(r.get("name", "")) == "президент"]
+                    president_subject_ids = set()
+                    if president_role_ids:
+                        links = fetch_all(lambda: db().table("subject_roles").select("subject_id")
+                                          .in_("role_id", president_role_ids))
+                        president_subject_ids = {int(x["subject_id"]) for x in links}
+                    members = fetch_all(lambda: db().table("party_members")
+                                        .select("id,party_id,user_id,username").order("id"))
+                    party_members = {}
+                    for member in members:
+                        subject = subject_by_user.get(int(member.get("user_id") or 0))
+                        if not subject or int(subject["id"]) in president_subject_ids:
+                            continue
+                        party_members.setdefault(int(member["party_id"]), []).append(subject)
+                    valid = []
+                    for party_name, votes in counts.items():
+                        party = party_by_name.get(party_name.casefold())
+                        if party and votes > 0:
+                            candidates = party_members.get(int(party["id"]), [])
+                            if candidates:
+                                valid.append((party_name, votes, party, candidates))
+                    if valid:
+                        raw = [(name, votes, party, candidates, votes * 50 / total_votes)
+                               for name, votes, party, candidates in valid]
+                        seat_map = {name: int(quota) for name, _, _, _, quota in raw}
+                        remainder = 50 - sum(seat_map.values())
+                        for name, _, _, _, quota in sorted(
+                                raw, key=lambda x: (x[4] - int(x[4]), x[1], x[0].casefold()), reverse=True
+                        )[:remainder]:
+                            seat_map[name] += 1
+                        for name, votes, party, candidates, _ in raw:
+                            party_seats = seat_map[name]
+                            count = min(len(candidates), party_seats)
+                            if count <= 0:
+                                continue
+                            base, extra = divmod(party_seats, count)
+                            for idx, subject in enumerate(candidates[:count]):
+                                data.append({
+                                    "full_name": subject.get("full_name") or "Участник",
+                                    "party_name": name,
+                                    "party_emoji": party.get("emoji") or "🎭",
+                                    "party_votes": votes,
+                                    "party_vote_percent": round(votes * 100 / total_votes, 2),
+                                    "elected_to_duma": True,
+                                    "seats": base + (1 if idx < extra else 0),
+                                    "is_party_leader": int(subject.get("user_id") or 0) == int(party.get("leader_user_id") or -1),
+                                    "telegram_user_id": int(subject["user_id"]),
+                                    "parliament_term_start": result.get("parliament_term_start"),
+                                    "parliament_term_end": result.get("parliament_term_end"),
+                                })
+                        term_start = result.get("parliament_term_start")
+                        term_end = result.get("parliament_term_end")
+                        completed_at = election.get("updated_at") or election.get("created_at")
+        except Exception as exc:
+            log.warning("Could not rebuild legacy Duma roster from current party members: %s", exc)
+
     # Совместимость с ранее внесённым первым созывом.
     if not data:
         try:
