@@ -82,23 +82,17 @@
     <section id="parliamentView" class="view">
       <button class="back" onclick="openView('home')">← На главную</button>
       <div class="parliament-hero">
-        <div><div class="eyebrow">Законодательная власть ДКД</div><h2>Государственная дума</h2><p>Парламент сформируется после проведения выборов.</p></div>
-        <div class="parliament-total"><strong>0<span class="total-divider">/</span>50</strong><span>депутатских мест занято</span></div>
+        <div><div class="eyebrow">Законодательная власть ДКД</div><h2>Государственная дума</h2><p id="parliamentTermText">Действующий состав парламента</p></div>
+        <div class="parliament-total"><strong><span id="parliamentSeatsOccupied">0</span><span class="total-divider">/</span>50</strong><span>депутатских мест занято</span></div>
       </div>
       <div class="card parliament-chamber">
-        <div class="section-head"><h3>Зал Государственной думы</h3><span class="status">Парламент не сформирован</span></div>
+        <div class="section-head"><h3>Зал Государственной думы</h3><span class="status" id="parliamentStatus">Загрузка состава…</span></div>
         <div class="chamber-frame">
-          <div class="chamber-label">ПРЕДСЕДАТЕЛЬСТВО</div>
-          <div class="seat-chart" role="img" aria-label="Пустой зал Государственной думы: 50 свободных депутатских мест">
-            <div class="seat-row"><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span></div>
-          <div class="seat-row"><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span></div>
-          <div class="seat-row"><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span></div>
-          <div class="seat-row"><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span></div>
-          <div class="seat-row"><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span><span class="seat seat-empty"></span></div>
-          </div>
-          <div class="chamber-foot"><span class="chamber-line"></span><span>50 свободных мест</span><span class="chamber-line"></span></div>
+          <div class="chamber-label">ДЕПУТАТСКИЕ МЕСТА</div>
+          <div class="seat-chart" id="parliamentSeatChart" role="img" aria-label="Схема мест Государственной думы"></div>
+          <div class="chamber-foot"><span class="chamber-line"></span><span id="parliamentSeatsCaption">50 депутатских мест</span><span class="chamber-line"></span></div>
         </div>
-        <div class="empty-parliament-note"><div class="empty-parliament-icon">🏛️</div><div><strong>Государственная дума пока пуста</strong><p>Выборы ещё не проводились. Участники смогут создавать партии и подавать партийные списки самостоятельно. После выборов состав парламента и распределение мест будут отражать результаты голосования.</p></div></div>
+        <div id="parliamentRoster"><div class="empty">Загрузка состава парламента…</div></div>
       </div>
       <div class="card parliament-work">
         <div class="section-head"><h3>Заседания и законопроекты</h3><button class="btn secondary" onclick="loadParliament()">Обновить</button></div>
@@ -229,11 +223,22 @@ async function api(url, opts={}) {
   return data;
 }
 function showError(target,err){if(target)target.innerHTML=`<div class="notice error">${esc(err.message||err)}</div>`}
-function canOpenParliament(){return !!state.isAdmin||!!state.isDeputy}
+function canOpenParliament(){return true}
 async function loadParliament(){
- if(!canOpenParliament())return;
  const view=$('parliamentView');if(view)view.scrollIntoView({block:'start',behavior:'smooth'});
+ try{
+  const r=await api('/api/parliament-roster');
+  $('parliamentSeatsOccupied').textContent=Number(r.seats_occupied||0);
+  $('parliamentTermText').textContent=r.formed?'Состав сформирован по итогам выборов '+(r.election_completed_at?fmtDate(r.election_completed_at):''):'Данные о составе парламента не найдены';
+  $('parliamentStatus').textContent=r.formed?'Парламент сформирован':'Нет данных о составе';
+  $('parliamentSeatsCaption').textContent=Number(r.seats_total||50)+' мест · занято '+Number(r.seats_occupied||0);
+  const chart=$('parliamentSeatChart');
+  if(chart){const counts=[6,8,10,12,14];let used=0;chart.innerHTML=counts.map(n=>'<div class="seat-row">'+Array.from({length:n},()=>{const occupied=used<Number(r.seats_occupied||0);used++;return '<span class="seat '+(occupied?'seat-occupied':'seat-empty')+'"></span>'}).join('')+'</div>').join('');}
+  const roster=$('parliamentRoster');
+  roster.innerHTML=r.formed?(r.parties||[]).map(p=>'<div class="duma-party-roster"><h4>'+esc(p.emoji||'🎭')+' '+esc(p.name)+' <span class="muted">· '+Number(p.seats||0)+' мест · '+Number(p.votes||0)+' голосов ('+Number(p.vote_percent||0)+'%)</span></h4><div>'+(p.members||[]).map(m=>'<div class="row"><span>'+esc(m.full_name)+(m.is_party_leader?' · председатель партии':'')+'</span><strong>'+Number(m.seats||0)+' мест</strong></div>').join('')+'</div></div>').join(''):'<div class="empty-parliament-note"><div class="empty-parliament-icon">🏛️</div><div><strong>Данные о составе не найдены</strong><p>Проверьте таблицу duma_initial_roster в Supabase.</p></div></div>';
+ }catch(e){const roster=$('parliamentRoster');if(roster)roster.innerHTML='<div class="notice error">'+esc(e.message||'Не удалось загрузить состав парламента')+'</div>';}
  const el=$('dumaSessions');if(!el)return;el.innerHTML='<div class="empty">Загрузка заседаний…</div>';
+ if(!state.isAdmin&&!state.isDeputy){el.innerHTML='<div class="notice">Состав парламента доступен для просмотра. Заседания и законопроекты доступны только действующим депутатам.</div>';return;}
  try{
   const d=await api('/api/duma');const sessions=d.sessions||[];const laws=d.laws||[];
   el.innerHTML=sessions.length?sessions.map(s=>{
@@ -268,7 +273,7 @@ async function init(){
   try{
     await loadProfile();const p=await api('/api/president/status');state.isAdmin=!!p.is_admin;state.isPresident=!!p.is_president;state.isDeputy=(state.profile?.roles||[]).some(r=>String(typeof r==='string'?r:r.name||'').trim().toLowerCase()==='депутат');
     let adminStatus={};try{adminStatus=await api('/api/admin/status')}catch(e){}
-    $('adminTile').classList.toggle('hidden',!(state.isAdmin||adminStatus.bootstrap_available));$('presidentTile').classList.toggle('hidden',!state.isPresident);$('parliamentTile').classList.toggle('hidden',!canOpenParliament());
+    $('adminTile').classList.toggle('hidden',!(state.isAdmin||adminStatus.bootstrap_available));$('presidentTile').classList.toggle('hidden',!state.isPresident);$('parliamentTile').classList.remove('hidden');
   }catch(e){$('homeNotice').innerHTML=`<div class="notice error">${esc(e.message)}. Убедитесь, что Mini App открыт через Telegram и сервер настроен.</div>`}
 }
 async function loadProfile(){
