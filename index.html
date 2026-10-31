@@ -199,6 +199,16 @@
           <button class="btn primary">Добавить / перевести</button>
         </form>
         <div id="adminPartyList" class="list"></div>
+        <div class="section-head"><h3>Администрирование голосования</h3></div>
+        <div class="card form">
+          <p class="muted small">Голос от имени выбранного гражданина учитывается в открытой кампании. Если гражданин уже голосовал, его выбор будет заменён.</p>
+          <div class="field"><label>Кампания</label><select id="adminVoteElection" required onchange="adminVoteElectionChanged()"><option value="">Загрузка выборов…</option></select></div>
+          <div class="field"><label>Голосовать от имени гражданина</label><select id="adminVoteVoter" required><option value="">Загрузка пользователей…</option></select></div>
+          <div class="field"><label>Кандидат / вариант</label><select id="adminVoteOption" required><option value="">Сначала выберите открытую кампанию</option></select></div>
+          <button class="btn primary" type="button" onclick="adminCastVote()">Учесть голос</button>
+          <button class="btn danger" type="button" onclick="adminResetElections()">Обнулить ВСЕ выборы</button>
+          <p class="muted small">Обнуление удалит все бюллетени, активные и завершённые кампании, исторические результаты, сроки Думы и её текущий состав. Партии, пользователи и прочие роли сохранятся.</p>
+        </div>
         <div class="section-head"><h3>История прошедших выборов</h3></div>
         <form class="card form" onsubmit="adminSavePastElection(event)">
           <div class="field"><label>Тип выборов</label><select name="kind"><option value="duma">В Государственную Думу</option><option value="president">Президентские</option></select></div>
@@ -498,6 +508,18 @@ async function adminChangePartyLeader(partyId){
   if(!confirm('Назначить этого человека председателем партии?'))return;
   try{await api('/api/admin/parties/'+partyId+'/leader',{method:'PUT',body:{telegram_id:id,full_name:name}});notify('Председатель назначен');await loadAdminPartiesAndHistory();await loadParties()}catch(err){notify(err.message||'Не удалось назначить председателя','error')}
 }
+
+async function loadAdminVoteTools(){
+ const voter=$('adminVoteVoter');
+ if(voter){const people=state.adminSubjects||[];voter.innerHTML='<option value="">Выберите гражданина</option>'+people.filter(s=>s.is_citizen).map(s=>'<option value="'+Number(s.user_id)+'">'+esc(s.full_name||'Без имени')+' · ID '+esc(s.user_id)+'</option>').join('')}
+ const select=$('adminVoteElection');if(!select)return;
+ try{const data=await api('/api/votes');const options=[];for(const kind of ['presidential','duma'])for(const e of (data[kind]||[])){if(e.status==='active')options.push({kind,id:Number(e.id),title:e.title||'Выборы',candidates:e.options||[]})}
+ state.adminVoteElections=options;select.innerHTML='<option value="">Выберите открытую кампанию</option>'+options.map(e=>'<option value="'+e.kind+':'+e.id+'">'+esc((e.kind==='duma'?'Госдума':'Президент')+' · '+e.title+' · №'+e.id)+'</option>').join('');adminVoteElectionChanged()
+ }catch(err){select.innerHTML='<option value="">Не удалось загрузить выборы</option>';notify(err.message||'Ошибка загрузки кампаний','error')}
+}
+function adminVoteElectionChanged(){const select=$('adminVoteElection'),target=$('adminVoteOption');if(!select||!target)return;const election=(state.adminVoteElections||[]).find(e=>e.kind+':'+e.id===select.value);target.innerHTML=election&&election.candidates.length?election.candidates.map(v=>'<option value="'+esc(v)+'">'+esc(v)+'</option>').join(''):'<option value="">Нет вариантов для голосования</option>'}
+async function adminCastVote(){const selected=$('adminVoteElection').value,voter=Number($('adminVoteVoter').value),option=$('adminVoteOption').value;const election=(state.adminVoteElections||[]).find(e=>e.kind+':'+e.id===selected);if(!election||!voter||!option){notify('Выберите кампанию, гражданина и кандидата','error');return}if(!confirm('Учесть голос гражданина за «'+option+'»? Если он уже голосовал, его прежний выбор заменится.'))return;try{const d=await api('/api/admin/elections/cast-vote',{method:'POST',body:{kind:election.kind,election_id:election.id,telegram_id:voter,option}});notify(d.message||'Голос учтён');await loadAdminVoteTools();await loadElections()}catch(err){notify(err.message||'Не удалось учесть голос','error')}}
+async function adminResetElections(){if(!confirm('ВНИМАНИЕ! Удалить все голоса, все кампании и результаты выборов, сроки Думы и текущий состав парламента? Это действие нельзя отменить.'))return;if(!confirm('Последнее подтверждение: действительно полностью обнулить выборы?'))return;try{const d=await api('/api/admin/elections/reset',{method:'POST',body:{}});notify((d.message||'Выборы обнулены')+' Удалено бюллетеней: '+Number(d.deleted_votes||0)+', кампаний: '+Number(d.deleted_elections||0));await loadAdminVoteTools();await loadAdminPartiesAndHistory();await loadElections();await loadParliament()}catch(err){notify(err.message||'Не удалось обнулить выборы','error')}}
 async function adminSavePastElection(e){
   e.preventDefault();const f=e.currentTarget;const results=[];
   for(const line of f.elements.results.value.split('\n')){
@@ -523,6 +545,7 @@ async function loadAdminSubjects(){
   $('adminRoleSelect').innerHTML=state.adminRoles.map(r=>'<option value="'+Number(r.id)+'">'+esc((r.emoji||'')+' '+r.name)+'</option>').join('');
   $('adminSubjects').innerHTML=people.length?people.map(s=>'<div class="card"><div class="row"><strong>'+esc(s.full_name||'Без имени')+'</strong>'+statusPill(s.is_citizen?'Гражданин':'Не гражданин')+'</div><p class="muted small">Telegram ID: '+esc(s.user_id)+' · Роли: '+esc((s.roles||[]).map(r=>r.name).join(', ')||'нет')+'</p><button class="btn secondary" onclick="openAdminProfile('+Number(s.id)+')">Открыть профиль</button></div>').join(''):'<div class="empty">Пользователи не найдены</div>';
   showAdminProfile();
+  await loadAdminVoteTools();
  }catch(e){showError($('adminSubjects'),e)}
 }
 async function assignSelectedAdminRole(assigned){
