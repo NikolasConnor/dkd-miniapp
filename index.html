@@ -273,7 +273,23 @@ async function loadDumaPartyLists(){
 }
 async function submitDumaPartyList(e,id){e.preventDefault();const candidates=new FormData(e.target).get('candidates').split(/\\n/).map(s=>s.trim()).filter(Boolean);try{await api('/api/elections/duma/'+id+'/party-list',{method:'POST',body:{candidates}});notify('Список кандидатов подан');await loadDumaPartyLists();await loadElections()}catch(err){notify(err.message,'error')}}
 
-async function loadElections(){const el=$('electionsContent');el.innerHTML='<div class="empty">Загрузка…</div>';try{const d=await api('/api/votes');const arr=d.elections||d.votes||[];el.innerHTML=arr.length?arr.map(v=>{const kind=v.kind||v.type||'president';const opts=v.options||v.candidates||[];return `<div class="card"><div class="row"><h3 style="margin:0">${esc(v.title||'Выборы')}</h3>${statusPill(v.status||'Открыты')}</div><p class="muted small">${esc(kind==='duma'?'Выборы в Думу':'Президентские выборы')} · до ${fmtDate(v.ends_at)}</p><form class="form" onsubmit="castVote(event,'${esc(kind)}',${Number(v.id)})"><div class="field"><label>Ваш голос</label><select name="option" required>${opts.map(o=>{const val=typeof o==='string'?o:(o.name||o.title||o.option||'');return `<option value="${esc(val)}">${esc(val)}</option>`}).join('')}</select></div><button class="btn primary" ${/closed|заверш/i.test(v.status||'')?'disabled':''}>Проголосовать</button></form></div>`}).join(''):'<div class="empty">Активных выборов пока нет</div>'}catch(e){showError(el,e)}}
+async function loadElections(){
+ const el=$('electionsContent');el.innerHTML='<div class="empty">Загрузка…</div>';
+ try{
+  const d=await api('/api/votes');
+  const arr=[...(d.presidential||[]),...(d.duma||[])];
+  el.innerHTML=arr.length?arr.map(v=>{
+   const kind=v.kind||'presidential';const opts=v.options||[];
+   const status=v.status||'active';const isDuma=kind==='duma';
+   const label=isDuma?'Выборы в Госдуму':'Президентские выборы';
+   const statusText=status==='scheduled'?'Ожидают начала':status==='closed'?'Завершены':'Идут';
+   const optionsHtml=opts.map(o=>{const val=typeof o==='string'?o:(o.name||o.title||o.option||'');return '<option value="'+esc(val)+'">'+esc(val)+'</option>'}).join('');
+   const results=v.vote_counts?'<div class="notice small">Результаты: '+esc(Object.entries(v.vote_counts).map(([k,n])=>k+': '+n).join(' · ')||'нет голосов')+' · Всего голосов: '+Number(v.votes_total||0)+'</div>':'';
+   const form=status==='active'&&!v.has_voted&&opts.length?'<form class="form" onsubmit="castVote(event,'+JSON.stringify(kind)+','+Number(v.id)+')"><div class="field"><label>Выберите '+(isDuma?'партию':'кандидата')+'</label><select name="option" required>'+optionsHtml+'</select></div><button class="btn primary">Проголосовать</button></form>':v.has_voted?'<span class="status good">Вы уже проголосовали</span>':status==='scheduled'?'<span class="status">Голосование ещё не началось</span>':status==='closed'?'<span class="status">Голосование завершено</span>':'<p class="muted small">Пока нет поданных партийных списков.</p>';
+   return '<article class="card"><div class="row"><h3 style="margin:0">'+esc(v.title||label)+'</h3>'+statusPill(statusText)+'</div><p class="muted small">'+label+' · начало: '+fmtDate(v.starts_at||v.created_at)+' · окончание: '+fmtDate(v.ends_at)+'</p>'+form+results+'</article>'
+  }).join(''):'<div class="empty">Выборы пока не назначены</div>';
+ }catch(e){showError(el,e)}
+}
 async function castVote(e,kind,id){e.preventDefault();try{const option=new FormData(e.target).get('option');await api(`/api/votes/${encodeURIComponent(kind)}/${id}/cast`,{method:'POST',body:{option}});notify('Ваш голос принят');loadElections()}catch(err){notify(err.message,'error')}}
 async function loadNews(){const el=$('newsContent');el.innerHTML='<div class="empty">Загрузка…</div>';try{const d=await api('/api/news');const arr=d.news||[];el.innerHTML=arr.length?arr.map(n=>`<div class="card"><p style="white-space:pre-wrap;margin:0 0 10px">${esc(n.text||n.title||'')}</p><small class="muted">${fmtDate(n.created_at||n.published_at)}</small></div>`).join(''):'<div class="empty">Новостей пока нет</div>'}catch(e){showError(el,e)}}
 async function checkPresident(){try{const d=await api('/api/president/status');const term=d.term||{};const badge=$('presidentTermBadge');const details=$('presidentTermDetails');if(badge){badge.className='status '+(term.expired?'bad':term.managed?'good':'');badge.textContent=term.expired?'Срок истёк':term.managed?'Срок действует':(term.message||'Нет срока')}if(details){details.textContent=term.managed?'Начало: '+fmtDate(term.start_at)+' · окончание: '+fmtDate(term.end_at)+' · осталось дней: '+term.days_left:(term.message||'')}if(!d.is_president)notify(term.expired?'Срок полномочий Президента истёк':'Недостаточно прав для президентской панели','error')}catch(e){notify(e.message,'error')}finally{scrollPresident('presidentTermBadge')}}
