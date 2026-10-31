@@ -262,6 +262,24 @@ class PastElectionCreate(BaseModel):
     term_end: str | None = None
 
 
+
+class AdminCastVote(BaseModel):
+    kind: str = Field(pattern="^(presidential|duma)$")
+    election_id: int = Field(gt=0)
+    telegram_id: int = Field(gt=0)
+    option: str = Field(min_length=1, max_length=200)
+
+
+@app.post("/api/admin/elections/cast-vote")
+def admin_cast_vote(payload: AdminCastVote, user: dict = Depends(admin_user)):
+    return core.admin_cast_vote(user["id"], payload.kind, payload.election_id, payload.telegram_id, payload.option)
+
+
+@app.post("/api/admin/elections/reset")
+def admin_reset_elections(user: dict = Depends(admin_user)):
+    return core.admin_reset_elections(user["id"])
+
+
 @app.get("/api/admin/election-history")
 def admin_election_history(user: dict = Depends(admin_user)):
     return {"elections": core.admin_list_election_history()}
