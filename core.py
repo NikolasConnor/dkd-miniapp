@@ -1177,7 +1177,7 @@ def publish_decree(actor_id: int, title: str, text: str, secret_for_user_id: int
 
 
 def admin_list_subjects() -> dict:
-    subjects = fetch_all(lambda: db().table("subjects").select("id,user_id,username,full_name,is_citizen,reputation").order("id"))
+    subjects = fetch_all(lambda: db().table("subjects").select("id,user_id,username,full_name,is_citizen,reputation,created_at,citizenship_granted_at").order("id"))
     _ensure_canonical_role_rows()
     roles = [r for r in rows(db().table("roles").select("id,name,emoji").order("name")) if _role_key(r.get("name", "")) in ROLE_CANONICAL or _role_key(r.get("name", "")) == "главный администратор"]
     links = fetch_all(lambda: db().table("subject_roles").select("subject_id,role_id").order("subject_id").order("role_id"))
@@ -1187,11 +1187,20 @@ def admin_list_subjects() -> dict:
     ids_by_subject: dict[int, list] = {}
     for link in links:
         ids_by_subject.setdefault(link["subject_id"], []).append(link["role_id"])
+    party_members = fetch_all(lambda: db().table("party_members").select("user_id,party_id").order("id"))
+    parties = rows(db().table("parties").select("id,name,status"))
+    party_names = {int(p["id"]): p.get("name") for p in parties if p.get("status") == "active"}
+    party_by_user = {}
+    for member in party_members:
+        name = party_names.get(int(member["party_id"]))
+        if name:
+            party_by_user[int(member["user_id"])] = name
     for s in subjects:
         s["roles"] = [role_by_id[i] for i in ids_by_subject.get(s["id"], []) if i in role_by_id]
         p = pmap.get(s["user_id"])
         s["passport_number"] = p["number"] if p else None
         s["passport_status"] = p["status"] if p else None
+        s["party_name"] = party_by_user.get(int(s["user_id"]))
     return {"subjects": subjects, "roles": roles}
 
 
