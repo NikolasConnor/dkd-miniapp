@@ -179,6 +179,38 @@
       <div id="adminStatus" class="notice">Проверка прав…</div>
       <div id="claimBox" class="card hidden"><h3 style="margin-top:0">Первичная активация администратора</h3><p class="muted small">Введите одноразовый код, выданный владельцем системы.</p><form class="form" onsubmit="claimAdmin(event)"><div class="field"><label>Код активации</label><input id="adminCode" type="password" minlength="8" required autocomplete="off"></div><button class="btn primary">Активировать</button></form></div>
       <div id="adminTools" class="hidden">
+
+        <div class="section-head"><h3>Управление партиями</h3></div>
+        <form class="card form" onsubmit="adminCreateParty(event)">
+          <h4 style="margin:0">Создать партию от имени председателя</h4>
+          <div class="field"><label>Название</label><input name="name" minlength="2" maxlength="60" required></div>
+          <div class="field"><label>Эмодзи</label><input name="emoji" value="🏛️" maxlength="8"></div>
+          <div class="field"><label>Описание</label><textarea name="description" maxlength="1000"></textarea></div>
+          <div class="field"><label>Цвет партии</label><input name="color" type="color" value="#4169e1" style="width:70px;height:46px;padding:3px"></div>
+          <div class="field"><label>Telegram ID председателя</label><input name="leader_telegram_id" type="number" min="1" required></div>
+          <div class="field"><label>Полное ФИО председателя</label><input name="leader_full_name" minlength="2" maxlength="120" required></div>
+          <button class="btn primary">Создать партию</button>
+        </form>
+        <form class="card form" onsubmit="adminAddPartyMember(event)">
+          <h4 style="margin:0">Добавить участника / перевести в партию</h4>
+          <div class="field"><label>Партия</label><select name="party_id" id="adminPartySelect" required><option value="">Загрузка партий…</option></select></div>
+          <div class="field"><label>Telegram ID участника</label><input name="telegram_id" type="number" min="1" required></div>
+          <div class="field"><label>Полное ФИО участника</label><input name="full_name" minlength="2" maxlength="120" required></div>
+          <button class="btn primary">Добавить / перевести</button>
+        </form>
+        <div id="adminPartyList" class="list"></div>
+        <div class="section-head"><h3>История прошедших выборов</h3></div>
+        <form class="card form" onsubmit="adminSavePastElection(event)">
+          <div class="field"><label>Тип выборов</label><select name="kind"><option value="duma">В Государственную Думу</option><option value="president">Президентские</option></select></div>
+          <div class="field"><label>Название кампании</label><input name="title" minlength="3" maxlength="160" required></div>
+          <div class="field"><label>Дата завершения (YYYY-MM-DD)</label><input name="election_date" type="date" required></div>
+          <div class="field"><label>Результаты — по одному участнику на строку: Название | голоса</label><textarea name="results" placeholder="Единая Конфедерация | 4&#10;Голубые | 1" required></textarea></div>
+          <div class="field"><label>Начало срока полномочий (необязательно)</label><input name="term_start" type="date"></div>
+          <div class="field"><label>Окончание срока полномочий (необязательно)</label><input name="term_end" type="date"></div>
+          <button class="btn primary">Сохранить прошедшие выборы</button>
+        </form>
+        <div id="adminElectionHistory" class="list"></div>
+
         <div class="section-head"><h3>Заявления</h3></div><div id="adminApplications" class="list"></div>
         <div class="section-head"><h3>Управление пользователями</h3></div>
         <div class="card form">
@@ -410,10 +442,58 @@ async function decidePresidentLaw(id,status){const label=status==='signed'?'по
 async function presidentCreateElection(e){e.preventDefault();try{await api('/api/president/elections/duma',{method:'POST',body:{title:'Выборы в Государственную думу',starts_at:$('presidentElectionStarts').value.trim(),ends_at:$('presidentElectionEnds').value.trim()}});notify('Сроки выборов в Госдуму назначены');e.target.reset();await loadElections()}catch(err){notify(err.message,'error')}}
 
 async function loadAdmin(){
-  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects()])}}
+  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory()])}}
   catch(e){$('adminStatus').textContent=e.message;$('claimBox').classList.remove('hidden');$('adminTools').classList.add('hidden')}
 }
 async function claimAdmin(e){e.preventDefault();try{await api('/api/admin/claim',{method:'POST',body:{code:$('adminCode').value}});notify('Администратор активирован');$('adminCode').value='';await loadAdmin()}catch(err){notify(err.message,'error')}}
+
+async function loadAdminPartiesAndHistory(){
+  try{
+    const d=await api('/api/parties');
+    const parties=d.parties||[];
+    const select=$('adminPartySelect');
+    if(select) select.innerHTML='<option value="">Выберите партию</option>'+parties.map(p=>'<option value="'+Number(p.id)+'">'+esc((p.emoji||'🏛️')+' '+p.name)+'</option>').join('');
+    const list=$('adminPartyList');
+    if(list) list.innerHTML=parties.length?parties.map(p=>'<div class="card"><div class="row"><strong>'+esc((p.emoji||'🏛️')+' '+p.name)+'</strong><span class="status">'+Number(p.members_count||0)+' участн.</span></div><p class="muted small">Цвет: '+esc(p.color||'#4169e1')+' · Председатель: '+esc(p.leader_username||'не указан')+'</p><div class="row"><input id="leaderId'+Number(p.id)+'" type="number" min="1" placeholder="Telegram ID нового председателя" style="min-width:0;flex:1"><input id="leaderName'+Number(p.id)+'" placeholder="Полное ФИО" style="min-width:0;flex:1"><button class="btn secondary" onclick="adminChangePartyLeader('+Number(p.id)+')">Назначить председателя</button></div></div>').join(''):'<div class="empty">Активных партий пока нет.</div>';
+  }catch(e){showError($('adminPartyList'),e)}
+  try{
+    const d=await api('/api/admin/election-history');
+    const list=$('adminElectionHistory'), elections=d.elections||[];
+    if(list) list.innerHTML=elections.length?elections.map(x=>'<div class="card"><strong>'+esc(x.title||'Выборы')+'</strong><p class="muted small">'+(x.kind==='duma'?'Выборы в Думу':'Президентские выборы')+' · '+esc((x.date||'').slice(0,10))+' · '+esc(x.status||'')+'</p><pre style="white-space:pre-wrap">'+esc(JSON.stringify(x.results||{},null,2))+'</pre></div>').join(''):'<div class="empty">История выборов пока пуста.</div>';
+  }catch(e){showError($('adminElectionHistory'),e)}
+}
+async function adminCreateParty(e){
+  e.preventDefault();const f=e.currentTarget;
+  const payload={name:f.elements.name.value.trim(),emoji:f.elements.emoji.value.trim()||'🏛️',description:f.elements.description.value.trim(),color:f.elements.color.value,leader_telegram_id:Number(f.elements.leader_telegram_id.value),leader_full_name:f.elements.leader_full_name.value.trim()};
+  if(!confirm('Создать партию и назначить указанного человека председателем?'))return;
+  try{await api('/api/admin/parties',{method:'POST',body:payload});notify('Партия создана');f.reset();await loadAdminPartiesAndHistory();await loadParties()}catch(err){notify(err.message||'Не удалось создать партию','error')}
+}
+async function adminAddPartyMember(e){
+  e.preventDefault();const f=e.currentTarget;const partyId=Number(f.elements.party_id.value);
+  const payload={telegram_id:Number(f.elements.telegram_id.value),full_name:f.elements.full_name.value.trim()};
+  if(!confirm('Добавить человека в выбранную партию? Если он состоит в другой партии, членство будет переведено.'))return;
+  try{await api('/api/admin/parties/'+partyId+'/members',{method:'POST',body:payload});notify('Участник добавлен / переведён');f.elements.telegram_id.value='';f.elements.full_name.value='';await loadAdminPartiesAndHistory();await loadParties()}catch(err){notify(err.message||'Не удалось добавить участника','error')}
+}
+async function adminChangePartyLeader(partyId){
+  const id=Number($('leaderId'+partyId).value),name=$('leaderName'+partyId).value.trim();
+  if(!id||!name){notify('Укажите Telegram ID и полное ФИО','error');return}
+  if(!confirm('Назначить этого человека председателем партии?'))return;
+  try{await api('/api/admin/parties/'+partyId+'/leader',{method:'PUT',body:{telegram_id:id,full_name:name}});notify('Председатель назначен');await loadAdminPartiesAndHistory();await loadParties()}catch(err){notify(err.message||'Не удалось назначить председателя','error')}
+}
+async function adminSavePastElection(e){
+  e.preventDefault();const f=e.currentTarget;const results=[];
+  for(const line of f.elements.results.value.split('\n')){
+    const trimmed=line.trim();if(!trimmed)continue;
+    const parts=trimmed.split('|');if(parts.length!==2){notify('Каждая строка должна быть в формате: Название | голоса','error');return}
+    const votes=Number(parts[1].trim());if(!Number.isInteger(votes)||votes<0){notify('Количество голосов должно быть целым неотрицательным числом','error');return}
+    results.push({option:parts[0].trim(),votes});
+  }
+  if(results.length<2){notify('Добавьте минимум два результата','error');return}
+  const payload={kind:f.elements.kind.value,title:f.elements.title.value.trim(),election_date:f.elements.election_date.value,results,term_start:f.elements.term_start.value||null,term_end:f.elements.term_end.value||null};
+  if(!confirm('Сохранить результаты как завершённые выборы? Голосование запускаться не будет.'))return;
+  try{await api('/api/admin/election-history',{method:'POST',body:payload});notify('История выборов сохранена');f.reset();await loadAdminPartiesAndHistory()}catch(err){notify(err.message||'Не удалось сохранить результаты','error')}
+}
+
 async function loadAdminApplications(){try{const d=await api('/api/admin/applications');const a=d.applications||[];$('adminApplications').innerHTML=a.length?a.map(x=>`<div class="card"><div class="row"><strong>${esc(x.full_name||'Заявление')}</strong>${statusPill(x.status)}</div><p class="muted small">${esc(x.kind||'')} · ID ${esc(x.id)}</p><p>${esc(x.details||'')}</p><form class="form" onsubmit="reviewApplication(event,${Number(x.id)})"><div class="field"><label>Комментарий</label><input name="note" maxlength="2000"></div><div class="row"><button class="btn primary" name="decision" value="approved">Одобрить</button><button class="btn danger" name="decision" value="rejected">Отклонить</button></div></form></div>`).join(''):'<div class="empty">Заявлений на рассмотрении нет</div>'}catch(e){showError($('adminApplications'),e)}}
 async function reviewApplication(e,id){e.preventDefault();const decision=e.submitter?.value||'approved';try{await api(`/api/admin/applications/${id}`,{method:'PATCH',body:{status:decision,review_note:new FormData(e.target).get('note')||''}});notify(decision==='approved'?'Заявление одобрено':'Заявление отклонено');await loadAdminApplications()}catch(err){notify(err.message,'error')}}
 async function loadAdminSubjects(){
