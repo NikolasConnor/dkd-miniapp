@@ -707,6 +707,120 @@ OPEN_STATUSES = ("active", "open")
 CLOSED_STATUSES = ("closed", "finished", "completed")
 ELECTION_COLS = "id,title,options,ends_at,status,results,created_at"
 
+DUMA_START_KEY_PREFIX = "duma_election_start:"
+DUMA_LISTS_KEY_PREFIX = "duma_election_lists:"
+
+
+def _setting_get(key: str) -> str | None:
+    row = one(db().table("app_settings").select("key,value").eq("key", key).limit(1))
+    return str(row.get("value")) if row and row.get("value") is not None else None
+
+
+def _setting_put(key: str, value: str) -> None:
+    row = one(db().table("app_settings").select("key").eq("key", key).limit(1))
+    if row:
+        execute(db().table("app_settings").update({"value": value}).eq("key", key), "Не удалось сохранить настройки выборов.")
+    else:
+        execute(db().table("app_settings").insert({"key": key, "value": value}), "Не удалось сохранить настройки выборов.")
+
+
+def duma_start_at(election_id: int) -> datetime | None:
+    raw = _setting_get(DUMA_START_KEY_PREFIX + str(int(election_id)))
+    return parse_dt(raw) if raw else None
+
+
+def duma_party_lists(election_id: int) -> dict:
+    raw = _setting_get(DUMA_LISTS_KEY_PREFIX + str(int(election_id)))
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+
+def president_schedule_duma_election(actor_id: int, title: str, starts_at: str, ends_at: str) -> dict:
+    start, end = parse_dt(starts_at), parse_dt(ends_at)
+    if not start or not end:
+        raise DKDError(400, "Укажите корректные дату и время начала и окончания выборов.")
+    if start <= utcnow() or end <= start:
+        raise DKDError(400, "Начало должно быть в будущем, а окончание — позже начала.")
+    title = clean_name(title) or "Выборы в Государственную думу"
+    if len(title) > 200:
+        raise DKDError(422, "Название выборов не должно превышать 200 символов.")
+    election = execute(db().table("duma_elections").insert({
+        "title": title, "options": [], "ends_at": end.isoformat(), "status": "scheduled", "results": {},
+    }), "Не удалось назначить выборы.")[0]
+    _setting_put(DUMA_START_KEY_PREFIX + str(election["id"]), start.isoformat())
+    _setting_put(DUMA_LISTS_KEY_PREFIX + str(election["id"]), "{}")
+    audit(actor_id, "duma_election_scheduled", None, f"duma:{election['id']}:{start.isoformat()}:{end.isoformat()}")
+    return {**election, "starts_at": start.isoformat(), "status": "scheduled"}
+
+
+def submit_duma_party_list(user: dict, election_id: int, candidates: list[str]) -> dict:
+    uid = int(user["id"])
+    parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
+    party = next((p for p in parties if int(p.get("leader_user_id") or 0) == uid), None)
+    if not party:
+        raise DKDError(403, "Подать список кандидатов может только председатель партии.")
+    election = one(db().table("duma_elections").select(ELECTION_COLS).eq("id", int(election_id)).limit(1))
+    if not election:
+        raise DKDError(404, "Выборы в Госдуму не найдены.")
+    start, end = duma_start_at(election_id), parse_dt(election.get("ends_at"))
+    if not start or utcnow() >= start or (end and utcnow() >= end) or election.get("status") in CLOSED_STATUSES:
+        raise DKDError(409, "Список кандидатов можно подать только до начала выборов.")
+    cleaned = [clean_name(x) for x in candidates if clean_name(x)]
+    if not cleaned or len(cleaned) > 50 or any(len(x) > 120 for x in cleaned):
+        raise DKDError(400, "Укажите от 1 до 50 кандидатов; имя каждого — до 120 символов.")
+    if len({x.casefold() for x in cleaned}) != len(cleaned):
+        raise DKDError(400, "В списке не должно быть повторяющихся кандидатов.")
+    lists = duma_party_lists(election_id)
+    lists[str(party["id"])] = {"party_id": party["id"], "party_name": party["name"], "party_emoji": party.get("emoji") or "🎭",
+                               "leader_user_id": uid, "candidates": cleaned, "submitted_at": utcnow().isoformat()}
+    _setting_put(DUMA_LISTS_KEY_PREFIX + str(int(election_id)), json.dumps(lists, ensure_ascii=False))
+    options = [item["party_name"] for item in lists.values()]
+    execute(db().table("duma_elections").update({"options": options}).eq("id", int(election_id)), "Не удалось обновить списки партий на выборах.")
+    audit(uid, "duma_party_list_submitted", None, f"election:{election_id}:party:{party['id']}")
+    return {"ok": True, "party_name": party["name"], "candidates": cleaned}
+
+
+def list_duma_elections_for_party(user: dict) -> dict:
+    uid = int(user["id"])
+    parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
+    leader_parties = [p for p in parties if int(p.get("leader_user_id") or 0) == uid]
+    elections = rows(db().table("duma_elections").select(ELECTION_COLS).order("id", desc=True).limit(20))
+    out = []
+    for e in elections:
+        start = duma_start_at(e["id"])
+        end = parse_dt(e.get("ends_at"))
+        status = effective_status(e)
+        if status == "active" and start and utcnow() < start:
+            status = "scheduled"
+        elif status in ("scheduled", "pending") and start and start <= utcnow() and (not end or utcnow() < end):
+            status = "active"
+        elif start and end and utcnow() >= end:
+            status = "closed"
+        lists = duma_party_lists(e["id"])
+        out.append({"id": e["id"], "title": e.get("title"), "starts_at": start.isoformat() if start else None,
+                    "ends_at": e.get("ends_at"), "status": status,
+                    "my_party": next(({"id": p["id"], "name": p["name"]} for p in leader_parties), None),
+                    "my_list_submitted": any(str(p["id"]) in lists for p in leader_parties),
+                    "party_lists": [{"party_name": x["party_name"], "candidates": x["candidates"]} for x in lists.values()]})
+    return {"elections": out}
+
+
+def admin_close_duma_election(actor_id: int, election_id: int) -> dict:
+    election = one(db().table("duma_elections").select(ELECTION_COLS).eq("id", int(election_id)).limit(1))
+    if not election:
+        raise DKDError(404, "Выборы в Госдуму не найдены.")
+    counts = tally("duma", election_id)
+    execute(db().table("duma_elections").update({"status": "closed", "results": counts}).eq("id", int(election_id)),
+            "Не удалось завершить выборы.")
+    audit(actor_id, "duma_election_closed", None, f"duma:{election_id}")
+    return {"ok": True, "results": counts}
+
+
 
 def parse_dt(value: Any) -> datetime | None:
     if not value:
@@ -730,14 +844,27 @@ def normalize_options(options: Any) -> list[str]:
 
 
 def effective_status(election: dict, now: datetime | None = None) -> str:
+    current = now or utcnow()
     status = election.get("status")
-    if status in OPEN_STATUSES:
-        end = parse_dt(election.get("ends_at"))
-        if end and end <= (now or utcnow()):
-            return "closed"
-        return "active"
     if status in CLOSED_STATUSES:
         return "closed"
+    if status in ("scheduled", "pending"):
+        start = duma_start_at(int(election["id"])) if "id" in election else None
+        end = parse_dt(election.get("ends_at"))
+        if end and end <= current:
+            return "closed"
+        if start and current < start:
+            return "scheduled"
+        return "active"
+    if status in OPEN_STATUSES:
+        end = parse_dt(election.get("ends_at"))
+        if end and end <= current:
+            return "closed"
+        if election.get("id") and "starts_at" not in election:
+            start = duma_start_at(int(election["id"])) if election.get("id") else None
+            if start and current < start:
+                return "scheduled"
+        return "active"
     return str(status or "")
 
 
@@ -784,7 +911,7 @@ def cast_vote(user: dict, kind: str, election_id: int, option: str) -> dict:
         raise DKDError(404, "Выборы не найдены.")
     status = effective_status(election)
     if status != "active":
-        raise DKDError(409, "Срок голосования истёк." if election.get("status") in OPEN_STATUSES else "Эти выборы сейчас не открыты.")
+        raise DKDError(409, "Голосование ещё не началось." if status == "scheduled" else "Срок голосования истёк." if status == "closed" else "Эти выборы сейчас не открыты.")
     if option not in normalize_options(election.get("options")):
         raise DKDError(400, "Выбранный вариант отсутствует в списке.")
     already = one(db().table("votes").select("id").eq("user_id", uid).eq("election_type", kind)
@@ -1166,8 +1293,8 @@ def president_review_application(actor_id: int, application_id: int, status: str
     return result
 
 
-def president_create_duma_election(actor_id: int, title: str, options: list[str], ends_at: str | None) -> dict:
-    return create_election(actor_id, "duma", title, options, ends_at)
+def president_create_duma_election(actor_id: int, title: str, starts_at: str, ends_at: str) -> dict:
+    return president_schedule_duma_election(actor_id, title, starts_at, ends_at)
 
 
 def president_publish_law(actor_id: int, title: str, description: str) -> dict:
