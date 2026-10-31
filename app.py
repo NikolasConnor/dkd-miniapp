@@ -185,6 +185,18 @@ def create_party(payload: PartyCreate, user: dict = Depends(auth_user)):
     return {"ok": True, "party": core.create_party(user, payload.name, payload.emoji, payload.description)}
 
 
+class PartySettingsUpdate(BaseModel):
+    name: str = Field(min_length=2, max_length=60)
+    emoji: str = Field(default="🎭", max_length=8)
+    description: str = Field(default="", max_length=1000)
+    color: str = Field(pattern="^#[0-9A-Fa-f]{6}$")
+
+
+@app.put("/api/parties/{party_id}")
+def update_party_settings(party_id: int, payload: PartySettingsUpdate, user: dict = Depends(auth_user)):
+    return {"ok": True, "party": core.update_party_settings(user, party_id, payload.name, payload.emoji, payload.description, payload.color)}
+
+
 @app.post("/api/parties/leave")
 def leave_party(user: dict = Depends(auth_user)):
     return core.leave_party(user)
