@@ -408,7 +408,7 @@ async function joinParty(id){try{await api('/api/parties/'+id+'/join',{method:'P
 async function kickPartyMember(partyId,memberId){if(!confirm('Исключить этого участника из партии?'))return;try{await api('/api/parties/'+partyId+'/members/'+memberId,{method:'DELETE'});notify('Участник исключён');await loadParties()}catch(e){notify(e.message,'error')}}
 async function disbandParty(id){const d=await api('/api/parties');const party=(d.parties||[]).find(p=>Number(p.id)===Number(id));const name=party&&party.name?party.name:'эту партию';if(!confirm('Вы действительно хотите распустить партию «'+name+'»? Все участники будут выведены из её состава. Это действие нельзя отменить.'))return;try{await api('/api/parties/'+id,{method:'DELETE'});notify('Партия распущена');await loadParties()}catch(e){notify(e.message,'error')}}
 async function leaveParty(){const d=await api('/api/parties');const mine=(d.parties||[]).find(p=>p.is_member);if(!mine){notify('Вы не состоите в партии','error');return}const leader=!!mine.can_manage;const message=leader?'Вы действительно хотите выйти из партии и передать руководство старейшему участнику? Это действие нельзя отменить.':'Вы действительно хотите выйти из партии?';if(!confirm(message))return;try{await api('/api/parties/leave',{method:'POST',body:{}});notify(leader?'Вы вышли из партии, руководство передано':'Вы вышли из партии');await loadParties()}catch(e){notify(e.message,'error')}}
-async function createParty(e){e.preventDefault();try{await api('/api/parties',{method:'POST',body:{name:$('partyName').value.trim(),emoji:$('partyEmoji').value||'🎭',description:$('partyDescription').value.trim()}});notify('Партия создана');e.target.reset();notify('Партия создана');await loadParties()}catch(err){notify(err.message,'error')}}
+async function createParty(e){e.preventDefault();try{await api('/api/parties',{method:'POST',body:{name:$('partyName').value.trim(),emoji:$('partyEmoji').value||'🎭',description:$('partyDescription').value.trim()}});e.target.reset();notify('Партия создана');await loadParties()}catch(err){notify(err.message,'error')}}
 async function loadDumaPartyLists(){
  const el=$('dumaPartyLists');if(!el)return;el.innerHTML='<div class="empty">Загрузка выборов…</div>';
  try{const d=await api('/api/elections/duma/party-lists');const arr=d.elections||[];
@@ -470,7 +470,13 @@ async function loadAdminPartiesAndHistory(){
   try{
     const d=await api('/api/admin/election-history');
     const list=$('adminElectionHistory'), elections=d.elections||[];
-    if(list) list.innerHTML=elections.length?elections.map(x=>'<div class="card"><strong>'+esc(x.title||'Выборы')+'</strong><p class="muted small">'+(x.kind==='duma'?'Выборы в Думу':'Президентские выборы')+' · '+esc((x.date||'').slice(0,10))+' · '+esc(x.status||'')+'</p><pre style="white-space:pre-wrap">'+esc(JSON.stringify(x.results||{},null,2))+'</pre></div>').join(''):'<div class="empty">История выборов пока пуста.</div>';
+    if(list) list.innerHTML=elections.length?elections.map(x=>{
+      const results=x.results&&typeof x.results==='object'&&!Array.isArray(x.results)?x.results:{};
+      const entries=Object.entries(results).filter(([k,v])=>k!=='parliament_seats'&&k!=='parliament_term_start'&&k!=='parliament_term_end'&&k!=='elected_deputies'&&Number.isFinite(Number(v)));
+      const total=entries.reduce((sum,[,v])=>sum+Number(v||0),0);
+      const rows=entries.map(([name,v])=>'<div class="row" style="gap:12px;padding:9px 0;border-top:1px solid var(--line)"><span style="min-width:0;overflow-wrap:anywhere">'+esc(name)+'</span><strong>'+Number(v||0)+' '+(Number(v)===1?'голос':'голосов')+(total>0?' · '+Math.round(Number(v||0)*100/total)+'%':'')+'</strong></div>').join('');
+      return '<article class="card"><div class="row" style="align-items:flex-start"><strong>'+esc(x.title||'Выборы')+'</strong>'+statusPill(x.status==='closed'?'Завершены':x.status||'Статус неизвестен')+'</div><p class="muted small">'+(x.kind==='duma'?'Выборы в Государственную Думу':'Президентские выборы')+' · '+esc((x.date||'').slice(0,10))+'</p>'+(rows?'<div>'+rows+'</div><div class="notice small">Всего голосов: '+total+'</div>':'<p class="muted small">Данные о голосах отсутствуют.</p>')+'</article>';
+    }).join(''):'<div class="empty">История выборов пока пуста.</div>';
   }catch(e){showError($('adminElectionHistory'),e)}
 }
 async function adminCreateParty(e){
