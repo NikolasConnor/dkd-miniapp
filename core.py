@@ -581,6 +581,9 @@ def purge_stale_memberships(user_id: int) -> None:
 
 
 def build_profile(user: dict) -> dict:
+    # При входе пользователя синхронизируем истёкший срок и результаты выборов.
+    _sync_duma_term()
+    _maybe_finalize_duma_elections()
     uid = int(user["id"])
     subject = ensure_subject(uid, user.get("username"), tg_full_name(user))
     roles: list[dict] = []
@@ -775,6 +778,11 @@ def submit_duma_party_list(user: dict, election_id: int, candidates: list[str]) 
         raise DKDError(400, "Укажите от 1 до 50 кандидатов; имя каждого — до 120 символов.")
     if len({x.casefold() for x in cleaned}) != len(cleaned):
         raise DKDError(400, "В списке не должно быть повторяющихся кандидатов.")
+    registered = rows(db().table("subjects").select("full_name"))
+    registered_names = {clean_name(x.get("full_name", "")).casefold() for x in registered}
+    missing = [name for name in cleaned if name.casefold() not in registered_names]
+    if missing:
+        raise DKDError(422, "Сначала каждый кандидат должен открыть Mini App и создать профиль. Не найдены: " + ", ".join(missing[:5]))
     lists = duma_party_lists(election_id)
     lists[str(party["id"])] = {"party_id": party["id"], "party_name": party["name"], "party_emoji": party.get("emoji") or "🎭",
                                "leader_user_id": uid, "candidates": cleaned, "submitted_at": utcnow().isoformat()}
@@ -810,15 +818,153 @@ def list_duma_elections_for_party(user: dict) -> dict:
     return {"elections": out}
 
 
-def admin_close_duma_election(actor_id: int, election_id: int) -> dict:
+DUMA_TERM_START_KEY = "duma_term_start"
+DUMA_TERM_END_KEY = "duma_term_end"
+DUMA_TERM_ELECTION_KEY = "duma_term_election_id"
+DUMA_TERM_STATUS_KEY = "duma_term_status"
+
+
+def _add_months(value: datetime, months: int) -> datetime:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return value.replace(year=year, month=month, day=day)
+
+
+def _deputy_role_row() -> dict:
+    roles = _ensure_canonical_role_rows()
+    role = next((r for r in roles if _role_key(r.get("name", "")) == "депутат"), None)
+    if not role:
+        raise DKDError(500, "Не удалось подготовить системную роль «Депутат».")
+    return role
+
+
+def _sync_duma_term() -> None:
+    """Прекращает полномочия истёкшего созыва при первом обращении к API."""
+    raw_end = _setting_get(DUMA_TERM_END_KEY)
+    if not raw_end or _setting_get(DUMA_TERM_STATUS_KEY) == "expired":
+        return
+    end = parse_dt(raw_end)
+    if not end or utcnow() < end:
+        return
+    role = one(db().table("roles").select("id,name").eq("name", "Депутат").limit(1))
+    if role:
+        execute(db().table("subject_roles").delete().eq("role_id", int(role["id"])),
+                "Не удалось завершить полномочия предыдущего созыва.")
+    _setting_put(DUMA_TERM_STATUS_KEY, "expired")
+    audit(0, "duma_term_expired", None, json.dumps({"end_at": raw_end}, ensure_ascii=False))
+
+
+def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
+    """Подводит итоги парламентских выборов, назначает роли и срок нового созыва."""
     election = one(db().table("duma_elections").select(ELECTION_COLS).eq("id", int(election_id)).limit(1))
     if not election:
         raise DKDError(404, "Выборы в Госдуму не найдены.")
+    saved_results = election.get("results") if isinstance(election.get("results"), dict) else {}
+    if saved_results.get("parliament_term_end"):
+        return {"ok": True, "results": saved_results, "already_finalized": True}
+
+    lists = duma_party_lists(election_id)
+    if not lists:
+        raise DKDError(409, "Нельзя сформировать парламент: партии ещё не подали списки кандидатов.")
     counts = tally("duma", election_id)
-    execute(db().table("duma_elections").update({"status": "closed", "results": counts}).eq("id", int(election_id)),
-            "Не удалось завершить выборы.")
-    audit(actor_id, "duma_election_closed", None, f"duma:{election_id}")
-    return {"ok": True, "results": counts}
+    party_by_name = {str(item.get("party_name", "")).casefold(): item for item in lists.values()}
+    valid = [(name, int(counts.get(name, 0)), party_by_name.get(str(name).casefold()))
+             for name in normalize_options(election.get("options"))]
+    valid = [(name, votes, item) for name, votes, item in valid if item and item.get("candidates")]
+    total_votes = sum(votes for _, votes, _ in valid)
+    if total_votes <= 0:
+        raise DKDError(409, "Нельзя сформировать парламент без поданных голосов.")
+    if not valid:
+        raise DKDError(409, "В результатах нет партий с действующими списками кандидатов.")
+
+    # Распределение 50 мест по методу наибольших остатков.
+    raw = [(name, votes, item, (votes * 50) / total_votes) for name, votes, item in valid]
+    seats_by_party = {name: int(quota) for name, _, _, quota in raw}
+    remaining = 50 - sum(seats_by_party.values())
+    for name, _, _, quota in sorted(raw, key=lambda row: (row[3] - int(row[3]), row[1]), reverse=True)[:remaining]:
+        seats_by_party[name] += 1
+
+    subjects = rows(db().table("subjects").select("id,user_id,full_name"))
+    subject_by_name: dict[str, dict] = {}
+    for subject in subjects:
+        key = clean_name(subject.get("full_name", "")).casefold()
+        if key and key not in subject_by_name:
+            subject_by_name[key] = subject
+
+    winners: dict[int, dict] = {}
+    roster = []
+    for party_name, votes, party_data, quota in raw:
+        party_seats = seats_by_party[party_name]
+        candidates = party_data.get("candidates") or []
+        if not candidates:
+            continue
+        # Места внутри списка идут кандидатам по порядку; если мест больше кандидатов,
+        # места распределяются равномерно между всеми прошедшими кандидатами.
+        elected_count = min(len(candidates), party_seats)
+        elected_candidates = candidates[:elected_count]
+        base, extra = divmod(party_seats, elected_count) if elected_count else (0, 0)
+        for idx, full_name in enumerate(elected_candidates):
+            subject = subject_by_name.get(clean_name(full_name).casefold())
+            if not subject:
+                raise DKDError(409, f"Кандидат «{full_name}» должен сначала открыть Mini App, чтобы система связала его ФИО с Telegram-профилем.")
+            seats = base + (1 if idx < extra else 0)
+            winners[int(subject["id"])] = {"subject": subject, "full_name": full_name, "party_name": party_name, "seats": seats}
+            roster.append({"full_name": full_name, "party_name": party_name, "votes": votes, "seats": seats,
+                           "telegram_user_id": int(subject["user_id"])})
+    if not winners:
+        raise DKDError(409, "Не удалось определить участников нового созыва.")
+
+    deputy_role = _deputy_role_row()
+    # Снимаем только роль депутата, не затрагивая партийные и иные должности.
+    execute(db().table("subject_roles").delete().eq("role_id", int(deputy_role["id"])),
+            "Не удалось завершить предыдущий созыв.")
+    for subject_id in winners:
+        execute(db().table("subject_roles").insert({"subject_id": subject_id, "role_id": int(deputy_role["id"])}),
+                "Не удалось назначить роль депутата избранному кандидату.")
+
+    started = utcnow()
+    ends = _add_months(started, 3)
+    results = dict(counts)
+    results.update({
+        "parliament_seats": 50,
+        "parliament_term_start": started.isoformat(),
+        "parliament_term_end": ends.isoformat(),
+        "elected_deputies": roster,
+    })
+    execute(db().table("duma_elections").update({"status": "closed", "results": results}).eq("id", int(election_id)),
+            "Не удалось сохранить результаты выборов.")
+    _setting_put(DUMA_TERM_START_KEY, started.isoformat())
+    _setting_put(DUMA_TERM_END_KEY, ends.isoformat())
+    _setting_put(DUMA_TERM_ELECTION_KEY, str(int(election_id)))
+    _setting_put(DUMA_TERM_STATUS_KEY, "active")
+    audit(actor_id, "duma_election_finalized", None, json.dumps({
+        "election_id": int(election_id), "term_start": started.isoformat(), "term_end": ends.isoformat(),
+        "deputies": len(winners), "seats": 50
+    }, ensure_ascii=False))
+    return {"ok": True, "results": results, "deputies": roster, "term_start": started.isoformat(), "term_end": ends.isoformat()}
+
+
+def _maybe_finalize_duma_elections() -> None:
+    """Закрывает истёкшие парламентские выборы при первом следующем обращении к приложению."""
+    try:
+        elections = rows(db().table("duma_elections").select(ELECTION_COLS).order("id", desc=True).limit(20))
+        for election in elections:
+            if election.get("status") in CLOSED_STATUSES:
+                continue
+            end = parse_dt(election.get("ends_at"))
+            if end and utcnow() >= end:
+                try:
+                    _finalize_duma_election(0, int(election["id"]))
+                except DKDError as exc:
+                    log.warning("Duma election %s not finalized yet: %s", election.get("id"), exc.detail)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Automatic Duma election finalization skipped: %s", exc)
+
+
+def admin_close_duma_election(actor_id: int, election_id: int) -> dict:
+    return _finalize_duma_election(actor_id, election_id)
 
 
 
@@ -875,6 +1021,8 @@ def tally(kind: str, election_id: int) -> dict[str, int]:
 
 
 def list_elections(user_id: int) -> dict:
+    _sync_duma_term()
+    _maybe_finalize_duma_elections()
     mine = fetch_all(lambda: db().table("votes").select("election_type,election_id,option").eq("user_id", int(user_id)).order("id"))
     my = {(v["election_type"], int(v["election_id"])): v["option"] for v in mine}
     result: dict[str, list] = {}
@@ -1329,6 +1477,7 @@ def president_set_law_status(actor_id: int, law_id: int, status: str) -> dict:
 # ----------------------------------------------------------------------------
 
 def is_deputy(user: dict) -> bool:
+    _sync_duma_term()
     if is_admin(user):
         return True
     subject = get_subject(int(user["id"]))
