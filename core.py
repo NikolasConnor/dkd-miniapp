@@ -990,10 +990,11 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
     if not valid:
         raise DKDError(409, "В результатах нет партий с действующими списками кандидатов.")
 
-    # Распределение 50 мест по методу наибольших остатков.
-    raw = [(name, votes, item, (votes * 50) / total_votes) for name, votes, item in valid]
+    # Число мест равно общему числу голосов за партии.
+    parliament_seats = total_votes
+    raw = [(name, votes, item, (votes * parliament_seats) / total_votes) for name, votes, item in valid]
     seats_by_party = {name: int(quota) for name, _, _, quota in raw}
-    remaining = 50 - sum(seats_by_party.values())
+    remaining = parliament_seats - sum(seats_by_party.values())
     for name, _, _, quota in sorted(raw, key=lambda row: (row[3] - int(row[3]), row[1]), reverse=True)[:remaining]:
         seats_by_party[name] += 1
 
@@ -1039,7 +1040,7 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
     ends = _add_months(started, 3)
     results = dict(counts)
     results.update({
-        "parliament_seats": 50,
+        "parliament_seats": parliament_seats,
         "parliament_term_start": started.isoformat(),
         "parliament_term_end": ends.isoformat(),
         "elected_deputies": roster,
@@ -1052,7 +1053,7 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
     _setting_put(DUMA_TERM_STATUS_KEY, "active")
     audit(actor_id, "duma_election_finalized", None, json.dumps({
         "election_id": int(election_id), "term_start": started.isoformat(), "term_end": ends.isoformat(),
-        "deputies": len(winners), "seats": 50
+        "deputies": len(winners), "seats": parliament_seats
     }, ensure_ascii=False))
     _publish_election_results_news_once(actor_id, "duma", election, counts,
                                          "Парламент сформирован на срок до " + ends.isoformat() + ".")
@@ -2001,11 +2002,12 @@ def _latest_impeachment() -> dict | None:
             latest["voters"][str(int(event["actor_user_id"]))] = {"vote": payload.get("vote"), "seats": int(payload.get("seats") or 1)}
         elif event.get("action") == IMPEACHMENT_COMPLETED and int(payload.get("motion_id", 0)) == latest["id"]:
             latest["status"] = payload.get("status", "closed")
-    latest = latest
     if latest:
         latest["votes_for"] = sum(v["seats"] for v in latest["voters"].values() if v["vote"] == "for")
         latest["votes_against"] = sum(v["seats"] for v in latest["voters"].values() if v["vote"] == "against")
-        latest["required_seats"] = 34
+        parliament = public_duma_roster()
+        latest["seats_total"] = int(parliament.get("seats_total") or 0)
+        latest["required_seats"] = max(1, (latest["seats_total"] * 2 + 2) // 3) if latest["seats_total"] else 1
     return latest
 
 
@@ -2283,9 +2285,10 @@ def public_duma_roster() -> dict:
                 total = sum(v for _, v, _ in valid)
                 if not valid or total <= 0:
                     continue
-                raw_seats = [(name, votes, party, votes * 50 / total) for name, votes, party in valid]
+                parliament_seats = total
+                raw_seats = [(name, votes, party, votes * parliament_seats / total) for name, votes, party in valid]
                 seat_map = {name: int(quota) for name, _, _, quota in raw_seats}
-                remainder = 50 - sum(seat_map.values())
+                remainder = parliament_seats - sum(seat_map.values())
                 for name, _, _, quota in sorted(raw_seats,
                         key=lambda x: (x[3] - int(x[3]), x[1]), reverse=True)[:remainder]:
                     seat_map[name] += 1
@@ -2370,10 +2373,11 @@ def public_duma_roster() -> dict:
                             if candidates:
                                 valid.append((party_name, votes, party, candidates))
                     if valid:
-                        raw = [(name, votes, party, candidates, votes * 50 / total_votes)
+                        parliament_seats = total_votes
+                        raw = [(name, votes, party, candidates, votes * parliament_seats / total_votes)
                                for name, votes, party, candidates in valid]
                         seat_map = {name: int(quota) for name, _, _, _, quota in raw}
-                        remainder = 50 - sum(seat_map.values())
+                        remainder = parliament_seats - sum(seat_map.values())
                         for name, _, _, _, quota in sorted(
                                 raw, key=lambda x: (x[4] - int(x[4]), x[1], x[0].casefold()), reverse=True
                         )[:remainder]:
@@ -2435,7 +2439,14 @@ def public_duma_roster() -> dict:
                                  "is_party_leader": bool(row.get("is_party_leader"))})
     first = data[0] if data else {}
     total_occupied = sum(int(r.get("seats") or 0) for r in elected)
-    return {"formed": bool(elected), "seats_total": 50, "seats_occupied": total_occupied,
+    election_seats = 0
+    try:
+        if data:
+            election_seats = int((result.get("parliament_seats") if isinstance(result, dict) else 0) or 0)
+    except (TypeError, ValueError):
+        election_seats = 0
+    seats_total = election_seats or total_occupied
+    return {"formed": bool(elected), "seats_total": seats_total, "seats_occupied": total_occupied,
         "members": [{"full_name": r.get("full_name"), "party_name": r.get("party_name"),
                      "seats": int(r.get("seats") or 0)} for r in elected],
         "parties": list(parties.values()),
