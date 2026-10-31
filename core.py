@@ -1779,18 +1779,15 @@ def list_documents(user: dict, admin: bool) -> dict:
     # Мандат доступен только человеку с действующей ролью депутата
     # и только в пределах текущего срока полномочий созыва.
     _sync_duma_term()
-    deputy_role = one(db().table("roles").select("id,name").eq("name", "Депутат").limit(1))
+    deputy_role = _deputy_role_row()
     is_current_deputy = False
-    if deputy_role and _setting_get(DUMA_TERM_STATUS_KEY) != "expired":
-        link = one(db().table("subject_roles").select("subject_id")
-                   .eq("role_id", int(deputy_role["id"])).eq("subject_id", int(user.get("subject_id") or user.get("profile_id") or 0)).limit(1))
-        # Authenticated profile ID is the subject's database ID when available.
-        if not link:
-            subject = one(db().table("subjects").select("id").eq("user_id", uid).limit(1))
-            if subject:
-                link = one(db().table("subject_roles").select("subject_id")
-                           .eq("role_id", int(deputy_role["id"])).eq("subject_id", int(subject["id"])).limit(1))
-        is_current_deputy = bool(link)
+    if _setting_get(DUMA_TERM_STATUS_KEY) != "expired":
+        subject = one(db().table("subjects").select("id").eq("user_id", uid).limit(1))
+        subject_id = int(subject["id"]) if subject else int(user.get("subject_id") or user.get("profile_id") or 0)
+        if subject_id:
+            link = one(db().table("subject_roles").select("subject_id")
+                       .eq("role_id", int(deputy_role["id"])).eq("subject_id", subject_id).limit(1))
+            is_current_deputy = bool(link)
     current_election_id = _setting_get(DUMA_TERM_ELECTION_KEY)
     for item in visible:
         if str(item.get("title") or "").startswith("Мандат депутата Госдумы"):
