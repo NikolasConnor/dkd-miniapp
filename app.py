@@ -339,6 +339,11 @@ class DumaLawVote(BaseModel):
     vote: str = Field(pattern="^(for|against)$")
 
 
+@app.get("/api/parliament-roster")
+def parliament_roster(user: dict = Depends(auth_user)):
+    return core.public_duma_roster()
+
+
 @app.get("/api/duma")
 def duma_list(user: dict = Depends(auth_user)):
     core.require_deputy(user)
