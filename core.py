@@ -1772,15 +1772,38 @@ def list_documents(user: dict, admin: bool) -> dict:
     uid = int(user["id"])
     laws = rows(db().table("laws").select("id,title,description,status,created_at").order("id", desc=True).limit(50))
     decrees = rows(db().table("decrees").select("id,title,text,is_secret,secret_for_user_id,created_at").order("id", desc=True).limit(150))
-    visible = [d for d in decrees if not d.get("is_secret") or admin or d.get("secret_for_user_id") == uid][:150]
+    visible = [d for d in decrees if not d.get("is_secret") or d.get("secret_for_user_id") == uid][:150]
     mandates = []
     public_decrees = []
     now = utcnow()
+    # Мандат доступен только человеку с действующей ролью депутата
+    # и только в пределах текущего срока полномочий созыва.
+    _sync_duma_term()
+    deputy_role = one(db().table("roles").select("id,name").eq("name", "Депутат").limit(1))
+    is_current_deputy = False
+    if deputy_role and _setting_get(DUMA_TERM_STATUS_KEY) != "expired":
+        link = one(db().table("subject_roles").select("subject_id")
+                   .eq("role_id", int(deputy_role["id"])).eq("subject_id", int(user.get("subject_id") or user.get("profile_id") or 0)).limit(1))
+        # Authenticated profile ID is the subject's database ID when available.
+        if not link:
+            subject = one(db().table("subjects").select("id").eq("user_id", uid).limit(1))
+            if subject:
+                link = one(db().table("subject_roles").select("subject_id")
+                           .eq("role_id", int(deputy_role["id"])).eq("subject_id", int(subject["id"])).limit(1))
+        is_current_deputy = bool(link)
+    current_election_id = _setting_get(DUMA_TERM_ELECTION_KEY)
     for item in visible:
         if str(item.get("title") or "").startswith("Мандат депутата Госдумы"):
+            # Не показываем мандаты бывшим депутатам или после окончания срока.
+            if not is_current_deputy or _setting_get(DUMA_TERM_STATUS_KEY) == "expired":
+                continue
+            if current_election_id and f"созыв №{current_election_id}" not in str(item.get("title") or ""):
+                continue
             match = re.search(r"Действителен до: ([^\\n]+)", str(item.get("text") or ""))
             expires = parse_dt(match.group(1).strip()) if match else None
-            item["mandate_status"] = "active" if expires and now < expires else "expired"
+            if not expires or now >= expires:
+                continue
+            item["mandate_status"] = "active"
             item.pop("secret_for_user_id", None)
             mandates.append(item)
         else:
