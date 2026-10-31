@@ -1413,8 +1413,7 @@ def duma_open_session(actor_id: int, title: str) -> dict:
         "actor_user_id": int(actor_id), "action": "duma_session_opened",
         "target_user_id": None, "details": json.dumps({"title": title, "created_at": now_iso()}, ensure_ascii=False)
     }), "Не удалось открыть заседание Государственной думы.")[0]
-    audit(actor_id, "duma_session_opened", None, json.dumps({"session_id": row["id"], "title": title}, ensure_ascii=False))
-    return {"id": int(row["id"]), "title": title, "closed": False, "laws": []}
+    return {"id": int(row["id"]), "title": title, "created_at": now_iso(), "closed": False, "laws": []}
 
 
 def duma_close_session(actor_id: int, session_id: int) -> dict:
