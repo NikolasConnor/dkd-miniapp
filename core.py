@@ -1661,6 +1661,28 @@ def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
 # Самодиагностика схемы БД (только для администратора)
 # ----------------------------------------------------------------------------
 
+def public_duma_roster() -> dict:
+    """Публичный состав парламента из внесённых результатов выборов."""
+    try:
+        data = rows(db().table("duma_initial_roster").select(
+            "full_name,party_name,party_emoji,party_votes,party_vote_percent,elected_to_duma,seats,is_party_leader,election_completed_at,parliament_term_start,parliament_term_end"
+        ))
+    except Exception as exc:
+        log.warning("Initial parliament roster unavailable: %s", exc)
+        data = []
+    elected = [r for r in data if r.get("elected_to_duma")]
+    parties = {}
+    for row in data:
+        name = str(row.get("party_name") or "Без партии")
+        p = parties.setdefault(name, {"name": name, "emoji": row.get("party_emoji") or "🎭", "votes": int(row.get("party_votes") or 0), "vote_percent": float(row.get("party_vote_percent") or 0), "seats": 0, "members": []})
+        if row.get("elected_to_duma"):
+            seats = int(row.get("seats") or 0)
+            p["seats"] += seats
+            p["members"].append({"full_name": row.get("full_name"), "seats": seats, "is_party_leader": bool(row.get("is_party_leader"))})
+    first = data[0] if data else {}
+    return {"formed": bool(elected), "seats_total": 50, "seats_occupied": sum(int(r.get("seats") or 0) for r in elected), "members": [{"full_name": r.get("full_name"), "party_name": r.get("party_name"), "seats": int(r.get("seats") or 0)} for r in elected], "parties": list(parties.values()), "term_start": first.get("parliament_term_start"), "term_end": first.get("parliament_term_end"), "election_completed_at": first.get("election_completed_at")}
+
+
 REQUIRED_SCHEMA = {
     "subjects": SUBJECT_COLS + ",avatar_emoji",
     "passports": PASSPORT_COLS + ",updated_at",
