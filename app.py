@@ -231,7 +231,8 @@ def cast_vote(kind: str, election_id: int, payload: CastVote, user: dict = Depen
 
 @app.get("/api/president/status")
 def president_status(user: dict = Depends(auth_user)):
-    return {"is_president": core.is_president(user), "is_admin": core.is_admin(user)}
+    term = core.president_term_status(user)
+    return {"is_president": core.is_president(user), "is_admin": core.is_admin(user), "term": term}
 
 
 class DecreeCreate(BaseModel):
