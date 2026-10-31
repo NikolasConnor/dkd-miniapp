@@ -85,6 +85,7 @@
       <div class="president-menu">
         <article class="president-action-card featured"><div class="president-action-icon">📜</div><div class="president-action-copy"><h3>Указы Президента</h3><p>Публикация обязательных к исполнению решений.</p><span class="status good">Работает</span></div><button class="btn primary" onclick="scrollPresident('presidentDecreeForm')">Создать указ</button></article>
         
+        <article class="president-action-card"><div class="president-action-icon">🏛️</div><div class="president-action-copy"><h3>Правительство и кадры</h3><p>Назначение и освобождение от должностей, доступных Президенту.</p><span class="status good">Работает</span></div><button class="btn secondary" onclick="loadPresidentPersonnel()">Открыть</button></article>
         <article class="president-action-card"><div class="president-action-icon">⚖️</div><div class="president-action-copy"><h3>Законы и вето</h3><p>Опубликовать закон и подписать или отклонить закон.</p><span class="status good">Работает</span></div><button class="btn secondary" onclick="scrollPresident('presidentLaws')">Открыть</button></article>
         <article class="president-action-card"><div class="president-action-icon">🗳️</div><div class="president-action-copy"><h3>Выборы в Госдуму</h3><p>Объявить выборы и задать варианты голосования.</p><span class="status good">Работает</span></div><button class="btn secondary" onclick="scrollPresident('presidentElectionForm')">Открыть</button></article>
         <article class="president-action-card"><div class="president-action-icon">🪪</div><div class="president-action-copy"><h3>Гражданство</h3><p>Рассматривать заявления на гражданство и другие обращения.</p><span class="status good">Работает</span></div><button class="btn secondary" onclick="loadPresidentApplications()">Заявления</button></article>
@@ -94,6 +95,17 @@
       <div id="presidentApplications" class="card">
         <div class="section-head" style="margin-top:0"><h3>Заявления граждан</h3><button class="btn secondary" onclick="loadPresidentApplications()">Обновить</button></div>
         <div id="presidentApplicationsList" class="list"><div class="empty">Нажмите «Заявления» для загрузки.</div></div>
+      </div>
+      <div id="presidentPersonnel" class="card">
+        <div class="section-head" style="margin-top:0"><h3>Правительство и кадры</h3><button class="btn secondary" onclick="loadPresidentPersonnel()">Обновить</button></div>
+        <p class="muted small">Выберите участника и должность. Президент может назначать Премьер-министра, Министра иностранных дел и Гражданина. Депутатов назначает только администратор; назначить Президента через этот раздел нельзя.</p>
+        <form class="form" onsubmit="assignPresidentRole(event)">
+          <div class="field"><label for="presidentSubject">Участник</label><select id="presidentSubject" required><option value="">Нажмите «Открыть», чтобы загрузить участников</option></select></div>
+          <div class="field"><label for="presidentRole">Доступная должность</label><select id="presidentRole" required><option value="">Загрузка должностей…</option></select></div>
+          <label class="row" style="gap:8px;align-items:center"><input id="presidentRoleAssigned" type="checkbox" checked style="width:auto"> Назначить должность (снимите флажок, чтобы освободить от неё)</label>
+          <button class="btn primary">Применить</button>
+        </form>
+        <div id="presidentPersonnelStatus" class="list" style="margin-top:12px"><div class="empty">Нажмите «Открыть», чтобы загрузить участников и доступные должности.</div></div>
       </div>
       <div id="presidentLaws" class="card">
         <div class="section-head" style="margin-top:0"><h3>Законы и вето</h3></div>
