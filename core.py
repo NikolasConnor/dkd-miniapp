@@ -8,6 +8,7 @@
 """
 from __future__ import annotations
 
+import calendar
 import hashlib
 import hmac
 import json
@@ -297,16 +298,75 @@ def user_roles(subject_id: int) -> list[dict]:
     return select_in("roles", "id,name,emoji", "id", ids)
 
 
+PRESIDENT_TERM_START_KEY = "president_term_start"
+PRESIDENT_TERM_USER_KEY = "president_term_user_id"
+PRESIDENT_TERM_END_KEY = "president_term_end"
+PRESIDENT_ALLOWED_APPOINTMENTS = {"премьер-министр", "министр иностранных дел"}
+
+
+def _setting_value(key: str) -> str | None:
+    try:
+        row = one(db().table("app_settings").select("key,value").eq("key", key).limit(1))
+        return str(row["value"]) if row and row.get("value") else None
+    except DKDError:
+        return None
+
+
+def _save_setting(key: str, value: str) -> None:
+    existing = one(db().table("app_settings").select("key").eq("key", key).limit(1))
+    if existing:
+        execute(db().table("app_settings").update({"value": value}).eq("key", key), "Не удалось сохранить срок президентских полномочий.")
+    else:
+        execute(db().table("app_settings").insert({"key": key, "value": value}), "Не удалось сохранить срок президентских полномочий.")
+
+
+def _add_calendar_months(value: datetime, months: int) -> datetime:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    day = min(value.day, calendar.monthrange(year, month)[1])
+    return value.replace(year=year, month=month, day=day)
+
+
+def _ensure_president_term(user_id: int) -> dict:
+    stored_user = _setting_value(PRESIDENT_TERM_USER_KEY)
+    start_raw = _setting_value(PRESIDENT_TERM_START_KEY)
+    end_raw = _setting_value(PRESIDENT_TERM_END_KEY)
+    start = parse_dt(start_raw) if start_raw else None
+    end = parse_dt(end_raw) if end_raw else None
+    if stored_user != str(user_id) or not start or not end:
+        start = utcnow()
+        end = _add_calendar_months(start, 3)
+        _save_setting(PRESIDENT_TERM_USER_KEY, str(user_id))
+        _save_setting(PRESIDENT_TERM_START_KEY, start.isoformat())
+        _save_setting(PRESIDENT_TERM_END_KEY, end.isoformat())
+    now = utcnow()
+    return {"user_id": int(user_id), "start_at": start.isoformat(), "end_at": end.isoformat(),
+            "expired": now >= end, "days_left": max(0, (end - now).days)}
+
+
+def president_term_status(user: dict) -> dict:
+    if is_admin(user):
+        return {"managed": False, "is_admin": True, "expired": False,
+                "message": "Главный администратор не ограничен президентским сроком."}
+    subject = get_subject(int(user["id"]))
+    has_role = bool(subject and any(clean_name(r.get("name")).casefold() == president_role_name()
+                                    for r in user_roles(subject["id"])))
+    if not has_role:
+        return {"managed": False, "expired": False, "message": "Президентская должность не назначена."}
+    term = _ensure_president_term(int(user["id"]))
+    term["managed"] = True
+    term["message"] = "Срок полномочий истёк." if term["expired"] else "Контроль срока активен."
+    return term
+
+
 def is_president(user: dict) -> bool:
-    """Президент — точное совпадение названия роли (не подстрока), либо главный администратор."""
+    """Президент — роль Президента с контролируемым трёхмесячным сроком; администратор имеет служебный доступ."""
     if is_admin(user):
         return True
     try:
-        subject = get_subject(int(user["id"]))
-        if not subject:
-            return False
-        wanted = president_role_name()
-        return any(clean_name(r.get("name")).casefold() == wanted for r in user_roles(subject["id"]))
+        term = president_term_status(user)
+        return bool(term.get("managed") and not term.get("expired"))
     except DKDError:
         return False
 
@@ -1053,13 +1113,29 @@ def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bo
 
 
 def president_list_subjects() -> dict:
-    """Список граждан и должностей для президентских назначений."""
-    return admin_list_subjects()
+    """Возвращает участников и только две должности, которые разрешено назначать Президенту."""
+    data = admin_list_subjects()
+    allowed = [r for r in data["roles"] if clean_name(r.get("name")).casefold() in PRESIDENT_ALLOWED_APPOINTMENTS]
+    data["roles"] = allowed
+    allowed_ids = {r["id"] for r in allowed}
+    for subject in data["subjects"]:
+        subject["roles"] = [r for r in subject.get("roles", []) if r["id"] in allowed_ids]
+    return data
 
 
 def president_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bool) -> dict:
+    role = one(db().table("roles").select("id,name").eq("id", int(role_id)).limit(1))
+    if not role or clean_name(role.get("name")).casefold() not in PRESIDENT_ALLOWED_APPOINTMENTS:
+        raise DKDError(403, "Президент может назначать только Премьер-министра и Министра иностранных дел.")
+    subject = one(db().table("subjects").select("id,user_id").eq("id", int(subject_id)).limit(1))
+    if not subject:
+        raise DKDError(404, "Участник не найден.")
+    if assigned:
+        links = fetch_all(lambda: db().table("subject_roles").select("subject_id").eq("role_id", int(role_id)))
+        if any(int(x["subject_id"]) != int(subject_id) for x in links):
+            raise DKDError(409, f"Должность «{role['name']}» уже занята. Сначала освободите её.")
     result = admin_assign_role(actor_id, subject_id, role_id, assigned)
-    audit(actor_id, "president_role_assigned" if assigned else "president_role_removed", None,
+    audit(actor_id, "president_role_assigned" if assigned else "president_role_removed", subject["user_id"],
           f"subject:{subject_id}:role:{role_id}")
     return result
 
