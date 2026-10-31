@@ -326,6 +326,49 @@ def president_decide_law(law_id: int, payload: PresidentLawDecision, user: dict 
     return {"ok": True, "law": core.president_set_law_status(user["id"], law_id, payload.status)}
 
 
+class DumaSessionCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=160)
+
+
+class DumaLawCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    description: str = Field(min_length=1, max_length=20000)
+
+
+class DumaLawVote(BaseModel):
+    vote: str = Field(pattern="^(for|against)$")
+
+
+@app.get("/api/duma")
+def duma_list(user: dict = Depends(auth_user)):
+    core.require_deputy(user)
+    return core.duma_list(user)
+
+
+@app.post("/api/duma/sessions")
+def duma_open_session(payload: DumaSessionCreate, user: dict = Depends(auth_user)):
+    core.require_deputy(user)
+    return {"ok": True, "session": core.duma_open_session(user["id"], payload.title)}
+
+
+@app.post("/api/duma/sessions/{session_id}/close")
+def duma_close_session(session_id: int, user: dict = Depends(auth_user)):
+    core.require_deputy(user)
+    return core.duma_close_session(user["id"], session_id)
+
+
+@app.post("/api/duma/sessions/{session_id}/laws")
+def duma_submit_law(session_id: int, payload: DumaLawCreate, user: dict = Depends(auth_user)):
+    core.require_deputy(user)
+    return {"ok": True, "law": core.duma_submit_law(user["id"], session_id, payload.title, payload.description)}
+
+
+@app.post("/api/duma/laws/{law_id}/vote")
+def duma_vote_law(law_id: int, payload: DumaLawVote, user: dict = Depends(auth_user)):
+    core.require_deputy(user)
+    return core.duma_vote_law(user["id"], law_id, payload.vote)
+
+
 # ----------------------------------------------------------------------------
 # Администратор
 # ----------------------------------------------------------------------------
