@@ -362,17 +362,50 @@ function openView(name){
 }
 function statusPill(s){const val=String(s||'');let cls=/approved|active|citizen|опублик/i.test(val)?'good':/rejected|отклон|denied/i.test(val)?'bad':'';return `<span class="status ${cls}">${esc(val||'Не указан')}</span>`}
 async function init(){
-  if(!initData){$('connection').textContent='Откройте в Telegram';$('homeNotice').innerHTML='<div class="notice">Для авторизации откройте Mini App через Telegram. Обычный браузер не передаёт подписанные данные Telegram.</div>';}
+  // Проверка здоровья сервера не должна задерживать загрузку интерфейса.
+  fetch('/health',{cache:'no-store'})
+    .then(r=>r.ok?r.json():Promise.reject(new Error('HTTP '+r.status)))
+    .then(health=>{$('connection').textContent=health.ok?'Сервер доступен':'Проблема сервера';})
+    .catch(()=>{$('connection').textContent='Нет связи с сервером';});
+
+  if(!initData){
+    $('connection').textContent='Откройте в Telegram';
+    $('homeNotice').innerHTML='<div class="notice">Для авторизации откройте Mini App через Telegram. Обычный браузер не передаёт подписанные данные Telegram.</div>';
+    $('welcome').textContent='Добро пожаловать в ДКД';
+    return;
+  }
+
   try{
-    const h=await fetch('/health',{cache:'no-store'});const health=await h.json();
-    $('connection').textContent=health.ok?'Сервер доступен':'Проблема сервера';
-  }catch{$('connection').textContent='Нет связи с сервером';}
-  if(!initData){$('welcome').textContent='Добро пожаловать в ДКД';return}
-  try{
-    await loadProfile();await refreshNotifications(true);if(!window.notificationPoller)window.notificationPoller=setInterval(()=>refreshNotifications(true),30000);const p=await api('/api/president/status');state.isAdmin=!!p.is_admin;state.isPresident=!!p.is_president;state.isDeputy=(state.profile?.roles||[]).some(r=>String(typeof r==='string'?r:r.name||'').trim().toLowerCase()==='депутат');
-    let adminStatus={};try{adminStatus=await api('/api/admin/status')}catch(e){}
-    $('adminTile').classList.toggle('hidden',!(state.isAdmin||adminStatus.bootstrap_available));$('presidentTile').classList.toggle('hidden',!state.isPresident);$('parliamentTile').classList.remove('hidden');
-  }catch(e){$('homeNotice').innerHTML=`<div class="notice error">${esc(e.message)}. Убедитесь, что Mini App открыт через Telegram и сервер настроен.</div>`}
+    // Независимые начальные запросы запускаются одновременно, а не по очереди.
+    const results=await Promise.allSettled([
+      loadProfile(),
+      refreshNotifications(true),
+      api('/api/president/status'),
+      api('/api/admin/status')
+    ]);
+    const profileResult=results[0];
+    const presidentResult=results[2];
+    const adminResult=results[3];
+
+    if(profileResult.status==='rejected') throw profileResult.reason;
+    if(presidentResult.status==='rejected') throw presidentResult.reason;
+
+    if(!window.notificationPoller){
+      window.notificationPoller=setInterval(()=>refreshNotifications(true).catch(()=>{}),30000);
+    }
+
+    const p=presidentResult.value||{};
+    const adminStatus=adminResult.status==='fulfilled'?(adminResult.value||{}):{};
+    state.isAdmin=!!p.is_admin;
+    state.isPresident=!!p.is_president;
+    state.isDeputy=(state.profile?.roles||[]).some(r=>String(typeof r==='string'?r:r.name||'').trim().toLowerCase()==='депутат');
+
+    $('adminTile').classList.toggle('hidden',!(state.isAdmin||adminStatus.bootstrap_available));
+    $('presidentTile').classList.toggle('hidden',!state.isPresident);
+    $('parliamentTile').classList.remove('hidden');
+  }catch(e){
+    $('homeNotice').innerHTML=`<div class="notice error">${esc(e.message||'Не удалось загрузить данные')}. Проверьте подключение и настройки сервера.</div>`;
+  }
 }
 async function loadProfile(){
   try{const d=await api('/api/profile');state.profile=d.profile||{};const p=state.profile;
