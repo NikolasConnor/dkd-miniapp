@@ -110,12 +110,34 @@ def db_error(exc: Exception, public: str = "Ошибка базы данных."
 
 
 def execute(query: Any, public: str = "Ошибка базы данных.") -> list:
-    try:
-        return query.execute().data or []
-    except DKDError:
-        raise
-    except Exception as exc:  # noqa: BLE001 — клиент Supabase бросает разные типы
-        raise db_error(exc, public) from exc
+    """Выполнить запрос; кратко повторить только безопасное чтение при сетевом обрыве.
+
+    Запросы на запись намеренно не повторяем: соединение может оборваться уже
+    после фиксации изменения на сервере, и повтор способен создать дубликат.
+    """
+    method = str(getattr(query, "method", "") or "").upper()
+    attempts = 3 if method == "GET" else 1
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            return query.execute().data or []
+        except DKDError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — Supabase может бросать разные типы
+            last_exc = exc
+            message = str(exc).lower()
+            transient = any(marker in message for marker in (
+                "server disconnected", "remoteprotocolerror", "connection reset",
+                "connection aborted", "read timeout", "timed out",
+                "temporarily unavailable", "connecterror",
+            ))
+            if attempt + 1 >= attempts or not transient:
+                break
+            # Короткая пауза даёт HTTP-соединению восстановиться, не задерживая
+            # обычные ошибки схемы/SQL и не повторяя операции записи.
+            time.sleep(0.2 * (attempt + 1))
+    assert last_exc is not None
+    raise db_error(last_exc, public) from last_exc
 
 
 def rows(query: Any, public: str = "Ошибка базы данных.") -> list:
