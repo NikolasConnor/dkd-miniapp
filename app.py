@@ -87,7 +87,10 @@ def home():
 
 @app.get("/health")
 def health():
-    return {"ok": True, **core.configured()}
+    # Не сообщаем о здоровье, если обязательные настройки отсутствуют.
+    status = core.configured()
+    ok = bool(status.get("supabase_configured") and status.get("telegram_configured"))
+    return JSONResponse(status_code=200 if ok else 503, content={"ok": ok, **status})
 
 
 @app.get("/api/config")
