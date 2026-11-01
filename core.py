@@ -1898,7 +1898,9 @@ def _ensure_president_certificate() -> None:
 
 def list_documents(user: dict, admin: bool) -> dict:
     uid = int(user["id"])
-    laws = rows(db().table("laws").select("id,title,description,status,created_at").order("id", desc=True).limit(50))
+    # В публичном разделе документов показываем только законы, подписанные Президентом.
+    # Проекты на рассмотрении, отклонённые и отправленные на вето документы не являются действующими законами.
+    laws = rows(db().table("laws").select("id,title,description,status,created_at").eq("status", "signed").order("id", desc=True).limit(50))
     _ensure_role_based_duma_mandates()
     _ensure_president_certificate()
     decrees = rows(db().table("decrees").select("id,title,text,is_secret,secret_for_user_id,created_at").order("id", desc=True).limit(300))
