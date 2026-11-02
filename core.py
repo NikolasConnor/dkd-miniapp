@@ -973,7 +973,7 @@ def _sync_duma_term() -> None:
                 _setting_put(DUMA_TERM_STATUS_KEY, "active")
         except Exception as exc:  # noqa: BLE001
             log.info("Initial Duma term table is not available: %s", exc)
-    if not raw_end or _setting_get(DUMA_TERM_STATUS_KEY) == "expired":
+    if not raw_end or _setting_get(DUMA_TERM_STATUS_KEY) in {"expired", "dissolved"}:
         return
     end = parse_dt(raw_end)
     if not end or utcnow() < end:
@@ -984,6 +984,32 @@ def _sync_duma_term() -> None:
                 "Не удалось завершить полномочия предыдущего созыва.")
     _setting_put(DUMA_TERM_STATUS_KEY, "expired")
     audit(0, "duma_term_expired", None, json.dumps({"end_at": raw_end}, ensure_ascii=False))
+
+
+def president_dissolve_parliament(actor_id: int) -> dict:
+    require_president({"id": int(actor_id)})
+    key = "president_last_parliament_dissolution_at"
+    previous_raw = _setting_value(key)
+    previous = parse_dt(previous_raw) if previous_raw else None
+    now = utcnow()
+    if previous and now < previous + timedelta(days=30):
+        available = previous + timedelta(days=30)
+        raise DKDError(409, "Повторный роспуск доступен " + available.strftime("%d.%m.%Y %H:%M UTC") + ". Разрешён один роспуск за 30 дней.")
+    if _setting_get(DUMA_TERM_STATUS_KEY) == "dissolved":
+        raise DKDError(409, "Парламент уже распущен. Сначала сформируйте новый созыв.")
+    roster = public_duma_roster()
+    if not roster.get("formed") or not roster.get("seats_occupied"):
+        raise DKDError(409, "Нет действующего парламента для роспуска.")
+    role = _deputy_role_row()
+    execute(db().table("subject_roles").delete().eq("role_id", int(role["id"])), "Не удалось прекратить полномочия депутатов.")
+    _setting_put(DUMA_TERM_STATUS_KEY, "dissolved")
+    _save_setting(key, now.isoformat())
+    audit(int(actor_id), "president_parliament_dissolved", None, json.dumps({"dissolved_at": now.isoformat()}, ensure_ascii=False))
+    try:
+        publish_news(int(actor_id), "🏛️ Президент распустил Государственную думу. Полномочия депутатов прекращены; для формирования нового созыва необходимо провести выборы.")
+    except Exception as exc:
+        log.warning("Could not publish parliament dissolution news: %s", exc)
+    return {"ok": True, "dissolved_at": now.isoformat(), "next_available_at": (now + timedelta(days=30)).isoformat(), "message": "Парламент распущен. Повторный роспуск доступен через 30 дней."}
 
 
 def _issue_duma_mandates(election_id: int, deputies: list[dict], term_start: str, term_end: str) -> int:
@@ -2627,6 +2653,8 @@ def public_duma_roster() -> dict:
     Сначала читаем elected_deputies из результатов выборов; legacy-таблица
     duma_initial_roster используется только для старых вручную внесённых данных.
     """
+    if _setting_get(DUMA_TERM_STATUS_KEY) == "dissolved":
+        return {"formed": False, "seats_total": 0, "seats_occupied": 0, "members": [], "parties": [], "term_start": _setting_get(DUMA_TERM_START_KEY), "term_end": _setting_get(DUMA_TERM_END_KEY), "election_completed_at": None, "dissolved": True}
     data = []
     term_start = term_end = completed_at = None
     # Основной источник — результаты настоящих выборов в Госдуму.
