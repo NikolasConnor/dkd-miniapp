@@ -2154,7 +2154,7 @@ def list_documents(user: dict, admin: bool) -> dict:
         if title.startswith("Мандат депутата Госдумы"):
             if not is_current_deputy or not duma_active or mandate_added:
                 continue
-            match = re.search(r"Действителен до: ([^\\n]+)", body)
+            match = re.search(r"Действителен до: ([^\n]+)", body)
             expires = parse_dt(match.group(1).strip()) if match else None
             if expires and now >= expires:
                 continue
@@ -2165,7 +2165,7 @@ def list_documents(user: dict, admin: bool) -> dict:
         elif title == "Удостоверение Президента ДКД":
             if not is_current_president or not president_active or president_certificate_added:
                 continue
-            match = re.search(r"Действительно до: ([^\\n]+)", body)
+            match = re.search(r"Действительно до: ([^\n]+)", body)
             expires = parse_dt(match.group(1).strip()) if match else None
             if expires and now >= expires:
                 continue
@@ -2264,7 +2264,7 @@ def _publish_election_results_news_once(actor_id: int, kind: str, election: dict
         return False
     numeric_counts = {str(k): int(v) for k, v in counts.items()
                       if isinstance(v, (int, float)) and not isinstance(v, bool)}
-    text = marker + "\\n" + _election_results_news(kind, election, numeric_counts, extra)
+    text = marker + "\n" + _election_results_news(kind, election, numeric_counts, extra)
     publish_news(actor_id, text)
     return True
 
