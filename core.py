@@ -2972,7 +2972,7 @@ def public_duma_roster() -> dict:
                 stored_election_seats = int(result.get("parliament_seats") or 0)
             except (TypeError, ValueError):
                 stored_election_seats = 0
-            if not stored_election_seats and not isinstance(result.get("elected_deputies"), list):
+            if not stored_election_seats and not result.get("elected_deputies"):
                 stored_election_seats = sum(max(0, v) for v in counts.values())
             completed_at = election.get("updated_at") or election.get("created_at")
             data = [{
