@@ -830,10 +830,26 @@ def president_schedule_duma_election(actor_id: int, title: str, starts_at: str, 
 DUMA_PARTY_TEMPLATE_KEY_PREFIX = "duma_party_template:"
 
 
+def _is_party_leader(party: dict, user: dict) -> bool:
+    """Проверяет председательство по Telegram ID; username — только для старых записей без ID."""
+    try:
+        uid = int(user.get("id") or 0)
+    except (TypeError, ValueError):
+        return False
+    leader_uid = party.get("leader_user_id")
+    if leader_uid not in (None, ""):
+        try:
+            return int(leader_uid) == uid
+        except (TypeError, ValueError):
+            return False
+    leader_name = str(party.get("leader_username") or "").strip().lstrip("@").casefold()
+    user_name = str(user.get("username") or "").strip().lstrip("@").casefold()
+    return bool(leader_name and user_name and leader_name == user_name)
+
 def get_duma_party_template(user: dict) -> dict:
     uid = int(user["id"])
     parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
-    party = next((p for p in parties if int(p.get("leader_user_id") or 0) == uid), None)
+    party = next((p for p in parties if _is_party_leader(p, user)), None)
     if not party:
         return {"party": None, "members": [], "selected_user_ids": []}
     members = rows(db().table("party_members").select("user_id,username").eq("party_id", int(party["id"])))
@@ -944,7 +960,7 @@ def submit_duma_party_list(user: dict, election_id: int, candidates: list[str]) 
 def list_duma_elections_for_party(user: dict) -> dict:
     uid = int(user["id"])
     parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
-    leader_parties = [p for p in parties if int(p.get("leader_user_id") or 0) == uid]
+    leader_parties = [p for p in parties if _is_party_leader(p, user)]
     elections = rows(db().table("duma_elections").select(ELECTION_COLS).order("id", desc=True).limit(20))
     out = []
     for e in elections:
@@ -1749,7 +1765,7 @@ def update_party_settings(user: dict, party_id: int, name: str, emoji: str = "�
     party = one(db().table("parties").select(PARTY_COLS).eq("id", int(party_id)).limit(1))
     if not party or party.get("status") != "active":
         raise DKDError(404, "Партия не найдена.")
-    if not admin and int(party.get("leader_user_id") or 0) != uid:
+    if not admin and not _is_party_leader(party, user):
         raise DKDError(403, "Настройки партии может менять только её председатель или администратор.")
     name = clean_name(name)
     emoji = str(emoji or "🎭").strip()[:8] or "🎭"
@@ -1809,7 +1825,7 @@ def leave_party(user: dict) -> dict:
     member, party = active_membership(uid)
     if not member:
         raise DKDError(404, "Вы не состоите в партии.")
-    if party.get("leader_user_id") == uid:
+    if _is_party_leader(party, user):
         others = rows(db().table("party_members").select("id,user_id,username").eq("party_id", party["id"]).order("id"))
         others = [m for m in others if m["id"] != member["id"]]
         if others:
@@ -1826,7 +1842,7 @@ def kick_member(actor: dict, admin: bool, party_id: int, member_id: int) -> dict
     party = one(db().table("parties").select(PARTY_COLS).eq("id", int(party_id)).limit(1))
     if not party or party.get("status") != "active":
         raise DKDError(404, "Партия не найдена.")
-    if not (admin or party.get("leader_user_id") == int(actor["id"])):
+    if not (admin or _is_party_leader(party, actor)):
         raise DKDError(403, "Исключать участников может только председатель партии.")
     target = one(db().table("party_members").select("id,party_id,user_id,username").eq("id", int(member_id)).limit(1))
     if not target or target["party_id"] != party["id"]:
