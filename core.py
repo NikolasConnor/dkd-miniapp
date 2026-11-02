@@ -1285,23 +1285,25 @@ def list_elections(user_id: int) -> dict:
                 counts = tally(kind, e["id"])
                 view["vote_counts"] = counts
                 view["votes_total"] = sum(counts.values())
-                if e.get("status") not in CLOSED_STATUSES:
-                    # Не ломаем загрузку списка выборов из-за сбоя публикации новости.
+                closed_persisted = e.get("status") in CLOSED_STATUSES
+                if not closed_persisted:
+                    # Не ломаем загрузку списка выборов из-за сбоя сохранения итогов.
                     try:
                         execute(db().table(table).update({"status": "closed", "results": counts}).eq("id", int(e["id"])),
                                 "Не удалось сохранить итоги завершившихся выборов.")
-                    except Exception as exc:
+                        closed_persisted = True
+                    except Exception:
                         log.exception("Не удалось сохранить итоги выборов %s/%s", kind, e.get("id"))
-                    else:
+                if closed_persisted:
+                    try:
+                        _publish_election_results_news_once(0, kind, e, counts)
+                    except Exception:
+                        log.exception("Не удалось опубликовать итоги выборов %s/%s", kind, e.get("id"))
+                    if kind == "presidential":
                         try:
-                            _publish_election_results_news_once(0, kind, e, counts)
+                            _finalize_presidential_election(0, e, counts)
                         except Exception:
-                            log.exception("Не удалось опубликовать итоги выборов %s/%s", kind, e.get("id"))
-                        if kind == "presidential":
-                            try:
-                                _finalize_presidential_election(0, e, counts)
-                            except Exception:
-                                log.exception("Не удалось назначить победителя президентских выборов %s", e.get("id"))
+                            log.exception("Не удалось назначить победителя президентских выборов %s", e.get("id"))
             out.append(view)
         result[kind] = out
     return result
