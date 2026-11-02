@@ -1121,11 +1121,14 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
             uid = int(deputy.get("telegram_user_id") or 0)
             if uid in subject_by_user:
                 expected_subject_ids.add(subject_by_user[uid])
-        execute(db().table("subject_roles").delete().eq("role_id", int(deputy_role["id"])),
-                "Не удалось синхронизировать состав депутатов.")
-        for subject_id in sorted(expected_subject_ids):
-            execute(db().table("subject_roles").insert({"subject_id": subject_id, "role_id": int(deputy_role["id"])}),
-                    "Не удалось восстановить полномочия депутата.")
+        # Старые вручную внесённые списки могут не содержать Telegram ID.
+        # В таком случае нельзя удалять существующие роли, опираясь на неполные данные.
+        if expected_subject_ids:
+            execute(db().table("subject_roles").delete().eq("role_id", int(deputy_role["id"])),
+                    "Не удалось синхронизировать состав депутатов.")
+            for subject_id in sorted(expected_subject_ids):
+                execute(db().table("subject_roles").insert({"subject_id": subject_id, "role_id": int(deputy_role["id"])}),
+                        "Не удалось восстановить полномочия депутата.")
         _setting_put(DUMA_TERM_START_KEY, term_start)
         _setting_put(DUMA_TERM_END_KEY, term_end)
         _setting_put(DUMA_TERM_ELECTION_KEY, str(int(election_id)))
