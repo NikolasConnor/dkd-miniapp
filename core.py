@@ -2724,6 +2724,7 @@ def _notify_current_deputies(title: str, message: str, exclude_user_id: int | No
     return sent
 
 def duma_open_session(actor_id: int, title: str) -> dict:
+    require_deputy({"id": int(actor_id)})
     title = clean_name(title)
     if not 2 <= len(title) <= 160:
         raise DKDError(422, "Название заседания должно содержать от 2 до 160 символов.")
@@ -2754,6 +2755,7 @@ def _is_duma_session_closed(events: list[dict], session_id: int) -> bool:
 
 
 def duma_close_session(actor_id: int, session_id: int) -> dict:
+    require_deputy({"id": int(actor_id)})
     events = _duma_events()
     opened = next((e for e in events if e.get("action") == "duma_session_opened" and int(e["id"]) == int(session_id)), None)
     if not opened:
@@ -2792,6 +2794,7 @@ def duma_submit_law(actor_id: int, session_id: int, title: str, description: str
 
 
 def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
+    require_deputy({"id": int(actor_id)})
     if vote not in ("for", "against"):
         raise DKDError(422, "Выберите голос «за» или «против».")
     law = one(db().table("laws").select("id,title,status").eq("id", int(law_id)).limit(1))
