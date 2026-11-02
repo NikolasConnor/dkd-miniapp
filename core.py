@@ -2764,7 +2764,9 @@ def duma_close_session(actor_id: int, session_id: int) -> dict:
         raise DKDError(404, "Заседание не найдено.")
     if _is_duma_session_closed(events, session_id):
         raise DKDError(409, "Заседание уже закрыто.")
-    audit(actor_id, "duma_session_closed", None, json.dumps({"session_id": int(session_id)}, ensure_ascii=False))
+    close_event = audit(actor_id, "duma_session_closed", None, json.dumps({"session_id": int(session_id)}, ensure_ascii=False))
+    if not close_event or close_event.get("id") is None:
+        raise DKDError(502, "Не удалось сохранить закрытие заседания. Попробуйте ещё раз.")
     try:
         payload = json.loads(opened.get("details") or "{}")
     except (TypeError, ValueError):
@@ -2789,7 +2791,13 @@ def duma_submit_law(actor_id: int, session_id: int, title: str, description: str
         raise DKDError(409, "Нельзя подать законопроект на закрытое заседание.")
     law = execute(db().table("laws").insert({"title": title, "description": description, "status": "under_duma_review"}),
                   "Не удалось подать законопроект.")[0]
-    audit(actor_id, "duma_law_submitted", None, json.dumps({"law_id": int(law["id"]), "session_id": int(session_id)}, ensure_ascii=False))
+    submission_event = audit(actor_id, "duma_law_submitted", None, json.dumps({"law_id": int(law["id"]), "session_id": int(session_id)}, ensure_ascii=False))
+    if not submission_event or submission_event.get("id") is None:
+        try:
+            db().table("laws").delete().eq("id", int(law["id"])).execute()
+        except Exception as cleanup_exc:  # noqa: BLE001
+            log.error("Could not roll back law %s after submission audit failure: %s", law.get("id"), cleanup_exc)
+        raise DKDError(502, "Не удалось зарегистрировать законопроект в заседании. Попробуйте ещё раз.")
     _notify_current_deputies("Началось голосование по законопроекту",
         f"На заседании «{session.get('title', 'Государственная Дума')}» внесён законопроект «{title}». Голосование открыто: выберите «За» или «Против» в разделе Госдумы.")
     return law
