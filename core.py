@@ -2591,9 +2591,10 @@ def duma_vote_impeachment(actor_id: int, vote: str) -> dict:
     subject = get_subject(actor_id)
     if not subject:
         raise DKDError(403, "Профиль депутата не найден.")
-    full_name = clean_name(subject.get("full_name")).casefold()
     roster = public_duma_roster()
-    member = next((m for m in roster.get("members", []) if clean_name(m.get("full_name")).casefold() == full_name), None)
+    # Сопоставляем депутата по Telegram ID, а не по ФИО: у разных людей могут быть одинаковые имена.
+    member = next((m for m in roster.get("members", [])
+                   if int(m.get("telegram_user_id") or 0) == int(actor_id)), None)
     seats = int(member.get("seats") or 1) if member else 1
     audit(actor_id, IMPEACHMENT_VOTE, None, json.dumps({"motion_id": motion["id"], "vote": vote, "seats": seats}, ensure_ascii=False))
     motion = _latest_impeachment()
