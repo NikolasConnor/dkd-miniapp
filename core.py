@@ -1167,6 +1167,7 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
             elected_user_ids.add(user_id)
             winners[subject_id] = {"subject": subject, "full_name": full_name, "party_name": party_name, "seats": 1}
             roster.append({"full_name": clean_name(subject.get("full_name") or full_name),
+                           "party_id": party_data.get("party_id"),
                            "party_name": party_name, "votes": votes,
                            "party_seats": party_seats, "seats": 1,
                            "telegram_user_id": user_id})
@@ -2876,8 +2877,8 @@ def public_duma_roster() -> dict:
                 for name, votes, party, _ in raw_seats:
                     candidates = party.get("candidates") or []
                     for idx, full_name in enumerate(candidates[:min(len(candidates), seat_map[name])]):
-                        deputies.append({"full_name": full_name, "party_name": name,
-                            "party_emoji": party.get("party_emoji") or "🎭", "votes": votes,
+                        deputies.append({"full_name": full_name, "party_id": party.get("party_id"),
+                            "party_name": name, "party_emoji": party.get("party_emoji") or "🎭", "votes": votes,
                             "party_seats": seat_map[name], "seats": 1,
                             "is_party_leader": idx == 0})
                 if not deputies:
@@ -2891,6 +2892,7 @@ def public_duma_roster() -> dict:
             completed_at = election.get("updated_at") or election.get("created_at")
             data = [{
                 "full_name": x.get("full_name"),
+                "party_id": int(x["party_id"]) if x.get("party_id") else None,
                 "party_name": x.get("party_name") or "Без партии",
                 "party_emoji": x.get("party_emoji") or "🎭",
                 "party_votes": int(x.get("votes") or 0),
@@ -2969,6 +2971,7 @@ def public_duma_roster() -> dict:
                             for subject in candidates[:count]:
                                 data.append({
                                     "full_name": subject.get("full_name") or "Участник",
+                                    "party_id": int(party["id"]),
                                     "party_name": name,
                                     "party_emoji": party.get("emoji") or "🎭",
                                     "party_votes": votes,
@@ -3022,12 +3025,15 @@ def public_duma_roster() -> dict:
     parties = {}
     for row in data:
         name = str(row.get("party_name") or "Без партии")
-        p = parties.setdefault(name, {"name": name, "emoji": row.get("party_emoji") or "🎭",
-            "color": "#4169e1", "votes": int(row.get("party_votes") or 0),
+        p = parties.setdefault(name, {"name": name, "party_id": int(row["party_id"]) if row.get("party_id") else None,
+            "emoji": row.get("party_emoji") or "🎭", "color": "#4169e1",
+            "votes": int(row.get("party_votes") or 0),
             "vote_percent": float(row.get("party_vote_percent") or 0),
             "seats": int(row.get("party_seats") or row.get("party_votes") or row.get("seats") or 0), "members": []})
         try:
-            live_party = one(db().table("parties").select("color,emoji").eq("name", name).limit(1))
+            party_query = db().table("parties").select("id,name,color,emoji")
+            live_party = (one(party_query.eq("id", int(row["party_id"])).limit(1))
+                          if row.get("party_id") else one(party_query.eq("name", name).limit(1)))
             if live_party:
                 p["color"] = live_party.get("color") or p["color"]
                 p["emoji"] = live_party.get("emoji") or p["emoji"]
@@ -3044,8 +3050,8 @@ def public_duma_roster() -> dict:
     election_seats = stored_election_seats
     seats_total = election_seats or total_party_votes or total_occupied
     return {"formed": bool(elected), "seats_total": seats_total, "seats_occupied": total_occupied,
-        "members": [{"full_name": r.get("full_name"), "party_name": r.get("party_name"),
-                     "seats": int(r.get("seats") or 0),
+        "members": [{"full_name": r.get("full_name"), "party_id": r.get("party_id"),
+                     "party_name": r.get("party_name"), "seats": int(r.get("seats") or 0),
                      "telegram_user_id": int(r["telegram_user_id"]) if r.get("telegram_user_id") else None}
                     for r in elected],
         "parties": list(parties.values()),
