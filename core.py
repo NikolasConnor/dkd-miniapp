@@ -2245,6 +2245,14 @@ def review_presidential_candidate(actor_id: int, candidate_user_id: int, status:
     entry = next((x for x in applications if int(x.get("user_id") or 0) == int(candidate_user_id)), None)
     if not entry:
         raise DKDError(404, "Заявка кандидата не найдена.")
+    if status == "approved":
+        candidate_name = clean_name(entry.get("full_name")).casefold()
+        duplicate = next((x for x in applications
+                          if int(x.get("user_id") or 0) != int(candidate_user_id)
+                          and x.get("status") == "approved"
+                          and clean_name(x.get("full_name")).casefold() == candidate_name), None)
+        if duplicate:
+            raise DKDError(409, "Нельзя утвердить двух кандидатов с одинаковым ФИО: система не сможет однозначно определить победителя выборов.")
     entry["status"] = status
     entry["reviewed_at"] = utcnow().isoformat()
     _setting_put(PRESIDENTIAL_CANDIDATES_KEY, json.dumps(applications, ensure_ascii=False))
