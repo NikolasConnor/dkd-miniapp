@@ -2632,7 +2632,9 @@ def duma_vote_impeachment(actor_id: int, vote: str) -> dict:
     member = next((m for m in roster.get("members", [])
                    if int(m.get("telegram_user_id") or 0) == int(actor_id)), None)
     seats = int(member.get("seats") or 1) if member else 1
-    audit(actor_id, IMPEACHMENT_VOTE, None, json.dumps({"motion_id": motion["id"], "vote": vote, "seats": seats}, ensure_ascii=False))
+    vote_event = audit(actor_id, IMPEACHMENT_VOTE, None, json.dumps({"motion_id": motion["id"], "vote": vote, "seats": seats}, ensure_ascii=False))
+    if not vote_event or vote_event.get("id") is None:
+        raise DKDError(502, "Не удалось сохранить ваш голос по импичменту. Попробуйте ещё раз.")
     motion = _latest_impeachment()
     if motion["votes_for"] >= int(motion.get("required_seats") or 1):
         role = one(db().table("roles").select("id,name").eq("name", president_role_name()).limit(1))
@@ -2817,7 +2819,9 @@ def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
         raise DKDError(409, "Заседание закрыто.")
     if any(e.get("action") == "duma_law_vote" and int(d.get("law_id",0)) == int(law_id) and int(e["actor_user_id"]) == int(actor_id) for e,d in details):
         raise DKDError(409, "Вы уже голосовали по этому законопроекту.")
-    audit(actor_id, "duma_law_vote", None, json.dumps({"law_id": int(law_id), "vote": vote}, ensure_ascii=False))
+    vote_event = audit(actor_id, "duma_law_vote", None, json.dumps({"law_id": int(law_id), "vote": vote}, ensure_ascii=False))
+    if not vote_event or vote_event.get("id") is None:
+        raise DKDError(502, "Не удалось сохранить ваш голос. Попробуйте ещё раз.")
     votes = [d.get("vote") for e,d in details if e.get("action") == "duma_law_vote" and int(d.get("law_id",0)) == int(law_id)]
     votes.append(vote)
     yes, no = votes.count("for"), votes.count("against")
