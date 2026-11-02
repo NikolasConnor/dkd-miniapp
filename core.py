@@ -910,7 +910,7 @@ def save_duma_party_template(user: dict, candidate_user_ids: list[int]) -> dict:
 def submit_duma_party_list(user: dict, election_id: int, candidates: list[str]) -> dict:
     uid = int(user["id"])
     parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
-    party = next((p for p in parties if int(p.get("leader_user_id") or 0) == uid), None)
+    party = next((p for p in parties if _is_party_leader(p, user)), None)
     if not party:
         raise DKDError(403, "Подать список кандидатов может только председатель партии.")
     election = one(db().table("duma_elections").select(ELECTION_COLS).eq("id", int(election_id)).limit(1))
