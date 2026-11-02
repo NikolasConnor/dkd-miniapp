@@ -2703,6 +2703,7 @@ def public_duma_roster() -> dict:
         return {"formed": False, "seats_total": 0, "seats_occupied": 0, "members": [], "parties": [], "term_start": _setting_get(DUMA_TERM_START_KEY), "term_end": _setting_get(DUMA_TERM_END_KEY), "election_completed_at": None, "dissolved": True}
     data = []
     term_start = term_end = completed_at = None
+    stored_election_seats = 0
     # Основной источник — результаты настоящих выборов в Госдуму.
     try:
         elections = rows(db().table("duma_elections").select(ELECTION_COLS)
@@ -2743,6 +2744,10 @@ def public_duma_roster() -> dict:
                     continue
             term_start = result.get("parliament_term_start")
             term_end = result.get("parliament_term_end")
+            try:
+                stored_election_seats = int(result.get("parliament_seats") or 0)
+            except (TypeError, ValueError):
+                stored_election_seats = 0
             completed_at = election.get("updated_at") or election.get("created_at")
             data = [{
                 "full_name": x.get("full_name"),
@@ -2837,6 +2842,7 @@ def public_duma_roster() -> dict:
                                 })
                         term_start = result.get("parliament_term_start")
                         term_end = result.get("parliament_term_end")
+                        stored_election_seats = total_votes
                         completed_at = election.get("updated_at") or election.get("created_at")
         except Exception as exc:
             log.warning("Could not rebuild legacy Duma roster from current party members: %s", exc)
@@ -2895,12 +2901,7 @@ def public_duma_roster() -> dict:
                                  "is_party_leader": bool(row.get("is_party_leader"))})
     first = data[0] if data else {}
     total_occupied = sum(int(r.get("seats") or 0) for r in elected)
-    election_seats = 0
-    try:
-        if data:
-            election_seats = int((result.get("parliament_seats") if isinstance(result, dict) else 0) or 0)
-    except (TypeError, ValueError):
-        election_seats = 0
+    election_seats = stored_election_seats
     seats_total = election_seats or total_party_votes or total_occupied
     return {"formed": bool(elected), "seats_total": seats_total, "seats_occupied": total_occupied,
         "members": [{"full_name": r.get("full_name"), "party_name": r.get("party_name"),
