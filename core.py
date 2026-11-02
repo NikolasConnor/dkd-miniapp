@@ -1109,18 +1109,18 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         candidates = party_data.get("candidates") or []
         if not candidates:
             continue
-        # Места внутри списка идут кандидатам по порядку; если мест больше кандидатов,
-        # места распределяются равномерно между всеми прошедшими кандидатами.
+        # Один избранный человек занимает одно место. Если у партии мест больше,
+        # чем кандидатов в списке, оставшиеся места сохраняются как вакантные.
         elected_count = min(len(candidates), party_seats)
         elected_candidates = candidates[:elected_count]
-        base, extra = divmod(party_seats, elected_count) if elected_count else (0, 0)
-        for idx, full_name in enumerate(elected_candidates):
+        for full_name in elected_candidates:
             subject = subject_by_name.get(clean_name(full_name).casefold())
             if not subject:
                 raise DKDError(409, f"Кандидат «{full_name}» должен сначала открыть Mini App, чтобы система связала его ФИО с Telegram-профилем.")
-            seats = base + (1 if idx < extra else 0)
-            winners[int(subject["id"])] = {"subject": subject, "full_name": full_name, "party_name": party_name, "seats": seats}
-            roster.append({"full_name": full_name, "party_name": party_name, "votes": votes, "seats": seats,
+            seats = 1
+            winners[int(subject["id"])] = {"subject": subject, "full_name": full_name, "party_name": party_name, "seats": 1}
+            roster.append({"full_name": full_name, "party_name": party_name, "votes": votes,
+                           "party_seats": party_seats, "seats": 1,
                            "telegram_user_id": int(subject["user_id"])})
     if not winners:
         raise DKDError(409, "Не удалось определить участников нового созыва.")
@@ -2686,16 +2686,10 @@ def public_duma_roster() -> dict:
                 deputies = []
                 for name, votes, party, _ in raw_seats:
                     candidates = party.get("candidates") or []
-                    if not candidates:
-                        continue
-                    count = min(len(candidates), seat_map[name])
-                    if not count:
-                        continue
-                    base, extra = divmod(seat_map[name], count)
-                    for idx, full_name in enumerate(candidates[:count]):
+                    for idx, full_name in enumerate(candidates[:min(len(candidates), seat_map[name])]):
                         deputies.append({"full_name": full_name, "party_name": name,
                             "party_emoji": party.get("party_emoji") or "🎭", "votes": votes,
-                            "seats": base + (1 if idx < extra else 0),
+                            "party_seats": seat_map[name], "seats": 1,
                             "is_party_leader": idx == 0})
                 if not deputies:
                     continue
@@ -2707,9 +2701,10 @@ def public_duma_roster() -> dict:
                 "party_name": x.get("party_name") or "Без партии",
                 "party_emoji": x.get("party_emoji") or "🎭",
                 "party_votes": int(x.get("votes") or 0),
+                "party_seats": int(x.get("party_seats") or x.get("votes") or 0),
                 "party_vote_percent": 0,
                 "elected_to_duma": True,
-                "seats": int(x.get("seats") or 0),
+                "seats": 1,
                 "is_party_leader": bool(x.get("is_party_leader")),
                 "parliament_term_start": term_start,
                 "parliament_term_end": term_end,
@@ -2810,12 +2805,18 @@ def public_duma_roster() -> dict:
             data = []
 
     elected = [r for r in data if r.get("elected_to_duma", True)]
+    total_party_votes = sum({str(r.get("party_name") or "Без партии"): int(r.get("party_votes") or 0)
+                             for r in elected}.values())
+    for row in elected:
+        if row.get("party_votes") is not None:
+            row["party_vote_percent"] = round(int(row.get("party_votes") or 0) * 100 / total_party_votes, 2) if total_party_votes else 0
     parties = {}
     for row in data:
         name = str(row.get("party_name") or "Без партии")
         p = parties.setdefault(name, {"name": name, "emoji": row.get("party_emoji") or "🎭",
             "color": "#4169e1", "votes": int(row.get("party_votes") or 0),
-            "vote_percent": float(row.get("party_vote_percent") or 0), "seats": 0, "members": []})
+            "vote_percent": float(row.get("party_vote_percent") or 0),
+            "seats": int(row.get("party_seats") or row.get("party_votes") or row.get("seats") or 0), "members": []})
         try:
             live_party = one(db().table("parties").select("color,emoji").eq("name", name).limit(1))
             if live_party:
@@ -2824,8 +2825,9 @@ def public_duma_roster() -> dict:
         except Exception:
             pass
         if row.get("elected_to_duma", True):
-            seats = int(row.get("seats") or 0)
-            p["seats"] += seats
+            seats = int(row.get("seats") or 1)
+            if not row.get("party_seats") and not row.get("party_votes"):
+                p["seats"] += seats
             p["members"].append({"full_name": row.get("full_name"), "seats": seats,
                                  "is_party_leader": bool(row.get("is_party_leader"))})
     first = data[0] if data else {}
