@@ -2582,12 +2582,29 @@ def duma_open_session(actor_id: int, title: str) -> dict:
     return {"id": int(row["id"]), "title": title, "created_at": created_at, "closed": False, "laws": []}
 
 
+def _is_duma_session_closed(events: list[dict], session_id: int) -> bool:
+    """Сверяет точный session_id в JSON, а не ищет число подстрокой."""
+    for event in events:
+        if event.get("action") != "duma_session_closed":
+            continue
+        try:
+            payload = json.loads(event.get("details") or "{}")
+        except (TypeError, ValueError):
+            continue
+        try:
+            if int(payload.get("session_id", 0)) == int(session_id):
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
 def duma_close_session(actor_id: int, session_id: int) -> dict:
     events = _duma_events()
     opened = next((e for e in events if e.get("action") == "duma_session_opened" and int(e["id"]) == int(session_id)), None)
     if not opened:
         raise DKDError(404, "Заседание не найдено.")
-    if any(e.get("action") == "duma_session_closed" and str(session_id) in str(e.get("details", "")) for e in events):
+    if _is_duma_session_closed(events, session_id):
         raise DKDError(409, "Заседание уже закрыто.")
     audit(actor_id, "duma_session_closed", None, json.dumps({"session_id": int(session_id)}, ensure_ascii=False))
     try:
@@ -2638,7 +2655,7 @@ def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
     session = next((e for e in events if e.get("action") == "duma_session_opened" and int(e["id"]) == int(submitted.get("session_id",0))), None)
     if not session:
         raise DKDError(404, "Заседание не найдено.")
-    session_closed = any(e.get("action") == "duma_session_closed" and str(submitted.get("session_id")) in str(e.get("details","")) for e in events)
+    session_closed = _is_duma_session_closed(events, int(submitted.get("session_id", 0)))
     if session_closed:
         raise DKDError(409, "Заседание закрыто.")
     if any(e.get("action") == "duma_law_vote" and int(d.get("law_id",0)) == int(law_id) and int(e["actor_user_id"]) == int(actor_id) for e,d in details):
