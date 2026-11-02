@@ -1093,8 +1093,10 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
     saved_results = election.get("results") if isinstance(election.get("results"), dict) else {}
     if saved_results.get("parliament_term_end"):
         # Повторный вызов не меняет состав, но гарантирует выдачу недостающих мандатов.
+        metadata_keys = {"parliament_seats", "parliament_term_start", "parliament_term_end",
+                         "elected_deputies", "parliament_term_status"}
         vote_counts = {str(k): int(v) for k, v in saved_results.items()
-                       if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                       if str(k) not in metadata_keys and isinstance(v, (int, float)) and not isinstance(v, bool)}
         mandate_roster = saved_results.get("elected_deputies") or public_duma_roster().get("members") or []
         mandate_count = _issue_duma_mandates(
             int(election_id), mandate_roster,
@@ -3076,7 +3078,9 @@ def public_duma_roster() -> dict:
 
 
 REQUIRED_SCHEMA = {
-    "subjects": SUBJECT_COLS + ",avatar_emoji",
+    # SUBJECT_COLS уже содержит avatar_emoji; не дублируем имя столбца,
+    # иначе диагностика ошибочно помечает корректную таблицу как сломанную.
+    "subjects": SUBJECT_COLS,
     "passports": PASSPORT_COLS + ",updated_at",
     "document_applications": APP_COLS + ",reviewed_by",
     "roles": "id,name,emoji",
