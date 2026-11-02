@@ -1089,13 +1089,11 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
     if not valid:
         raise DKDError(409, "В результатах нет партий с действующими списками кандидатов.")
 
-    # Число мест равно общему числу голосов за партии.
+    # Одно действительное голосование за партию даёт одно место этой партии.
+    # Поэтому размер парламента равен числу учтённых голосов, а не фиксированным 50 местам.
     parliament_seats = total_votes
-    raw = [(name, votes, item, (votes * parliament_seats) / total_votes) for name, votes, item in valid]
-    seats_by_party = {name: int(quota) for name, _, _, quota in raw}
-    remaining = parliament_seats - sum(seats_by_party.values())
-    for name, _, _, quota in sorted(raw, key=lambda row: (row[3] - int(row[3]), row[1]), reverse=True)[:remaining]:
-        seats_by_party[name] += 1
+    seats_by_party = {name: votes for name, votes, _ in valid}
+    raw = [(name, votes, item, float(votes)) for name, votes, item in valid]
 
     subjects = rows(db().table("subjects").select("id,user_id,full_name"))
     subject_by_name: dict[str, dict] = {}
