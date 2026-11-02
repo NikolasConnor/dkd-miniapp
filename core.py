@@ -2949,11 +2949,18 @@ def public_duma_roster() -> dict:
                 deputies = []
                 for name, votes, party, _ in raw_seats:
                     candidates = party.get("candidates") or []
+                    candidate_user_ids = party.get("candidate_user_ids") or []
+                    leader_user_id = int(party.get("leader_user_id") or 0)
                     for idx, full_name in enumerate(candidates[:min(len(candidates), seat_map[name])]):
+                        try:
+                            candidate_uid = int(candidate_user_ids[idx]) if idx < len(candidate_user_ids) else 0
+                        except (TypeError, ValueError):
+                            candidate_uid = 0
                         deputies.append({"full_name": full_name, "party_id": party.get("party_id"),
                             "party_name": name, "party_emoji": party.get("party_emoji") or "🎭", "votes": votes,
                             "party_seats": seat_map[name], "seats": 1,
-                            "is_party_leader": idx == 0})
+                            "is_party_leader": bool(candidate_uid and candidate_uid == leader_user_id),
+                            "telegram_user_id": candidate_uid or None})
                 if not deputies:
                     continue
             term_start = result.get("parliament_term_start")
