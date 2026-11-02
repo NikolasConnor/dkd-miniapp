@@ -799,13 +799,15 @@ def president_schedule_duma_election(actor_id: int, title: str, starts_at: str, 
             continue
         candidates = select_in("subjects", "user_id,full_name", "user_id", candidate_ids)
         names_by_id = {int(x["user_id"]): clean_name(x.get("full_name", "")) for x in candidates}
-        names = [names_by_id[x] for x in candidate_ids if x in names_by_id and names_by_id[x]]
+        valid_candidate_ids = [candidate_id for candidate_id in candidate_ids
+                               if candidate_id in names_by_id and names_by_id[candidate_id]]
+        names = [names_by_id[candidate_id] for candidate_id in valid_candidate_ids]
         if names:
             prepared[str(int(party["id"]))] = {
                 "party_id": int(party["id"]), "party_name": party["name"],
                 "party_emoji": party.get("emoji") or "🎭",
                 "leader_user_id": int(party.get("leader_user_id") or 0),
-                "candidates": names, "candidate_user_ids": candidate_ids,
+                "candidates": names, "candidate_user_ids": valid_candidate_ids,
                 "submitted_at": utcnow().isoformat()
             }
     _setting_put(DUMA_LISTS_KEY_PREFIX + str(election["id"]), json.dumps(prepared, ensure_ascii=False))
@@ -897,14 +899,32 @@ def submit_duma_party_list(user: dict, election_id: int, candidates: list[str]) 
         raise DKDError(400, "Укажите от 1 до 50 кандидатов; имя каждого — до 120 символов.")
     if len({x.casefold() for x in cleaned}) != len(cleaned):
         raise DKDError(400, "В списке не должно быть повторяющихся кандидатов.")
-    registered = rows(db().table("subjects").select("full_name"))
-    registered_names = {clean_name(x.get("full_name", "")).casefold() for x in registered}
-    missing = [name for name in cleaned if name.casefold() not in registered_names]
+    registered = rows(db().table("subjects").select("user_id,full_name"))
+    registered_by_name: dict[str, list[dict]] = {}
+    for subject in registered:
+        name_key = clean_name(subject.get("full_name", "")).casefold()
+        if name_key:
+            registered_by_name.setdefault(name_key, []).append(subject)
+    missing = [name for name in cleaned if name.casefold() not in registered_by_name]
     if missing:
         raise DKDError(422, "Сначала каждый кандидат должен открыть Mini App и создать профиль. Не найдены: " + ", ".join(missing[:5]))
+    ambiguous = [name for name in cleaned if len(registered_by_name.get(name.casefold(), [])) > 1]
+    if ambiguous:
+        raise DKDError(422, "Невозможно однозначно связать одинаковые ФИО с Telegram-пользователем: " + ", ".join(ambiguous[:5]))
+    candidate_user_ids = [
+        int(registered_by_name[name.casefold()][0]["user_id"])
+        for name in cleaned
+        if registered_by_name[name.casefold()][0].get("user_id") is not None
+    ]
+    if len(candidate_user_ids) != len(cleaned):
+        raise DKDError(422, "У каждого кандидата должен быть Telegram-профиль с числовым ID.")
+    if len(set(candidate_user_ids)) != len(candidate_user_ids):
+        raise DKDError(422, "Один участник не может быть указан в списке несколько раз.")
     lists = duma_party_lists(election_id)
     lists[str(party["id"])] = {"party_id": party["id"], "party_name": party["name"], "party_emoji": party.get("emoji") or "🎭",
-                               "leader_user_id": uid, "candidates": cleaned, "submitted_at": utcnow().isoformat()}
+                               "leader_user_id": uid, "candidates": cleaned,
+                               "candidate_user_ids": candidate_user_ids,
+                               "submitted_at": utcnow().isoformat()}
     _setting_put(DUMA_LISTS_KEY_PREFIX + str(int(election_id)), json.dumps(lists, ensure_ascii=False))
     options = [item["party_name"] for item in lists.values()]
     execute(db().table("duma_elections").update({"options": options}).eq("id", int(election_id)), "Не удалось обновить списки партий на выборах.")
