@@ -1092,20 +1092,52 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         raise DKDError(404, "Выборы в Госдуму не найдены.")
     saved_results = election.get("results") if isinstance(election.get("results"), dict) else {}
     if saved_results.get("parliament_term_end"):
-        # Повторный вызов не меняет состав, но гарантирует выдачу недостающих мандатов.
+        # Повторный вызов не должен возвращать к жизни старый созыв или
+        # выдавать новые мандаты после окончания его полномочий.
+        current_election_raw = _setting_get(DUMA_TERM_ELECTION_KEY)
+        if current_election_raw and current_election_raw.isdigit() and int(current_election_raw) != int(election_id):
+            return {"ok": True, "results": saved_results, "already_finalized": True,
+                    "historical": True, "mandates_issued": 0}
+        term_start = str(saved_results.get("parliament_term_start") or "")
+        term_end = str(saved_results["parliament_term_end"])
+        end_dt = parse_dt(term_end)
+        deputy_role = _deputy_role_row()
+        if end_dt and utcnow() >= end_dt:
+            execute(db().table("subject_roles").delete().eq("role_id", int(deputy_role["id"])),
+                    "Не удалось синхронизировать завершившийся созыв.")
+            _setting_put(DUMA_TERM_START_KEY, term_start)
+            _setting_put(DUMA_TERM_END_KEY, term_end)
+            _setting_put(DUMA_TERM_ELECTION_KEY, str(int(election_id)))
+            _setting_put(DUMA_TERM_STATUS_KEY, "expired")
+            return {"ok": True, "results": saved_results, "already_finalized": True,
+                    "term_expired": True, "mandates_issued": 0}
+        mandate_roster = saved_results.get("elected_deputies") or []
+        if not mandate_roster:
+            mandate_roster = public_duma_roster().get("members") or []
+        subjects = rows(db().table("subjects").select("id,user_id"))
+        subject_by_user = {int(x["user_id"]): int(x["id"]) for x in subjects if x.get("user_id") is not None}
+        expected_subject_ids = set()
+        for deputy in mandate_roster:
+            uid = int(deputy.get("telegram_user_id") or 0)
+            if uid in subject_by_user:
+                expected_subject_ids.add(subject_by_user[uid])
+        execute(db().table("subject_roles").delete().eq("role_id", int(deputy_role["id"])),
+                "Не удалось синхронизировать состав депутатов.")
+        for subject_id in sorted(expected_subject_ids):
+            execute(db().table("subject_roles").insert({"subject_id": subject_id, "role_id": int(deputy_role["id"])}),
+                    "Не удалось восстановить полномочия депутата.")
+        _setting_put(DUMA_TERM_START_KEY, term_start)
+        _setting_put(DUMA_TERM_END_KEY, term_end)
+        _setting_put(DUMA_TERM_ELECTION_KEY, str(int(election_id)))
+        _setting_put(DUMA_TERM_STATUS_KEY, "active")
         metadata_keys = {"parliament_seats", "parliament_term_start", "parliament_term_end",
                          "elected_deputies", "parliament_term_status"}
         vote_counts = {str(k): int(v) for k, v in saved_results.items()
                        if str(k) not in metadata_keys and isinstance(v, (int, float)) and not isinstance(v, bool)}
-        mandate_roster = saved_results.get("elected_deputies") or public_duma_roster().get("members") or []
-        mandate_count = _issue_duma_mandates(
-            int(election_id), mandate_roster,
-            str(saved_results.get("parliament_term_start") or ""),
-            str(saved_results["parliament_term_end"])
-        )
+        mandate_count = _issue_duma_mandates(int(election_id), mandate_roster, term_start, term_end)
         _publish_election_results_news_once(
             actor_id, "duma", election, vote_counts,
-            "Парламент сформирован на срок до " + str(saved_results["parliament_term_end"]) + "."
+            "Парламент сформирован на срок до " + term_end + "."
         )
         return {"ok": True, "results": saved_results, "already_finalized": True,
                 "mandates_issued": mandate_count}
