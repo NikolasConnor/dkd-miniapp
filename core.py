@@ -1297,6 +1297,11 @@ def list_elections(user_id: int) -> dict:
                             _publish_election_results_news_once(0, kind, e, counts)
                         except Exception:
                             log.exception("Не удалось опубликовать итоги выборов %s/%s", kind, e.get("id"))
+                        if kind == "presidential":
+                            try:
+                                _finalize_presidential_election(0, e, counts)
+                            except Exception:
+                                log.exception("Не удалось назначить победителя президентских выборов %s", e.get("id"))
             out.append(view)
         result[kind] = out
     return result
@@ -1431,6 +1436,110 @@ def create_election(actor_id: int, kind: str, title: str, options: list[str], en
     return created[0]
 
 
+def _finalize_presidential_election(actor_id: int, election: dict, counts: dict[str, int]) -> dict:
+    """Назначает победителя закрытых президентских выборов; повторный вызов безопасен."""
+    election_id = int(election["id"])
+    marker_key = f"presidential_election_finalized:{election_id}"
+    already = _setting_value(marker_key)
+    if already:
+        return {"appointed": True, "user_id": int(already), "already_finalized": True}
+
+    numeric_counts = {
+        clean_name(name): int(votes)
+        for name, votes in counts.items()
+        if isinstance(votes, (int, float)) and not isinstance(votes, bool)
+    }
+    if not numeric_counts:
+        return {"appointed": False, "reason": "no_votes"}
+    high_score = max(numeric_counts.values())
+    if high_score <= 0:
+        return {"appointed": False, "reason": "no_votes"}
+    winners = [name for name, votes in numeric_counts.items() if votes == high_score]
+    if len(winners) != 1:
+        return {"appointed": False, "reason": "tie", "winners": winners}
+
+    winning_name = winners[0]
+    applications = [
+        item for item in _presidential_candidate_applications()
+        if item.get("status") == "approved"
+        and clean_name(item.get("full_name")).casefold() == winning_name.casefold()
+    ]
+    if len(applications) != 1:
+        raise DKDError(409, f"Невозможно однозначно определить победителя «{winning_name}»: проверьте утверждённые кандидатуры.")
+    winner_uid = int(applications[0].get("user_id") or 0)
+    winner = get_subject(winner_uid)
+    if not winner or not winner.get("is_citizen"):
+        raise DKDError(409, f"Победитель «{winning_name}» больше не является доступным гражданином.")
+    winner_subject_id = int(winner["id"])
+
+    canonical_roles = _ensure_canonical_role_rows()
+    president_role = next((r for r in canonical_roles if _role_key(r.get("name", "")) == "президент"), None)
+    if not president_role:
+        raise DKDError(500, "Не найдена системная роль Президента.")
+    all_roles = rows(db().table("roles").select("id,name"))
+    president_role_ids = [
+        int(role["id"]) for role in all_roles
+        if _role_key(role.get("name", "")) == "президент"
+    ]
+    old_links = []
+    if president_role_ids:
+        old_links = fetch_all(lambda: db().table("subject_roles").select("subject_id,role_id")
+                              .in_("role_id", president_role_ids))
+    subjects_by_id = {
+        int(item["id"]): item
+        for item in rows(db().table("subjects").select("id,user_id,full_name"))
+    }
+    old_user_ids = sorted({
+        int(subjects_by_id[int(link["subject_id"])]["user_id"])
+        for link in old_links
+        if int(link.get("subject_id") or 0) in subjects_by_id
+        and subjects_by_id[int(link["subject_id"])].get("user_id") is not None
+        and int(subjects_by_id[int(link["subject_id"])]["user_id"]) != winner_uid
+    })
+
+    # Удаляем старые президентские назначения и создаём единственное актуальное.
+    # Если запрос прервётся, следующий вызов повторит операцию до записи маркера.
+    for role_id in president_role_ids:
+        execute(db().table("subject_roles").delete().eq("role_id", role_id),
+                "Не удалось завершить прежние президентские полномочия.")
+    execute(db().table("subject_roles").insert({
+        "subject_id": winner_subject_id, "role_id": int(president_role["id"])
+    }), "Не удалось назначить победителя Президентом.")
+
+    started = utcnow()
+    ends = _add_calendar_months(started, 3)
+    _save_setting(PRESIDENT_TERM_USER_KEY, str(winner_uid))
+    _save_setting(PRESIDENT_TERM_START_KEY, started.isoformat())
+    _save_setting(PRESIDENT_TERM_END_KEY, ends.isoformat())
+    _save_setting(marker_key, str(winner_uid))
+
+    audit(actor_id, "presidential_election_finalized", winner_uid, json.dumps({
+        "election_id": election_id, "winner": winning_name,
+        "votes": high_score, "term_start": started.isoformat(), "term_end": ends.isoformat()
+    }, ensure_ascii=False))
+    try:
+        create_notification(winner_uid, "Вы избраны Президентом ДКД",
+                            f"По итогам выборов вы назначены Президентом ДКД. Срок полномочий — до {ends.isoformat()}.")
+    except Exception as exc:
+        log.warning("Could not notify presidential election winner: %s", exc)
+    for old_uid in old_user_ids:
+        try:
+            create_notification(old_uid, "Президентские полномочия завершены",
+                                "По итогам новых выборов ваши полномочия Президента ДКД прекращены.")
+        except Exception as exc:
+            log.warning("Could not notify former president %s: %s", old_uid, exc)
+    try:
+        _ensure_president_certificate()
+    except Exception as exc:
+        log.warning("Could not create presidential certificate after election: %s", exc)
+    try:
+        publish_news(actor_id, f"👑 По итогам президентских выборов Президентом ДКД избран(а) {winning_name}. Срок полномочий — до {ends.isoformat()}.")
+    except Exception as exc:
+        log.warning("Could not publish presidential appointment news: %s", exc)
+    return {"appointed": True, "user_id": winner_uid, "winner": winning_name,
+            "votes": high_score, "term_start": started.isoformat(), "term_end": ends.isoformat()}
+
+
 def close_election(actor_id: int, kind: str, election_id: int) -> dict:
     if kind not in ELECTION_TABLES:
         raise DKDError(404, "Неизвестный тип выборов.")
@@ -1446,6 +1555,7 @@ def close_election(actor_id: int, kind: str, election_id: int) -> dict:
     # Повторный вызов безопасен: позволяет восстановить новость, если предыдущая
     # попытка завершила выборы, но упала при публикации результатов.
     news_published = _publish_election_results_news_once(actor_id, kind, election, counts)
+    president_result = _finalize_presidential_election(actor_id, election, counts) if kind == "presidential" else None
     if election.get("status") not in CLOSED_STATUSES:
         try:
             citizens = rows(db().table("subjects").select("user_id").eq("is_citizen", True))
@@ -1456,7 +1566,10 @@ def close_election(actor_id: int, kind: str, election_id: int) -> dict:
                     create_notification(uid, "Опубликованы результаты выборов", f"Выборы «{election.get('title', '')}» завершены. Результаты: {result_text}.")
         except Exception as exc:
             log.warning("Election-result notifications failed: %s", exc)
-    return {"ok": True, "results": counts, "news_published": news_published}
+    response = {"ok": True, "results": counts, "news_published": news_published}
+    if president_result is not None:
+        response["president_result"] = president_result
+    return response
 
 
 # ----------------------------------------------------------------------------
