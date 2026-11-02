@@ -1119,13 +1119,14 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         subjects = rows(db().table("subjects").select("id,user_id"))
         subject_by_user = {int(x["user_id"]): int(x["id"]) for x in subjects if x.get("user_id") is not None}
         expected_subject_ids = set()
-        for deputy in mandate_roster:
-            uid = int(deputy.get("telegram_user_id") or 0)
+        expected_user_ids = {int(deputy.get("telegram_user_id") or 0) for deputy in mandate_roster
+                             if int(deputy.get("telegram_user_id") or 0) > 0}
+        for uid in expected_user_ids:
             if uid in subject_by_user:
                 expected_subject_ids.add(subject_by_user[uid])
-        # Старые вручную внесённые списки могут не содержать Telegram ID.
-        # В таком случае нельзя удалять существующие роли, опираясь на неполные данные.
-        if expected_subject_ids:
+        # Старые вручную внесённые списки или удалённые профили могут оставить
+        # неполные ID. Не удаляем роли, если не удалось сопоставить весь состав.
+        if expected_subject_ids and len(expected_subject_ids) == len(expected_user_ids):
             execute(db().table("subject_roles").delete().eq("role_id", int(deputy_role["id"])),
                     "Не удалось синхронизировать состав депутатов.")
             for subject_id in sorted(expected_subject_ids):
