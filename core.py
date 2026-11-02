@@ -863,6 +863,10 @@ def save_duma_party_template(user: dict, candidate_user_ids: list[int]) -> dict:
     for election in elections:
         if election.get("status") in CLOSED_STATUSES:
             continue
+        # Не меняем кампанию после фактического окончания, даже если статус ещё не обновлён.
+        election_end = parse_dt(election.get("ends_at"))
+        if election_end and election_end <= utcnow():
+            continue
         lists = duma_party_lists(int(election["id"]))
         lists[str(party_id)] = {"party_id": party_id, "party_name": current["party"]["name"],
             "party_emoji": current["party"]["emoji"], "leader_user_id": uid,
@@ -2256,6 +2260,9 @@ def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bo
             raise DKDError(409, f"Роль «{role['name']}» уже назначена другому человеку.")
     if assigned and not link:
         execute(db().table("subject_roles").insert({"subject_id": subject["id"], "role_id": int(role_id)}), "Не удалось назначить роль.")
+        # Срок Президента начинается в момент назначения, а не при первом открытии раздела.
+        if key == _role_key(president_role_name()) and subject.get("user_id") is not None:
+            _ensure_president_term(int(subject["user_id"]))
     elif not assigned and link:
         execute(db().table("subject_roles").delete().eq("subject_id", subject["id"]).eq("role_id", int(role_id)), "Не удалось снять роль.")
     audit(actor_id, "role_assigned" if assigned else "role_removed", subject["user_id"], f"role:{role_id}")
