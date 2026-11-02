@@ -1181,8 +1181,9 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
             winners[subject_id] = {"subject": subject, "full_name": full_name, "party_name": party_name, "seats": 1}
             roster.append({"full_name": clean_name(subject.get("full_name") or full_name),
                            "party_id": party_data.get("party_id"),
-                           "party_name": party_name, "votes": votes,
-                           "party_seats": party_seats, "seats": 1,
+                           "party_name": party_name, "party_emoji": party_data.get("party_emoji") or "🎭",
+                           "votes": votes, "party_seats": party_seats, "seats": 1,
+                           "is_party_leader": user_id == int(party_data.get("leader_user_id") or 0),
                            "telegram_user_id": user_id})
     if not winners:
         raise DKDError(409, "Не удалось определить участников нового созыва.")
