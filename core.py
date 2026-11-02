@@ -1115,17 +1115,17 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         raise DKDError(409, "Нельзя сформировать парламент: партии ещё не подали списки кандидатов.")
     counts = tally("duma", election_id)
     party_by_name = {str(item.get("party_name", "")).casefold(): item for item in lists.values()}
-    valid = [(name, int(counts.get(name, 0)), party_by_name.get(str(name).casefold()))
+    # Все учтённые голоса определяют размер парламента, даже если у партии
+    # отсутствует корректный список: её места останутся вакантными, а голоса
+    # не исчезнут из общего числа мест.
+    valid = [(name, max(0, int(counts.get(name, 0))), party_by_name.get(str(name).casefold()))
              for name in normalize_options(election.get("options"))]
-    valid = [(name, votes, item) for name, votes, item in valid if item and item.get("candidates")]
     total_votes = sum(votes for _, votes, _ in valid)
     if total_votes <= 0:
         raise DKDError(409, "Нельзя сформировать парламент без поданных голосов.")
-    if not valid:
-        raise DKDError(409, "В результатах нет партий с действующими списками кандидатов.")
 
-    # Одно действительное голосование за партию даёт одно место этой партии.
-    # Поэтому размер парламента равен числу учтённых голосов, а не фиксированным 50 местам.
+    # Один голос за партию даёт одно место. Недостающие кандидаты не заменяются
+    # повторными мандатами: места остаются вакантными.
     parliament_seats = total_votes
     seats_by_party = {name: votes for name, votes, _ in valid}
     raw = [(name, votes, item, float(votes)) for name, votes, item in valid]
@@ -1146,6 +1146,8 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
     elected_user_ids: set[int] = set()
     for party_name, votes, party_data, quota in raw:
         party_seats = seats_by_party[party_name]
+        if not party_data:
+            continue  # Голоса учтены в размере парламента; места партии останутся вакантными.
         candidates = party_data.get("candidates") or []
         candidate_user_ids = party_data.get("candidate_user_ids") or []
         if not candidates:
