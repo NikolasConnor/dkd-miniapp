@@ -1095,7 +1095,9 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         # Повторный вызов не должен возвращать к жизни старый созыв или
         # выдавать новые мандаты после окончания его полномочий.
         current_election_raw = _setting_get(DUMA_TERM_ELECTION_KEY)
-        if current_election_raw and current_election_raw.isdigit() and int(current_election_raw) != int(election_id):
+        # Более новый ID означает, что уже сформирован следующий созыв.
+        # Более старый ID может означать прерванную финализацию текущих выборов.
+        if current_election_raw and current_election_raw.isdigit() and int(current_election_raw) > int(election_id):
             return {"ok": True, "results": saved_results, "already_finalized": True,
                     "historical": True, "mandates_issued": 0}
         term_start = str(saved_results.get("parliament_term_start") or "")
