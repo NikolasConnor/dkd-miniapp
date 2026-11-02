@@ -1096,32 +1096,56 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
     raw = [(name, votes, item, float(votes)) for name, votes, item in valid]
 
     subjects = rows(db().table("subjects").select("id,user_id,full_name"))
-    subject_by_name: dict[str, dict] = {}
+    subject_by_user = {
+        int(subject["user_id"]): subject
+        for subject in subjects if subject.get("user_id") is not None
+    }
+    subjects_by_name: dict[str, list[dict]] = {}
     for subject in subjects:
         key = clean_name(subject.get("full_name", "")).casefold()
-        if key and key not in subject_by_name:
-            subject_by_name[key] = subject
+        if key:
+            subjects_by_name.setdefault(key, []).append(subject)
 
     winners: dict[int, dict] = {}
     roster = []
+    elected_user_ids: set[int] = set()
     for party_name, votes, party_data, quota in raw:
         party_seats = seats_by_party[party_name]
         candidates = party_data.get("candidates") or []
+        candidate_user_ids = party_data.get("candidate_user_ids") or []
         if not candidates:
             continue
-        # Один избранный человек занимает одно место. Если у партии мест больше,
-        # чем кандидатов в списке, оставшиеся места сохраняются как вакантные.
+        # Размер парламента равен голосам; один кандидат занимает ровно одно место.
+        # Если список короче числа мест партии, разница остаётся вакантной.
         elected_count = min(len(candidates), party_seats)
-        elected_candidates = candidates[:elected_count]
-        for full_name in elected_candidates:
-            subject = subject_by_name.get(clean_name(full_name).casefold())
+        for idx, full_name in enumerate(candidates[:elected_count]):
+            subject = None
+            if idx < len(candidate_user_ids):
+                try:
+                    candidate_uid = int(candidate_user_ids[idx])
+                except (TypeError, ValueError):
+                    candidate_uid = 0
+                if candidate_uid:
+                    subject = subject_by_user.get(candidate_uid)
+                    if not subject:
+                        raise DKDError(409, f"Для кандидата «{full_name}» не найден профиль Telegram. Проверьте партийный список.")
+            if subject is None:
+                matches = subjects_by_name.get(clean_name(full_name).casefold(), [])
+                if len(matches) > 1:
+                    raise DKDError(409, f"ФИО «{full_name}» не уникально. Обновите список кандидатов, чтобы связать его с Telegram-пользователем.")
+                subject = matches[0] if matches else None
             if not subject:
                 raise DKDError(409, f"Кандидат «{full_name}» должен сначала открыть Mini App, чтобы система связала его ФИО с Telegram-профилем.")
-            seats = 1
-            winners[int(subject["id"])] = {"subject": subject, "full_name": full_name, "party_name": party_name, "seats": 1}
-            roster.append({"full_name": full_name, "party_name": party_name, "votes": votes,
+            subject_id = int(subject["id"])
+            user_id = int(subject["user_id"])
+            if user_id in elected_user_ids:
+                raise DKDError(409, f"Участник «{full_name}» указан более чем в одном партийном списке. Исправьте списки перед формированием парламента.")
+            elected_user_ids.add(user_id)
+            winners[subject_id] = {"subject": subject, "full_name": full_name, "party_name": party_name, "seats": 1}
+            roster.append({"full_name": clean_name(subject.get("full_name") or full_name),
+                           "party_name": party_name, "votes": votes,
                            "party_seats": party_seats, "seats": 1,
-                           "telegram_user_id": int(subject["user_id"])})
+                           "telegram_user_id": user_id})
     if not winners:
         raise DKDError(409, "Не удалось определить участников нового созыва.")
 
@@ -2410,7 +2434,7 @@ def duma_call_presidential_election(actor_id: int) -> dict:
                          if x.get("status") == "approved" and clean_name(x.get("full_name"))}, key=str.casefold)
     if len(candidates) < 2:
         raise DKDError(409, "Для назначения выборов нужно минимум два кандидата, утверждённых администратором.")
-    election = create_election(actor_id, "president", "Выборы Президента ДКД", candidates, end.isoformat())
+    election = create_election(actor_id, "presidential", "Выборы Президента ДКД", candidates, end.isoformat())
     audit(actor_id, PRESIDENTIAL_ELECTION_ACTION, None, json.dumps({"election_id": int(election["id"]), "term_end": status["president_term_end"], "created_at": now.isoformat(), "candidates": candidates}, ensure_ascii=False))
     publish_news(actor_id, "🗳️ Назначены выборы Президента ДКД.\n\nВ бюллетень включены утверждённые кандидаты:\n" + "\n".join("• " + name for name in candidates) + "\n\nОкончание голосования: " + end.isoformat())
     return {"ok": True, "election": election, "candidate_count": len(candidates), "ends_at": end.isoformat()}
@@ -2449,7 +2473,7 @@ def duma_vote_impeachment(actor_id: int, vote: str) -> dict:
     seats = int(member.get("seats") or 1) if member else 1
     audit(actor_id, IMPEACHMENT_VOTE, None, json.dumps({"motion_id": motion["id"], "vote": vote, "seats": seats}, ensure_ascii=False))
     motion = _latest_impeachment()
-    if motion["votes_for"] >= 34:
+    if motion["votes_for"] >= int(motion.get("required_seats") or 1):
         role = one(db().table("roles").select("id,name").eq("name", president_role_name()).limit(1))
         president = _current_president_subject()
         if role and president:
@@ -2457,7 +2481,7 @@ def duma_vote_impeachment(actor_id: int, vote: str) -> dict:
                     "Не удалось прекратить президентские полномочия после импичмента.")
         audit(actor_id, IMPEACHMENT_COMPLETED, None, json.dumps({"motion_id": motion["id"], "status": "approved", "votes_for": motion["votes_for"], "votes_against": motion["votes_against"]}, ensure_ascii=False))
         motion["status"] = "approved"
-    elif motion["votes_against"] >= 34:
+    elif motion["votes_against"] >= int(motion.get("required_seats") or 1):
         audit(actor_id, IMPEACHMENT_COMPLETED, None, json.dumps({"motion_id": motion["id"], "status": "rejected", "votes_for": motion["votes_for"], "votes_against": motion["votes_against"]}, ensure_ascii=False))
         motion["status"] = "rejected"
     return {"ok": True, "impeachment": motion}
@@ -2773,8 +2797,7 @@ def public_duma_roster() -> dict:
                             count = min(len(candidates), party_seats)
                             if count <= 0:
                                 continue
-                            base, extra = divmod(party_seats, count)
-                            for idx, subject in enumerate(candidates[:count]):
+                            for subject in candidates[:count]:
                                 data.append({
                                     "full_name": subject.get("full_name") or "Участник",
                                     "party_name": name,
@@ -2782,7 +2805,7 @@ def public_duma_roster() -> dict:
                                     "party_votes": votes,
                                     "party_vote_percent": round(votes * 100 / total_votes, 2),
                                     "elected_to_duma": True,
-                                    "seats": base + (1 if idx < extra else 0),
+                                    "seats": 1,
                                     "is_party_leader": int(subject.get("user_id") or 0) == int(party.get("leader_user_id") or -1),
                                     "telegram_user_id": int(subject["user_id"]),
                                     "parliament_term_start": result.get("parliament_term_start"),
@@ -2804,6 +2827,22 @@ def public_duma_roster() -> dict:
             log.warning("Initial parliament roster unavailable: %s", exc)
             data = []
 
+    # Совместимость со старым составом: каждое лицо может занимать только одно место.
+    # Повторные строки одного Telegram-пользователя/ФИО не создают лишние мандаты.
+    normalized_data = []
+    seen_members = set()
+    for row in data:
+        if not row.get("elected_to_duma", True):
+            normalized_data.append(row)
+            continue
+        user_id = row.get("telegram_user_id")
+        identity = ("uid", int(user_id)) if user_id else ("name", clean_name(row.get("full_name")).casefold())
+        if identity[1] in ("", 0) or identity in seen_members:
+            continue
+        seen_members.add(identity)
+        row["seats"] = 1
+        normalized_data.append(row)
+    data = normalized_data
     elected = [r for r in data if r.get("elected_to_duma", True)]
     total_party_votes = sum({str(r.get("party_name") or "Без партии"): int(r.get("party_votes") or 0)
                              for r in elected}.values())
@@ -2838,7 +2877,7 @@ def public_duma_roster() -> dict:
             election_seats = int((result.get("parliament_seats") if isinstance(result, dict) else 0) or 0)
     except (TypeError, ValueError):
         election_seats = 0
-    seats_total = election_seats or total_occupied
+    seats_total = election_seats or total_party_votes or total_occupied
     return {"formed": bool(elected), "seats_total": seats_total, "seats_occupied": total_occupied,
         "members": [{"full_name": r.get("full_name"), "party_name": r.get("party_name"),
                      "seats": int(r.get("seats") or 0),
