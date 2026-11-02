@@ -1465,11 +1465,15 @@ def _finalize_presidential_election(actor_id: int, election: dict, counts: dict[
         and clean_name(item.get("full_name")).casefold() == winning_name.casefold()
     ]
     if len(applications) != 1:
-        raise DKDError(409, f"Невозможно однозначно определить победителя «{winning_name}»: проверьте утверждённые кандидатуры.")
+        log.error("Presidential election %s winner %r has %s approved application matches",
+                  election_id, winning_name, len(applications))
+        return {"appointed": False, "reason": "candidate_not_unique", "winner": winning_name}
     winner_uid = int(applications[0].get("user_id") or 0)
     winner = get_subject(winner_uid)
     if not winner or not winner.get("is_citizen"):
-        raise DKDError(409, f"Победитель «{winning_name}» больше не является доступным гражданином.")
+        log.error("Presidential election %s winner %r is no longer an available citizen",
+                  election_id, winning_name)
+        return {"appointed": False, "reason": "candidate_unavailable", "winner": winning_name}
     winner_subject_id = int(winner["id"])
 
     canonical_roles = _ensure_canonical_role_rows()
