@@ -1682,8 +1682,13 @@ def list_parties(user: dict, admin: bool) -> dict:
     out = []
     for p in parties:
         ms = by_party.get(p["id"], [])
-        leader_uname = (p.get("leader_username") or "").casefold()
-        is_mine = any(m.get("user_id") == uid for m in ms)
+        leader_uname = str(p.get("leader_username") or "").strip().lstrip("@").casefold()
+        is_mine = any(m.get("user_id") is not None and int(m["user_id"]) == uid for m in ms)
+        leader_uid = p.get("leader_user_id")
+        is_leader = (leader_uid is not None and int(leader_uid) == uid) or (
+            not leader_uid and leader_uname and
+            str(user.get("username") or "").strip().lstrip("@").casefold() == leader_uname
+        )
         if is_mine:
             my_party_id = p["id"]
         out.append({
@@ -1698,7 +1703,7 @@ def list_parties(user: dict, admin: bool) -> dict:
                                   or (leader_uname and (m.get("username") or "").casefold() == leader_uname)),
             } for m in ms[:100]],
             "is_member": is_mine,
-            "can_manage": admin or p.get("leader_user_id") == uid,
+            "can_manage": admin or is_leader,
         })
     return {"parties": out, "me": {"is_citizen": bool(subject and subject.get("is_citizen")),
                                   "party_id": my_party_id, "is_admin": admin}}
