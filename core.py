@@ -837,7 +837,7 @@ def _is_party_leader(party: dict, user: dict) -> bool:
     except (TypeError, ValueError):
         return False
     leader_uid = party.get("leader_user_id")
-    if leader_uid not in (None, ""):
+    if leader_uid not in (None, "", 0, "0"):
         try:
             return int(leader_uid) == uid
         except (TypeError, ValueError):
