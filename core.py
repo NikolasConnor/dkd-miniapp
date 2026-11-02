@@ -2949,7 +2949,7 @@ def public_duma_roster() -> dict:
                          if party and party.get("candidates") and votes > 0]
                 seat_map = {name: votes for name, votes, _ in valid}
                 deputies = []
-                for name, votes, party, _ in raw_seats:
+                for name, votes, party in valid:
                     candidates = party.get("candidates") or []
                     candidate_user_ids = party.get("candidate_user_ids") or []
                     leader_user_id = int(party.get("leader_user_id") or 0)
