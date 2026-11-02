@@ -1847,7 +1847,7 @@ def kick_member(actor: dict, admin: bool, party_id: int, member_id: int) -> dict
     target = one(db().table("party_members").select("id,party_id,user_id,username").eq("id", int(member_id)).limit(1))
     if not target or target["party_id"] != party["id"]:
         raise DKDError(404, "Участник не найден.")
-    if target.get("user_id") is not None and target["user_id"] == party.get("leader_user_id"):
+    if _is_party_leader(party, {"id": target.get("user_id") or 0, "username": target.get("username")}):
         raise DKDError(409, "Председателя нельзя исключить; он может передать полномочия, выйдя из партии.")
     execute(db().table("party_members").delete().eq("id", target["id"]), "Не удалось исключить участника.")
     audit(int(actor["id"]), "party_member_kicked", target.get("user_id"), f"party:{party['id']}")
@@ -1858,7 +1858,7 @@ def disband_party(actor: dict, admin: bool, party_id: int) -> dict:
     party = one(db().table("parties").select(PARTY_COLS).eq("id", int(party_id)).limit(1))
     if not party or party.get("status") != "active":
         raise DKDError(404, "Партия не найдена.")
-    if not (admin or party.get("leader_user_id") == int(actor["id"])):
+    if not (admin or _is_party_leader(party, actor)):
         raise DKDError(403, "Распустить партию может председатель или администратор.")
     execute(db().table("parties").update({"status": "disbanded"}).eq("id", party["id"]), "Не удалось распустить партию.")
     execute(db().table("party_members").delete().eq("party_id", party["id"]), "Не удалось очистить состав партии.")
