@@ -1119,8 +1119,14 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         subjects = rows(db().table("subjects").select("id,user_id"))
         subject_by_user = {int(x["user_id"]): int(x["id"]) for x in subjects if x.get("user_id") is not None}
         expected_subject_ids = set()
-        expected_user_ids = {int(deputy.get("telegram_user_id") or 0) for deputy in mandate_roster
-                             if int(deputy.get("telegram_user_id") or 0) > 0}
+        expected_user_ids = set()
+        for deputy in mandate_roster:
+            try:
+                uid = int(deputy.get("telegram_user_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if uid > 0:
+                expected_user_ids.add(uid)
         for uid in expected_user_ids:
             if uid in subject_by_user:
                 expected_subject_ids.add(subject_by_user[uid])
