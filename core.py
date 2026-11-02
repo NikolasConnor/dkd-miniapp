@@ -2893,18 +2893,15 @@ def public_duma_roster() -> dict:
                 valid = [(name, votes, next((p for p in lists.values()
                           if str(p.get("party_name", "")).casefold() == name.casefold()), None))
                          for name, votes in counts.items()]
-                valid = [(name, votes, party) for name, votes, party in valid
-                         if party and party.get("candidates") and votes >= 0]
-                total = sum(v for _, v, _ in valid)
-                if not valid or total <= 0:
+                # Место = один голос. Голоса партий без списка также входят в размер
+                # парламента, но их места остаются вакантными.
+                total = sum(max(0, v) for v in counts.values())
+                if total <= 0:
                     continue
                 parliament_seats = total
-                raw_seats = [(name, votes, party, votes * parliament_seats / total) for name, votes, party in valid]
-                seat_map = {name: int(quota) for name, _, _, quota in raw_seats}
-                remainder = parliament_seats - sum(seat_map.values())
-                for name, _, _, quota in sorted(raw_seats,
-                        key=lambda x: (x[3] - int(x[3]), x[1]), reverse=True)[:remainder]:
-                    seat_map[name] += 1
+                valid = [(name, votes, party) for name, votes, party in valid
+                         if party and party.get("candidates") and votes > 0]
+                seat_map = {name: votes for name, votes, _ in valid}
                 deputies = []
                 for name, votes, party, _ in raw_seats:
                     candidates = party.get("candidates") or []
@@ -2921,6 +2918,8 @@ def public_duma_roster() -> dict:
                 stored_election_seats = int(result.get("parliament_seats") or 0)
             except (TypeError, ValueError):
                 stored_election_seats = 0
+            if not stored_election_seats and not isinstance(result.get("elected_deputies"), list):
+                stored_election_seats = sum(max(0, v) for v in counts.values())
             completed_at = election.get("updated_at") or election.get("created_at")
             data = [{
                 "full_name": x.get("full_name"),
@@ -2989,14 +2988,9 @@ def public_duma_roster() -> dict:
                                 valid.append((party_name, votes, party, candidates))
                     if valid:
                         parliament_seats = total_votes
-                        raw = [(name, votes, party, candidates, votes * parliament_seats / total_votes)
-                               for name, votes, party, candidates in valid]
-                        seat_map = {name: int(quota) for name, _, _, _, quota in raw}
-                        remainder = parliament_seats - sum(seat_map.values())
-                        for name, _, _, _, quota in sorted(
-                                raw, key=lambda x: (x[4] - int(x[4]), x[1], x[0].casefold()), reverse=True
-                        )[:remainder]:
-                            seat_map[name] += 1
+                        # Каждый голос — место. Если список короче числа голосов,
+                        # недостающие места остаются вакантными.
+                        seat_map = {name: votes for name, votes, _, _ in valid}
                         for name, votes, party, candidates, _ in raw:
                             party_seats = seat_map[name]
                             count = min(len(candidates), party_seats)
