@@ -174,17 +174,26 @@ def select_in(table: str, cols: str, column: str, values: list) -> list:
     return out
 
 
-def audit(actor_id: int, action: str, target_user_id: int | None = None, details: str | None = None) -> None:
-    """Запись в журнал. Сбой журнала никогда не должен отменять уже выполненное действие."""
+def audit(actor_id: int, action: str, target_user_id: int | None = None, details: str | None = None) -> dict | None:
+    """Записать событие в журнал и вернуть строку, если БД её подтвердила.
+
+    Большинство вызывающих функций используют журнал только для аудита; отдельные
+    процессы (например, голосование по импичменту) также используют ID события.
+    Сбой журнала не должен скрывать уже выполненное действие, поэтому при ошибке
+    возвращается None, а вызывающая функция сама решает, критичен ли этот результат.
+    """
     try:
-        db().table("audit_log").insert({
+        response = db().table("audit_log").insert({
             "actor_user_id": int(actor_id),
             "action": action,
             "target_user_id": int(target_user_id) if target_user_id is not None else None,
             "details": details,
         }).execute()
+        data = getattr(response, "data", None) or []
+        return data[0] if data and isinstance(data[0], dict) else None
     except Exception as exc:  # noqa: BLE001
         log.error("audit_log write failed (%s): %s", action, exc)
+        return None
 
 
 def clean_name(value: Any) -> str:
@@ -2599,6 +2608,8 @@ def duma_propose_impeachment(actor_id: int, reason: str) -> dict:
     if not president:
         raise DKDError(409, "В базе не найден действующий Президент.")
     event = audit(actor_id, IMPEACHMENT_PROPOSED, None, json.dumps({"reason": reason, "created_at": utcnow().isoformat()}, ensure_ascii=False))
+    if not event or event.get("id") is None:
+        raise DKDError(502, "Не удалось зарегистрировать голосование по импичменту. Повторите попытку позже.")
     return {"ok": True, "motion_id": int(event["id"]), "status": "open"}
 
 
@@ -2856,8 +2867,10 @@ def public_duma_roster() -> dict:
                 # Старые результаты могут содержать только количество голосов.
                 # Восстанавливаем отображаемый состав из сохранённых партийных списков.
                 lists = duma_party_lists(int(election["id"]))
+                metadata_keys = {"parliament_seats", "parliament_term_start", "parliament_term_end",
+                                 "elected_deputies", "parliament_term_status"}
                 counts = {str(k): int(v) for k, v in result.items()
-                          if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                          if str(k) not in metadata_keys and isinstance(v, (int, float)) and not isinstance(v, bool)}
                 valid = [(name, votes, next((p for p in lists.values()
                           if str(p.get("party_name", "")).casefold() == name.casefold()), None))
                          for name, votes in counts.items()]
@@ -2922,8 +2935,10 @@ def public_duma_roster() -> dict:
                                      for v in e["results"].values())), None)
             if election:
                 result = election.get("results") or {}
+                metadata_keys = {"parliament_seats", "parliament_term_start", "parliament_term_end",
+                                 "elected_deputies", "parliament_term_status"}
                 counts = {str(k): int(v) for k, v in result.items()
-                          if isinstance(v, (int, float)) and not isinstance(v, bool)}
+                          if str(k) not in metadata_keys and isinstance(v, (int, float)) and not isinstance(v, bool)}
                 total_votes = sum(max(0, v) for v in counts.values())
                 if total_votes > 0:
                     parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
