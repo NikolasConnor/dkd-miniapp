@@ -658,6 +658,15 @@ def build_profile(user: dict) -> dict:
 AVATAR_EMOJI_ALLOWLIST = set("""👤 👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️ 👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬 😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽 🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄 🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹 💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩 🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬 👾""".split())
 
 
+def update_news_notifications(user: dict, enabled: bool) -> dict:
+    uid = int(user["id"])
+    execute(db().table("news_preferences").upsert(
+        {"user_id": uid, "enabled": bool(enabled), "updated_at": now_iso()},
+        on_conflict="user_id"
+    ), "Не удалось сохранить настройки новостей.")
+    return {"ok": True, "news_notifications_enabled": bool(enabled)}
+
+
 def update_profile_avatar(user: dict, avatar_emoji: str) -> dict:
     avatar = str(avatar_emoji or "").strip()
     if avatar not in AVATAR_EMOJI_ALLOWLIST:
@@ -2433,8 +2442,23 @@ def review_presidential_candidate(actor_id: int, candidate_user_id: int, status:
     return {"ok": True, "candidate": entry}
 
 
+def _decode_news_row(row: dict) -> dict:
+    """Читает метаданные из совместимого с прежней схемой поля news.text."""
+    raw = str(row.get("text") or "")
+    if raw.startswith("[[DKD_NEWS_META:"):
+        try:
+            header, body = raw.split("]]", 1)
+            meta = json.loads(__import__("base64").b64decode(header[len("[[DKD_NEWS_META:"):]).decode("utf-8"))
+            row = {**row, **meta, "text": body.lstrip("\\n")}
+        except (ValueError, TypeError, json.JSONDecodeError):
+            pass
+    return row
+
+
 def list_news() -> list:
-    return rows(db().table("news").select("id,text,created_at").order("id", desc=True).limit(30))
+    return [_decode_news_row(item) for item in rows(
+        db().table("news").select("id,text,created_at").order("id", desc=True).limit(30)
+    )]
 
 
 def _publish_election_results_news_once(actor_id: int, kind: str, election: dict, counts: dict[str, int],
@@ -2451,13 +2475,137 @@ def _publish_election_results_news_once(actor_id: int, kind: str, election: dict
     return True
 
 
-def publish_news(actor_id: int, text: str) -> dict:
+def _news_app_url() -> str:
+    return env("MINI_APP_URL") or env("PUBLIC_APP_URL")
+
+
+def _telegram_api(method: str, payload: dict) -> dict | None:
+    token = env("BOT_TOKEN")
+    if not token:
+        return None
+    request = urllib.request.Request(
+        f"https://api.telegram.org/bot{token}/{method}",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=18) as response:
+            result = json.loads(response.read().decode("utf-8"))
+        if not result.get("ok"):
+            log.warning("Telegram %s rejected: %s", method, result.get("description"))
+            return None
+        return result.get("result") or {}
+    except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+        log.warning("Telegram %s failed: %s", method, exc)
+        return None
+
+
+def _news_keyboard() -> dict | None:
+    url = _news_app_url()
+    return {"inline_keyboard": [[{"text": "Открыть ДКДУслуги", "url": url}]]} if url else None
+
+
+def _news_caption(title: str, category: str, text: str, importance: str) -> str:
+    badges = {"urgent": "🔴 СРОЧНО", "important": "🟠 ВАЖНО", "normal": "📰 НОВОСТИ"}
+    categories = {"politics": "Политика", "elections": "Выборы", "government": "Государство",
+                  "documents": "Документы", "events": "События", "other": "Общество"}
+    return f"{badges.get(importance, '📰 НОВОСТИ')} · {categories.get(category, 'Общество')}\\n\\n{title}\\n\\n{text}\\n\\nПресс-центр ДКД"
+
+
+def _send_group_news(title: str, category: str, text: str, importance: str,
+                     media_type: str | None = None, media_bytes: bytes | None = None,
+                     media_name: str = "news-media") -> str | None:
+    chat_id, token = env("NEWS_GROUP_CHAT_ID"), env("BOT_TOKEN")
+    if not chat_id or not token:
+        log.info("News group delivery skipped: NEWS_GROUP_CHAT_ID/BOT_TOKEN missing")
+        return None
+    caption, keyboard = _news_caption(title, category, text, importance), _news_keyboard()
+    if media_bytes and media_type in ("photo", "video"):
+        method, field = ("sendPhoto", "photo") if media_type == "photo" else ("sendVideo", "video")
+        boundary = "----DKDNews" + secrets.token_hex(12)
+        mime = "image/jpeg" if media_type == "photo" else "video/mp4"
+        safe_name = str(media_name or "news-media").replace('"', "")[:120]
+        parts = [
+            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"chat_id\\"\\r\\n\\r\\n{chat_id}\\r\\n".encode(),
+            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"caption\\"\\r\\n\\r\\n{caption[:1024]}\\r\\n".encode(),
+        ]
+        if keyboard:
+            parts.append(f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"reply_markup\\"\\r\\n\\r\\n{json.dumps(keyboard, ensure_ascii=False)}\\r\\n".encode())
+        parts += [
+            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"{field}\\"; filename=\\"{safe_name}\\"\\r\\nContent-Type: {mime}\\r\\n\\r\\n".encode(),
+            media_bytes, f"\\r\\n--{boundary}--\\r\\n".encode()
+        ]
+        request = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/{method}", data=b"".join(parts),
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=50) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            if not result.get("ok"):
+                log.warning("News media group delivery rejected: %s", result.get("description"))
+                return None
+            sent = result.get("result") or {}
+            media = sent.get("photo") or ([sent["video"]] if sent.get("video") else [])
+            file_id = media[-1].get("file_id") if media else None
+            if len(caption) > 1024:
+                extra = {"chat_id": chat_id, "text": text[:3900] + "\\n\\nПресс-центр ДКД"}
+                if keyboard:
+                    extra["reply_markup"] = keyboard
+                _telegram_api("sendMessage", extra)
+            return file_id
+        except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+            log.warning("News media group delivery failed: %s", exc)
+            return None
+    payload = {"chat_id": chat_id, "text": caption[:4096]}
+    if keyboard:
+        payload["reply_markup"] = keyboard
+    _telegram_api("sendMessage", payload)
+    return None
+
+
+def _notify_news_subscribers(title: str, category: str, text: str, importance: str) -> None:
+    if importance not in ("urgent", "important"):
+        return
+    try:
+        subjects = rows(db().table("subjects").select("user_id"))
+        prefs = rows(db().table("news_preferences").select("user_id,enabled"))
+        disabled = {int(p["user_id"]) for p in prefs if not p.get("enabled", True)}
+        message = _news_caption(title, category, text, importance)[:3900]
+        keyboard = _news_keyboard()
+        for subject in subjects:
+            uid = int(subject.get("user_id") or 0)
+            if uid and uid not in disabled:
+                payload = {"chat_id": uid, "text": message}
+                if keyboard:
+                    payload["reply_markup"] = keyboard
+                _telegram_api("sendMessage", payload)
+    except Exception as exc:
+        log.warning("News subscriber notifications failed: %s", exc)
+
+
+def publish_news(actor_id: int, text: str, title: str = "", category: str = "other",
+                 importance: str = "normal", media_type: str | None = None,
+                 media_bytes: bytes | None = None, media_name: str = "news-media") -> dict:
     text = str(text or "").strip()
+    title = str(title or "").strip()[:180] or (text.splitlines()[0][:120] if text else "Новость ДКД")
+    category = category if category in {"politics", "elections", "government", "documents", "events", "other"} else "other"
+    importance = importance if importance in {"normal", "important", "urgent"} else "normal"
     if not text or len(text) > 10000:
         raise DKDError(422, "Текст новости: от 1 до 10000 символов.")
-    row = execute(db().table("news").insert({"text": text}), "Не удалось опубликовать новость.")[0]
+    if media_type and media_type not in ("photo", "video"):
+        raise DKDError(422, "Поддерживаются только фото и видео.")
+    if media_bytes and len(media_bytes) > 45 * 1024 * 1024:
+        raise DKDError(413, "Файл слишком большой (максимум 45 МБ).")
+    media_file_id = _send_group_news(title, category, text, importance, media_type, media_bytes, media_name)
+    meta = {"title": title, "category": category, "importance": importance,
+            "media_type": media_type, "media_file_id": media_file_id}
+    encoded = __import__("base64").b64encode(json.dumps(meta, ensure_ascii=False).encode("utf-8")).decode("ascii")
+    stored_text = f"[[DKD_NEWS_META:{encoded}]]\\n{text}"
+    row = execute(db().table("news").insert({"text": stored_text}), "Не удалось сохранить новость.")[0]
     audit(actor_id, "news_created", None, f"news:{row['id']}")
-    return row
+    _notify_news_subscribers(title, category, text, importance)
+    return _decode_news_row(row)
 
 
 def publish_law(actor_id: int, title: str, description: str) -> dict:
