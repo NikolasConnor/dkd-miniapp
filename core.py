@@ -2649,7 +2649,7 @@ def duma_constitutional_status(user: dict) -> dict:
             "impeachment": _latest_impeachment()}
 
 
-def duma_call_presidential_election(actor_id: int) -> dict:
+def duma_call_presidential_election(actor_id: int, ends_at: str) -> dict:
     require_deputy({"id": actor_id})
     status = duma_constitutional_status({"id": actor_id})
     if not status["president_term_expired"]:
@@ -2662,7 +2662,13 @@ def duma_call_presidential_election(actor_id: int) -> dict:
     if len(candidates) < 2:
         raise DKDError(409, "Для президентских выборов нужны минимум два гражданина с заполненным ФИО.")
     now = utcnow()
-    end = now + timedelta(days=7)
+    end = parse_dt(ends_at)
+    if not end:
+        raise DKDError(422, "Укажите корректную дату и время окончания голосования.")
+    if end <= now:
+        raise DKDError(422, "Окончание голосования должно быть в будущем.")
+    if end > now + timedelta(days=90):
+        raise DKDError(422, "Нельзя назначить окончание голосования более чем на 90 дней вперёд.")
     applications = _presidential_candidate_applications()
     candidates = sorted({clean_name(x.get("full_name")) for x in applications
                          if x.get("status") == "approved" and clean_name(x.get("full_name"))}, key=str.casefold)
