@@ -1422,6 +1422,7 @@ def list_elections(user_id: int) -> dict:
                     })
             view = {
                 "id": e["id"], "kind": kind, "title": e.get("title"), "options": options,
+                "starts_at": duma_start_at(int(e["id"])).isoformat() if kind == "duma" and duma_start_at(int(e["id"])) else None,
                 "ends_at": e.get("ends_at"), "created_at": e.get("created_at"),
                 "status": status, "is_open": status == "active",
                 "has_voted": (kind, int(e["id"])) in my, "my_option": my.get((kind, int(e["id"]))),
