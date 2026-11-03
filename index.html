@@ -644,13 +644,28 @@ async function loadElections(){
 }
 async function castVote(e,kind,id){
  e.preventDefault();
- const form=e.currentTarget, option=new FormData(form).get('option');
+ const form=e.currentTarget;
+ // Блокируем повторный submit немедленно: двойное нажатие не создаст второй запрос.
+ if(form.dataset.submitting==='1')return;
+ const option=new FormData(form).get('option');
  if(!option){notify('Сначала отметьте один вариант бюллетеня.','error');return}
- if(!confirm('Подтвердить голос за «'+option+'»? После отправки изменить его будет нельзя.'))return;
+ form.dataset.submitting='1';
  const button=form.querySelector('button[type="submit"]');
  if(button){button.disabled=true;button.innerHTML='<span class="spinner"></span> Отправляем голос…'}
- try{await api('/api/votes/'+encodeURIComponent(kind)+'/'+id+'/cast',{method:'POST',body:{option}});notify('Ваш голос принят');await loadElections()}
- catch(err){notify(err.message,'error');if(button){button.disabled=false;button.textContent='Подтвердить выбор'}}
+ if(!confirm('Подтвердить голос за «'+option+'»? После отправки изменить его будет нельзя.')){
+  form.dataset.submitting='0';
+  if(button){button.disabled=false;button.textContent='Подтвердить выбор'}
+  return;
+ }
+ try{
+  await api('/api/votes/'+encodeURIComponent(kind)+'/'+id+'/cast',{method:'POST',body:{option}});
+  notify('Ваш голос принят');
+  await loadElections();
+ }catch(err){
+  notify(err.message,'error');
+  form.dataset.submitting='0';
+  if(button){button.disabled=false;button.textContent='Подтвердить выбор'}
+ }
 }
 async function loadNews(){const el=$('newsContent');el.innerHTML='<div class="empty">Загрузка новостей…</div>';try{const d=await api('/api/news');const arr=d.news||[];const cats={politics:'Политика',elections:'Выборы',government:'Государство',documents:'Документы',events:'События',other:'Общество'};el.innerHTML=arr.length?arr.map(n=>{const importance=n.importance||'normal';const badge=importance==='urgent'?'🔴 СРОЧНО':importance==='important'?'🟠 ВАЖНО':'📰 НОВОСТИ';return '<article class="card" style="padding:0;overflow:hidden"><div style="padding:15px 16px 0"><div class="row"><span class="eyebrow">'+badge+'</span><span class="muted small">'+esc(cats[n.category]||'Общество')+'</span></div><h3 style="margin:8px 0 10px;font-size:17px">'+esc(n.title||'Новость ДКД')+'</h3></div>'+(n.media_type&&n.media_file_id?(n.media_type==='photo'?'<img data-news-media="'+Number(n.id)+'" data-media-kind="photo" alt="Фото к новости" loading="lazy" style="display:block;width:100%;max-height:360px;object-fit:cover;margin:0 0 12px">':'<video data-news-media="'+Number(n.id)+'" controls playsinline preload="metadata" style="display:block;width:100%;max-height:380px;background:#080b18;margin:0 0 12px"></video>'):'')+'<p style="white-space:pre-wrap;margin:0;padding:0 16px 12px">'+esc(n.text||'')+'</p><div class="muted small" style="padding:10px 16px;border-top:1px solid var(--line)">Пресс-центр ДКД · '+fmtDate(n.created_at||n.published_at)+'</div></article>'}).join(''):'<div class="empty">Публикаций пока нет</div>';for(const media of el.querySelectorAll('[data-news-media]')){try{const response=await fetch('/api/news/'+media.dataset.newsMedia+'/media',{headers:{'X-Telegram-Init-Data':initData}});if(!response.ok)continue;const url=URL.createObjectURL(await response.blob());if(media.tagName==='IMG')media.src=url;else{const source=document.createElement('source');source.src=url;source.type='video/mp4';media.appendChild(source);media.load()}}catch(err){console.warn('News media unavailable',err)}}}catch(e){showError(el,e)}}
 async function checkPresident(){try{const d=await api('/api/president/status');const term=d.term||{};const badge=$('presidentTermBadge');const details=$('presidentTermDetails');if(badge){badge.className='status '+(term.expired?'bad':term.managed?'good':'');badge.textContent=term.expired?'Срок истёк':term.managed?'Срок действует':(term.message||'Нет срока')}if(details){details.textContent=term.managed?'Начало: '+fmtDate(term.start_at)+' · окончание: '+fmtDate(term.end_at)+' · осталось дней: '+term.days_left:(term.message||'')}if(!d.is_president)notify(term.expired?'Срок полномочий Президента истёк':'Недостаточно прав для президентской панели','error')}catch(e){notify(e.message,'error')}finally{scrollPresident('presidentTermBadge')}}
