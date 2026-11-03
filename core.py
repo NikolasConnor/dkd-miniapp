@@ -1619,14 +1619,28 @@ def _finalize_presidential_election(actor_id: int, election: dict, counts: dict[
         and int(subjects_by_id[int(link["subject_id"])]["user_id"]) != winner_uid
     })
 
-    # Удаляем старые президентские назначения и создаём единственное актуальное.
-    # Если запрос прервётся, следующий вызов повторит операцию до записи маркера.
-    for role_id in president_role_ids:
-        execute(db().table("subject_roles").delete().eq("role_id", role_id),
-                "Не удалось завершить прежние президентские полномочия.")
-    execute(db().table("subject_roles").insert({
-        "subject_id": winner_subject_id, "role_id": int(president_role["id"])
-    }), "Не удалось назначить победителя Президентом.")
+    # Сначала гарантируем, что победитель получил президентскую роль.
+    # Только после успешной вставки снимаем полномочия с прежних руководителей:
+    # при сетевом сбое старый Президент не исчезает до назначения нового.
+    president_role_id = int(president_role["id"])
+    winner_has_role = any(
+        int(link.get("subject_id") or 0) == winner_subject_id
+        and int(link.get("role_id") or 0) == president_role_id
+        for link in old_links
+    )
+    if not winner_has_role:
+        execute(db().table("subject_roles").insert({
+            "subject_id": winner_subject_id, "role_id": president_role_id
+        }), "Не удалось назначить победителя Президентом.")
+    for link in old_links:
+        old_role_id = int(link.get("role_id") or 0)
+        old_subject_id = int(link.get("subject_id") or 0)
+        if old_subject_id != winner_subject_id or old_role_id != president_role_id:
+            execute(
+                db().table("subject_roles").delete()
+                .eq("subject_id", old_subject_id).eq("role_id", old_role_id),
+                "Не удалось завершить прежние президентские полномочия."
+            )
 
     started = utcnow()
     ends = _add_calendar_months(started, 3)
