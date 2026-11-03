@@ -1385,12 +1385,48 @@ def list_elections(user_id: int) -> dict:
         out = []
         for e in items:
             status = effective_status(e)
+            options = normalize_options(e.get("options"))
+            candidate_details: list[dict] = []
+            party_lists: list[dict] = []
+            if kind == "presidential":
+                # ФИО в бюллетене связаны с Telegram ID при создании выборов;
+                # аватар-эмодзи берём из уже существующего профиля участника.
+                raw_map = _setting_get(f"presidential_election_candidates:{int(e['id'])}")
+                try:
+                    candidate_map = json.loads(raw_map) if raw_map else {}
+                except (TypeError, json.JSONDecodeError):
+                    candidate_map = {}
+                candidate_ids = [int(value) for value in candidate_map.values()
+                                 if str(value).isdigit()]
+                candidate_subjects = select_in("subjects", "user_id,full_name,avatar_emoji", "user_id", candidate_ids)
+                subjects_by_id = {int(row["user_id"]): row for row in candidate_subjects}
+                for name in options:
+                    candidate_id = candidate_map.get(str(name).casefold())
+                    subject = subjects_by_id.get(int(candidate_id)) if str(candidate_id or "").isdigit() else {}
+                    candidate_details.append({
+                        "name": name,
+                        "full_name": (subject or {}).get("full_name") or name,
+                        "avatar_emoji": (subject or {}).get("avatar_emoji") or "👤",
+                    })
+            elif kind == "duma":
+                saved_lists = duma_party_lists(int(e["id"]))
+                party_rows = rows(db().table("parties").select("id,name,emoji,color").eq("status", "active"))
+                party_by_name = {str(p.get("name") or "").casefold(): p for p in party_rows}
+                for saved in saved_lists.values():
+                    party = party_by_name.get(str(saved.get("party_name") or "").casefold(), {})
+                    party_lists.append({
+                        "party_name": saved.get("party_name"),
+                        "party_emoji": saved.get("party_emoji") or party.get("emoji") or "🎭",
+                        "color": party.get("color") or "#7188ff",
+                        "candidates": saved.get("candidates") or [],
+                    })
             view = {
-                "id": e["id"], "kind": kind, "title": e.get("title"), "options": normalize_options(e.get("options")),
+                "id": e["id"], "kind": kind, "title": e.get("title"), "options": options,
                 "ends_at": e.get("ends_at"), "created_at": e.get("created_at"),
                 "status": status, "is_open": status == "active",
                 "has_voted": (kind, int(e["id"])) in my, "my_option": my.get((kind, int(e["id"]))),
                 "vote_counts": None, "votes_total": None,
+                "candidate_details": candidate_details, "party_lists": party_lists,
             }
             if status == "closed":
                 counts = tally(kind, e["id"])
