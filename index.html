@@ -648,7 +648,17 @@ async function loadAdminSubjects(){
 async function assignSelectedAdminRole(assigned){
  const subjectId=Number($('adminRoleSubject').value),roleId=Number($('adminRoleSelect').value);
  if(!subjectId||!roleId){notify('Выберите пользователя и роль','error');return}
- try{await api('/api/admin/subjects/'+subjectId+'/roles',{method:'PUT',body:{role_id:roleId,assigned}});notify(assigned?'Роль назначена':'Роль снята');await loadAdminSubjects()}catch(e){notify(e.message,'error')}
+ const roleName=$('adminRoleSelect').selectedOptions?.[0]?.textContent||'выбранную роль';
+ const isPresident=/президент/i.test(roleName);
+ const promptText=assigned
+   ?(isPresident?'ВНИМАНИЕ: назначить выбранного пользователя Президентом? Действующий Президент будет автоматически снят, а новому начнётся новый трёхмесячный срок. История выборов сохранится.':'Назначить выбранному пользователю роль «'+roleName+'»?')
+   :'Снять с выбранного пользователя роль «'+roleName+'»?';
+ if(!confirm(promptText))return;
+ try{
+  await api('/api/admin/subjects/'+subjectId+'/roles',{method:'PUT',body:{role_id:roleId,assigned}});
+  notify(assigned?(isPresident?'Президент назначен вручную':'Роль назначена'):'Роль снята');
+  await loadAdminSubjects();
+ }catch(e){notify(e.message||'Не удалось изменить роль','error')}
 }
 function openAdminProfile(id){$('adminProfileSubject').value=String(id);showAdminProfile();$('adminProfileDetails').scrollIntoView({behavior:'smooth',block:'start'})}
 function showAdminProfile(){
