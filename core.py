@@ -2553,25 +2553,53 @@ def _news_caption(title: str, category: str, text: str, importance: str) -> str:
 def _send_group_news(title: str, category: str, text: str, importance: str,
                      media_type: str | None = None, media_bytes: bytes | None = None,
                      media_name: str = "news-media") -> str | None:
+    """Отправляет публикацию в группу. Ошибка доставки не маскируется успешной публикацией."""
     chat_id, token = env("NEWS_GROUP_CHAT_ID"), env("BOT_TOKEN")
-    if not chat_id or not token:
-        log.info("News group delivery skipped: NEWS_GROUP_CHAT_ID/BOT_TOKEN missing")
-        return None
+    if not chat_id:
+        raise DKDError(503, "Не настроен NEWS_GROUP_CHAT_ID в Render.")
+    if not token:
+        raise DKDError(503, "Не настроен BOT_TOKEN в Render.")
     caption, keyboard = _news_caption(title, category, text, importance), _news_keyboard()
+
+    def send_checked(method: str, payload: dict) -> dict:
+        request = urllib.request.Request(
+            f"https://api.telegram.org/bot{token}/{method}",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST"
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            try:
+                detail = json.loads(exc.read().decode("utf-8")).get("description", str(exc))
+            except Exception:
+                detail = str(exc)
+            log.error("News group Telegram %s HTTP error: %s", method, detail)
+            raise DKDError(502, f"Telegram не принял новость: {detail}") from exc
+        except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
+            log.exception("News group Telegram %s request failed", method)
+            raise DKDError(502, f"Не удалось связаться с Telegram: {exc}") from exc
+        if not result.get("ok"):
+            detail = result.get("description") or "неизвестная ошибка Telegram"
+            log.error("News group Telegram %s rejected: %s", method, detail)
+            raise DKDError(502, f"Telegram отклонил публикацию: {detail}")
+        return result.get("result") or {}
+
     if media_bytes and media_type in ("photo", "video"):
         method, field = ("sendPhoto", "photo") if media_type == "photo" else ("sendVideo", "video")
         boundary = "----DKDNews" + secrets.token_hex(12)
         mime = "image/jpeg" if media_type == "photo" else "video/mp4"
         safe_name = str(media_name or "news-media").replace('"', "")[:120]
         parts = [
-            f"--{boundary}\r\nContent-Disposition: form-data; name=\\"chat_id\\"\r\n\r\n{chat_id}\r\n".encode(),
-            f"--{boundary}\r\nContent-Disposition: form-data; name=\\"caption\\"\r\n\r\n{caption[:1024]}\r\n".encode(),
+            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"chat_id\\"\\r\\n\\r\\n{chat_id}\\r\\n".encode(),
+            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"caption\\"\\r\\n\\r\\n{caption[:1024]}\\r\\n".encode(),
         ]
         if keyboard:
-            parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\\"reply_markup\\"\r\n\r\n{json.dumps(keyboard, ensure_ascii=False)}\r\n".encode())
+            parts.append(f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"reply_markup\\"\\r\\n\\r\\n{json.dumps(keyboard, ensure_ascii=False)}\\r\\n".encode())
         parts += [
-            f"--{boundary}\r\nContent-Disposition: form-data; name=\\"{field}\\"; filename=\\"{safe_name}\\"\r\nContent-Type: {mime}\r\n\r\n".encode(),
-            media_bytes, f"\r\n--{boundary}--\r\n".encode()
+            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"{field}\\"; filename=\\"{safe_name}\\"\\r\\nContent-Type: {mime}\\r\\n\\r\\n".encode(),
+            media_bytes, f"\\r\\n--{boundary}--\\r\\n".encode()
         ]
         request = urllib.request.Request(
             f"https://api.telegram.org/bot{token}/{method}", data=b"".join(parts),
@@ -2580,27 +2608,35 @@ def _send_group_news(title: str, category: str, text: str, importance: str,
         try:
             with urllib.request.urlopen(request, timeout=50) as response:
                 result = json.loads(response.read().decode("utf-8"))
-            if not result.get("ok"):
-                log.warning("News media group delivery rejected: %s", result.get("description"))
-                return None
-            sent = result.get("result") or {}
-            media = sent.get("photo") or ([sent["video"]] if sent.get("video") else [])
-            file_id = media[-1].get("file_id") if media else None
-            if len(caption) > 1024:
-                extra = {"chat_id": chat_id, "text": text[:3900] + "\n\nПресс-центр ДКД"}
-                if keyboard:
-                    extra["reply_markup"] = keyboard
-                _telegram_api("sendMessage", extra)
-            return file_id
+        except urllib.error.HTTPError as exc:
+            try:
+                detail = json.loads(exc.read().decode("utf-8")).get("description", str(exc))
+            except Exception:
+                detail = str(exc)
+            log.error("News group Telegram %s HTTP error: %s", method, detail)
+            raise DKDError(502, f"Telegram не принял новость: {detail}") from exc
         except (urllib.error.URLError, TimeoutError, ValueError, OSError) as exc:
-            log.warning("News media group delivery failed: %s", exc)
-            return None
+            log.exception("News group Telegram %s request failed", method)
+            raise DKDError(502, f"Не удалось связаться с Telegram: {exc}") from exc
+        if not result.get("ok"):
+            detail = result.get("description") or "неизвестная ошибка Telegram"
+            log.error("News group Telegram %s rejected: %s", method, detail)
+            raise DKDError(502, f"Telegram отклонил публикацию: {detail}")
+        sent = result.get("result") or {}
+        media = sent.get("photo") or ([sent["video"]] if sent.get("video") else [])
+        file_id = media[-1].get("file_id") if media else None
+        if len(caption) > 1024:
+            extra = {"chat_id": chat_id, "text": text[:3900] + "\\n\\nПресс-центр ДКД"}
+            if keyboard:
+                extra["reply_markup"] = keyboard
+            send_checked("sendMessage", extra)
+        return file_id
+
     payload = {"chat_id": chat_id, "text": caption[:4096]}
     if keyboard:
         payload["reply_markup"] = keyboard
-    _telegram_api("sendMessage", payload)
+    send_checked("sendMessage", payload)
     return None
-
 
 def _notify_news_subscribers(title: str, category: str, text: str, importance: str) -> None:
     if importance not in ("urgent", "important"):
