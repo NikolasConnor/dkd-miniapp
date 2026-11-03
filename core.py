@@ -1131,6 +1131,135 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         term_end = str(saved_results["parliament_term_end"])
         end_dt = parse_dt(term_end)
         deputy_role = _deputy_role_row()
+        if end_dt and utcnow() >= end_dt:
+            execute(db().table("subject_roles").delete().eq("role_id", int(deputy_role["id"])),
+                    "Не удалось синхронизировать завершившийся созыв.")
+            _setting_put(DUMA_TERM_START_KEY, term_start)
+            _setting_put(DUMA_TERM_END_KEY, term_end)
+            _setting_put(DUMA_TERM_ELECTION_KEY, str(int(election_id)))
+            _setting_put(DUMA_TERM_STATUS_KEY, "expired")
+            return {"ok": True, "results": saved_results, "already_finalized": True,
+                    "term_expired": True, "mandates_issued": 0}
+        mandate_roster = saved_results.get("elected_deputies") or []
+        if not mandate_roster:
+            mandate_roster = public_duma_roster().get("members") or []
+        subjects = rows(db().table("subjects").select("id,user_id"))
+        subject_by_user = {int(x["user_id"]): int(x["id"]) for x in subjects if x.get("user_id") is not None}
+        expected_subject_ids = set()
+        expected_user_ids = set()
+        for deputy in mandate_roster:
+            try:
+                uid = int(deputy.get("telegram_user_id") or 0)
+            except (TypeError, ValueError):
+                continue
+            if uid > 0:
+                expected_user_ids.add(uid)
+        for uid in expected_user_ids:
+            if uid in subject_by_user:
+                expected_subject_ids.add(subject_by_user[uid])
+        # Старые вручную внесённые списки или удалённые профили могут оставить
+        # неполные ID. Не удаляем роли, если не удалось сопоставить весь состав.
+        if expected_subject_ids and len(expected_subject_ids) == len(expected_user_ids):
+            execute(db().table("subject_roles").delete().eq("role_id", int(deputy_role["id"])),
+                    "Не удалось синхронизировать состав депутатов.")
+            for subject_id in sorted(expected_subject_ids):
+                execute(db().table("subject_roles").insert({"subject_id": subject_id, "role_id": int(deputy_role["id"])}),
+                        "Не удалось восстановить полномочия депутата.")
+        _setting_put(DUMA_TERM_START_KEY, term_start)
+        _setting_put(DUMA_TERM_END_KEY, term_end)
+        _setting_put(DUMA_TERM_ELECTION_KEY, str(int(election_id)))
+        _setting_put(DUMA_TERM_STATUS_KEY, "active")
+        metadata_keys = {"parliament_seats", "parliament_term_start", "parliament_term_end",
+                         "elected_deputies", "parliament_term_status"}
+        vote_counts = {str(k): int(v) for k, v in saved_results.items()
+                       if str(k) not in metadata_keys and isinstance(v, (int, float)) and not isinstance(v, bool)}
+        mandate_count = _issue_duma_mandates(int(election_id), mandate_roster, term_start, term_end)
+        _publish_election_results_news_once(
+            actor_id, "duma", election, vote_counts,
+            "Парламент сформирован на срок до " + term_end + "."
+        )
+        return {"ok": True, "results": saved_results, "already_finalized": True,
+                "mandates_issued": mandate_count}
+
+    lists = duma_party_lists(election_id)
+    if not lists:
+        raise DKDError(409, "Нельзя сформировать парламент: партии ещё не подали списки кандидатов.")
+    counts = tally("duma", election_id)
+    party_by_name = {str(item.get("party_name", "")).casefold(): item for item in lists.values()}
+    # Все учтённые голоса определяют размер парламента, даже если у партии
+    # отсутствует корректный список: её места останутся вакантными, а голоса
+    # не исчезнут из общего числа мест.
+    valid = [(name, max(0, int(counts.get(name, 0))), party_by_name.get(str(name).casefold()))
+             for name in normalize_options(election.get("options"))]
+    total_votes = sum(votes for _, votes, _ in valid)
+    if total_votes <= 0:
+        raise DKDError(409, "Нельзя сформировать парламент без поданных голосов.")
+
+    # Один голос за партию даёт одно место. Недостающие кандидаты не заменяются
+    # повторными мандатами: места остаются вакантными.
+    parliament_seats = total_votes
+    seats_by_party = {name: votes for name, votes, _ in valid}
+    raw = [(name, votes, item, float(votes)) for name, votes, item in valid]
+
+    subjects = rows(db().table("subjects").select("id,user_id,full_name"))
+    subject_by_user = {
+        int(subject["user_id"]): subject
+        for subject in subjects if subject.get("user_id") is not None
+    }
+    subjects_by_name: dict[str, list[dict]] = {}
+    for subject in subjects:
+        key = clean_name(subject.get("full_name", "")).casefold()
+        if key:
+            subjects_by_name.setdefault(key, []).append(subject)
+
+    winners: dict[int, dict] = {}
+    roster = []
+    elected_user_ids: set[int] = set()
+    for party_name, votes, party_data, quota in raw:
+        party_seats = seats_by_party[party_name]
+        if not party_data:
+            continue  # Голоса учтены в размере парламента; места партии останутся вакантными.
+        candidates = party_data.get("candidates") or []
+        candidate_user_ids = party_data.get("candidate_user_ids") or []
+        if not candidates:
+            continue
+        # Размер парламента равен голосам; один кандидат занимает ровно одно место.
+        # Если список короче числа мест партии, разница остаётся вакантной.
+        elected_count = min(len(candidates), party_seats)
+        for idx, full_name in enumerate(candidates[:elected_count]):
+            subject = None
+            if idx < len(candidate_user_ids):
+                try:
+                    candidate_uid = int(candidate_user_ids[idx])
+                except (TypeError, ValueError):
+                    candidate_uid = 0
+                if candidate_uid:
+                    subject = subject_by_user.get(candidate_uid)
+                    if not subject:
+                        raise DKDError(409, f"Для кандидата «{full_name}» не найден профиль Telegram. Проверьте партийный список.")
+            if subject is None:
+                matches = subjects_by_name.get(clean_name(full_name).casefold(), [])
+                if len(matches) > 1:
+                    raise DKDError(409, f"ФИО «{full_name}» не уникально. Обновите список кандидатов, чтобы связать его с Telegram-пользователем.")
+                subject = matches[0] if matches else None
+            if not subject:
+                raise DKDError(409, f"Кандидат «{full_name}» должен сначала открыть Mini App, чтобы система связала его ФИО с Telegram-профилем.")
+            subject_id = int(subject["id"])
+            user_id = int(subject["user_id"])
+            if user_id in elected_user_ids:
+                raise DKDError(409, f"Участник «{full_name}» указан более чем в одном партийном списке. Исправьте списки перед формированием парламента.")
+            elected_user_ids.add(user_id)
+            winners[subject_id] = {"subject": subject, "full_name": full_name, "party_name": party_name, "seats": 1}
+            roster.append({"full_name": clean_name(subject.get("full_name") or full_name),
+                           "party_id": party_data.get("party_id"),
+                           "party_name": party_name, "party_emoji": party_data.get("party_emoji") or "🎭",
+                           "votes": votes, "party_seats": party_seats, "seats": 1,
+                           "is_party_leader": user_id == int(party_data.get("leader_user_id") or 0),
+                           "telegram_user_id": user_id})
+    if not winners:
+        raise DKDError(409, "Не удалось определить участников нового созыва.")
+
+    deputy_role = _deputy_role_row()
     deputy_role_id = int(deputy_role["id"])
     started = utcnow()
     ends = _add_months(started, 3)
