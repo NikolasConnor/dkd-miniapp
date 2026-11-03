@@ -2547,13 +2547,23 @@ def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bo
             and subjects_by_id[int(item["subject_id"])].get("user_id") is not None
             and int(subjects_by_id[int(item["subject_id"])]["user_id"]) != int(subject["user_id"])
         })
-        # Снимаем все варианты системной роли Президента, включая старые дубликаты.
+        # Сначала назначаем нового Президента (если связь ещё отсутствует).
+        # Только после успешной записи снимаем прежние президентские роли:
+        # сетевой сбой не должен оставлять страну без Президента.
+        if not link:
+            execute(db().table("subject_roles").insert({
+                "subject_id": int(subject["id"]), "role_id": int(role_id)
+            }), "Не удалось назначить Президента.")
         for president_role_id in president_role_ids:
-            execute(db().table("subject_roles").delete().eq("role_id", president_role_id),
-                    "Не удалось снять прежние президентские полномочия.")
-        execute(db().table("subject_roles").insert({
-            "subject_id": int(subject["id"]), "role_id": int(role_id)
-        }), "Не удалось назначить Президента.")
+            if president_role_id == int(role_id):
+                # Не удаляем только что подтверждённую связь нового Президента.
+                execute(db().table("subject_roles").delete()
+                        .eq("role_id", president_role_id)
+                        .neq("subject_id", int(subject["id"])),
+                        "Не удалось завершить прежние президентские полномочия.")
+            else:
+                execute(db().table("subject_roles").delete().eq("role_id", president_role_id),
+                        "Не удалось завершить прежние президентские полномочия.")
         started = utcnow()
         ends = _add_calendar_months(started, 3)
         _save_setting(PRESIDENT_TERM_USER_KEY, str(int(subject["user_id"])))
@@ -3175,7 +3185,7 @@ def public_duma_roster() -> dict:
                         # Каждый голос — место. Если список короче числа голосов,
                         # недостающие места остаются вакантными.
                         seat_map = {name: votes for name, votes, _, _ in valid}
-                        for name, votes, party, candidates, _ in raw:
+                        for name, votes, party, candidates in valid:
                             party_seats = seat_map[name]
                             count = min(len(candidates), party_seats)
                             if count <= 0:
@@ -3290,6 +3300,8 @@ REQUIRED_SCHEMA = {
     "news": "id,text,created_at",
     "audit_log": "id,actor_user_id,action,target_user_id,details",
     "app_settings": "key,value",
+    "notifications": "id,user_id,title,message,is_read,created_at,read_at",
+    "duma_initial_roster": "id,full_name,party_name,party_emoji,party_votes,party_vote_percent,elected_to_duma,seats,is_party_leader,election_completed_at,parliament_term_start,parliament_term_end,telegram_user_id,linked,created_at",
 }
 
 
