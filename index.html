@@ -243,6 +243,15 @@
           <button class="btn primary">Добавить / перевести</button>
         </form>
         <div id="adminPartyList" class="list"></div>
+        <div class="section-head"><h3>Формирование партийных списков за председателей</h3></div>
+        <div class="card form">
+          <p class="muted small">Администратор может составить или изменить список кандидатов от имени председателя. Выбирать можно только действующих членов выбранной партии. Сохранённый список применяется к будущим выборам и обновляет все незавершённые кампании.</p>
+          <div class="field"><label>Партия</label><select id="adminDumaPartySelect" required onchange="loadAdminDumaPartyMembers()"><option value="">Выберите партию</option></select></div>
+          <div class="field"><label>Кандидаты по порядку (можно выбрать несколько)</label><select id="adminDumaCandidates" multiple size="8" style="min-height:190px"></select></div>
+          <p class="muted small">Порядок выбранных кандидатов задаётся порядком их выбора в списке. Список должен содержать от 1 до 50 человек.</p>
+          <button class="btn primary" type="button" onclick="adminSaveDumaPartyTemplate()">Сохранить партийный список</button>
+          <div id="adminDumaPartyStatus" class="muted small"></div>
+        </div>
         <div class="section-head"><h3>Администрирование голосования</h3></div>
         <div class="card form">
           <p class="muted small">Голос от имени выбранного гражданина учитывается в открытой кампании. Если гражданин уже голосовал, его выбор будет заменён.</p>
@@ -668,8 +677,11 @@ async function loadAdminPartiesAndHistory(){
   try{
     const d=await api('/api/parties');
     const parties=d.parties||[];
+    const partyOptions='<option value="">Выберите партию</option>'+parties.map(p=>'<option value="'+Number(p.id)+'">'+esc((p.emoji||'🏛️')+' '+p.name)+'</option>').join('');
     const select=$('adminPartySelect');
-    if(select) select.innerHTML='<option value="">Выберите партию</option>'+parties.map(p=>'<option value="'+Number(p.id)+'">'+esc((p.emoji||'🏛️')+' '+p.name)+'</option>').join('');
+    if(select) select.innerHTML=partyOptions;
+    const dumaSelect=$('adminDumaPartySelect');
+    if(dumaSelect){const previous=dumaSelect.value;dumaSelect.innerHTML=partyOptions;if(previous&&parties.some(p=>String(p.id)===previous))dumaSelect.value=previous;else if(parties.length)dumaSelect.value=String(parties[0].id);if(dumaSelect.value)await loadAdminDumaPartyMembers()}
     const list=$('adminPartyList');
     if(list) list.innerHTML=parties.length?parties.map(p=>'<div class="card"><div class="row"><strong>'+esc((p.emoji||'🏛️')+' '+p.name)+'</strong><span class="status">'+Number(p.members_count||0)+' участн.</span></div><p class="muted small">Цвет: '+esc(p.color||'#4169e1')+' · Председатель: '+esc(p.leader_username||'не указан')+'</p><div class="row"><input id="leaderId'+Number(p.id)+'" type="number" min="1" placeholder="Telegram ID нового председателя" style="min-width:0;flex:1"><input id="leaderName'+Number(p.id)+'" placeholder="Полное ФИО" style="min-width:0;flex:1"><button class="btn secondary" onclick="adminChangePartyLeader('+Number(p.id)+')">Назначить председателя</button></div></div>').join(''):'<div class="empty">Активных партий пока нет.</div>';
   }catch(e){
@@ -689,6 +701,35 @@ async function loadAdminPartiesAndHistory(){
     }).join(''):'<div class="empty">История выборов пока пуста.</div>';
   }catch(e){showError($('adminElectionHistory'),e)}
 }
+async function loadAdminDumaPartyMembers(){
+ const partyId=Number($('adminDumaPartySelect')?.value),select=$('adminDumaCandidates'),status=$('adminDumaPartyStatus');
+ if(!select)return;
+ if(!partyId){select.innerHTML='';if(status)status.textContent='';return}
+ select.innerHTML='<option>Загрузка состава партии…</option>';
+ try{
+  const data=await api('/api/admin/duma/parties/'+partyId+'/template');
+  const members=data.members||[],selected=new Set((data.selected_user_ids||[]).map(Number));
+  select.innerHTML=members.map(m=>'<option value="'+Number(m.user_id)+'" '+(selected.has(Number(m.user_id))?'selected':'')+'>'+esc(m.full_name)+' · ID '+Number(m.user_id)+'</option>').join('');
+  if(status)status.textContent='Партия: '+(data.party?.name||'')+' · членов: '+members.length+' · в сохранённом списке: '+selected.size;
+  if(!members.length)select.innerHTML='<option disabled>В партии пока нет участников</option>';
+ }catch(err){select.innerHTML='';if(status)status.textContent=err.message||'Не удалось загрузить состав партии'}
+}
+async function adminSaveDumaPartyTemplate(){
+ const partyId=Number($('adminDumaPartySelect')?.value),select=$('adminDumaCandidates');
+ const ids=select?[...select.selectedOptions].map(o=>Number(o.value)).filter(Boolean):[];
+ if(!partyId||!ids.length){notify('Выберите партию и хотя бы одного кандидата','error');return}
+ if(ids.length>50){notify('В партийном списке может быть не более 50 кандидатов','error');return}
+ if(!confirm('Сохранить список из '+ids.length+' кандидатов от имени председателя выбранной партии? Он будет применён к незавершённым выборам.'))return;
+ const button=event?.currentTarget;
+ if(button){button.disabled=true;button.dataset.oldText=button.textContent;button.textContent='Сохранение…'}
+ try{
+  const result=await api('/api/admin/duma/party-template',{method:'PUT',body:{party_id:partyId,candidate_user_ids:ids}});
+  notify('Партийный список сохранён. Обновлено кампаний: '+Number(result.synced_elections||0));
+  await loadAdminDumaPartyMembers();await loadElections();
+ }catch(err){notify(err.message||'Не удалось сохранить партийный список','error')}
+ finally{if(button){button.disabled=false;button.textContent=button.dataset.oldText||'Сохранить партийный список'}}
+}
+
 async function adminCreateParty(e){
   e.preventDefault();const f=e.currentTarget;
   const payload={name:f.elements.name.value.trim(),emoji:f.elements.emoji.value.trim()||'🏛️',description:f.elements.description.value.trim(),color:f.elements.color.value,leader_telegram_id:Number(f.elements.leader_telegram_id.value),leader_full_name:f.elements.leader_full_name.value.trim()};
