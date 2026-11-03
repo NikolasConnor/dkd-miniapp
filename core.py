@@ -832,6 +832,13 @@ def president_schedule_duma_election(actor_id: int, title: str, starts_at: str, 
     title = clean_name(title) or "Выборы в Государственную думу"
     if len(title) > 200:
         raise DKDError(422, "Название выборов не должно превышать 200 символов.")
+    # Не допускаем параллельные кампании в Госдуму: иначе гражданин сможет
+    # проголосовать по одному разу в каждом дублирующемся бюллетене.
+    existing_campaigns = rows(db().table("duma_elections").select(ELECTION_COLS).order("id", desc=True).limit(50))
+    open_campaigns = [item for item in existing_campaigns
+                      if effective_status(item) in {"scheduled", "active"}]
+    if open_campaigns:
+        raise DKDError(409, "Уже существуют назначенные или действующие выборы в Госдуму. Сначала завершите или отмените их.")
     election = execute(db().table("duma_elections").insert({
         "title": title, "options": [], "ends_at": end.isoformat(), "status": "scheduled", "results": {},
     }), "Не удалось назначить выборы.")[0]
@@ -1479,6 +1486,15 @@ def list_elections(user_id: int) -> dict:
     result: dict[str, list] = {}
     for kind, table in ELECTION_TABLES.items():
         items = rows(db().table(table).select(ELECTION_COLS).order("id", desc=True).limit(10))
+        if kind == "duma":
+            # В бюллетенях показываем только одну актуальную открытую кампанию.
+            # Дублирующиеся старые записи не должны давать второй голос.
+            open_items = [item for item in items if effective_status(item) in {"scheduled", "active"}]
+            if len(open_items) > 1:
+                canonical_id = int(open_items[0]["id"])
+                items = [item for item in items
+                         if effective_status(item) not in {"scheduled", "active"}
+                         or int(item["id"]) == canonical_id]
         out = []
         for e in items:
             status = effective_status(e)
