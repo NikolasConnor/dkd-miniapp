@@ -291,6 +291,22 @@ def admin_set_party_leader(party_id: int, payload: AdminPartyMember, user: dict 
     return core.admin_set_party_leader(user["id"], party_id, payload.telegram_id, payload.full_name)
 
 
+class AdminDumaPartyTemplateSubmit(BaseModel):
+    party_id: int = Field(gt=0)
+    candidate_user_ids: list[int] = Field(min_length=1, max_length=50)
+
+
+@app.get("/api/admin/duma/parties/{party_id}/template")
+def admin_get_duma_party_template(party_id: int, user: dict = Depends(admin_user)):
+    return core.admin_get_duma_party_template(party_id)
+
+
+@app.put("/api/admin/duma/party-template")
+def admin_save_duma_party_template(payload: AdminDumaPartyTemplateSubmit,
+                                   user: dict = Depends(admin_user)):
+    return core.admin_save_duma_party_template(user["id"], payload.party_id, payload.candidate_user_ids)
+
+
 class PastElectionResult(BaseModel):
     option: str = Field(min_length=1, max_length=200)
     votes: int = Field(ge=0)
