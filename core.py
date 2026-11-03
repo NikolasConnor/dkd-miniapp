@@ -644,8 +644,16 @@ def build_profile(user: dict) -> dict:
     except DKDError:
         pass
     labels = [f'{r.get("emoji") or ""} {r.get("name") or ""}'.strip() for r in roles]
+    news_notifications_enabled = True
+    try:
+        preference = one(db().table("news_preferences").select("enabled").eq("user_id", uid).limit(1))
+        if preference is not None:
+            news_notifications_enabled = bool(preference.get("enabled", True))
+    except Exception as exc:
+        log.warning("News preferences unavailable for %s: %s", uid, exc)
     return {
         **subject,
+        "news_notifications_enabled": news_notifications_enabled,
         "role": ", ".join(labels) if labels else ("Гражданин" if subject.get("is_citizen") else "Участник ДКДУ"),
         "roles": [{"id": r["id"], "name": r.get("name"), "emoji": r.get("emoji")} for r in roles],
         "party_name": party_name,
@@ -2509,7 +2517,7 @@ def _news_caption(title: str, category: str, text: str, importance: str) -> str:
     badges = {"urgent": "🔴 СРОЧНО", "important": "🟠 ВАЖНО", "normal": "📰 НОВОСТИ"}
     categories = {"politics": "Политика", "elections": "Выборы", "government": "Государство",
                   "documents": "Документы", "events": "События", "other": "Общество"}
-    return f"{badges.get(importance, '📰 НОВОСТИ')} · {categories.get(category, 'Общество')}\\n\\n{title}\\n\\n{text}\\n\\nПресс-центр ДКД"
+    return f"{badges.get(importance, '📰 НОВОСТИ')} · {categories.get(category, 'Общество')}\n\n{title}\n\n{text}\n\nПресс-центр ДКД"
 
 
 def _send_group_news(title: str, category: str, text: str, importance: str,
@@ -2526,14 +2534,14 @@ def _send_group_news(title: str, category: str, text: str, importance: str,
         mime = "image/jpeg" if media_type == "photo" else "video/mp4"
         safe_name = str(media_name or "news-media").replace('"', "")[:120]
         parts = [
-            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"chat_id\\"\\r\\n\\r\\n{chat_id}\\r\\n".encode(),
-            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"caption\\"\\r\\n\\r\\n{caption[:1024]}\\r\\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\\"chat_id\\"\r\n\r\n{chat_id}\r\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\\"caption\\"\r\n\r\n{caption[:1024]}\r\n".encode(),
         ]
         if keyboard:
-            parts.append(f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"reply_markup\\"\\r\\n\\r\\n{json.dumps(keyboard, ensure_ascii=False)}\\r\\n".encode())
+            parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\\"reply_markup\\"\r\n\r\n{json.dumps(keyboard, ensure_ascii=False)}\r\n".encode())
         parts += [
-            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"{field}\\"; filename=\\"{safe_name}\\"\\r\\nContent-Type: {mime}\\r\\n\\r\\n".encode(),
-            media_bytes, f"\\r\\n--{boundary}--\\r\\n".encode()
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\\"{field}\\"; filename=\\"{safe_name}\\"\r\nContent-Type: {mime}\r\n\r\n".encode(),
+            media_bytes, f"\r\n--{boundary}--\r\n".encode()
         ]
         request = urllib.request.Request(
             f"https://api.telegram.org/bot{token}/{method}", data=b"".join(parts),
@@ -2549,7 +2557,7 @@ def _send_group_news(title: str, category: str, text: str, importance: str,
             media = sent.get("photo") or ([sent["video"]] if sent.get("video") else [])
             file_id = media[-1].get("file_id") if media else None
             if len(caption) > 1024:
-                extra = {"chat_id": chat_id, "text": text[:3900] + "\\n\\nПресс-центр ДКД"}
+                extra = {"chat_id": chat_id, "text": text[:3900] + "\n\nПресс-центр ДКД"}
                 if keyboard:
                     extra["reply_markup"] = keyboard
                 _telegram_api("sendMessage", extra)
@@ -2601,7 +2609,7 @@ def publish_news(actor_id: int, text: str, title: str = "", category: str = "oth
     meta = {"title": title, "category": category, "importance": importance,
             "media_type": media_type, "media_file_id": media_file_id}
     encoded = __import__("base64").b64encode(json.dumps(meta, ensure_ascii=False).encode("utf-8")).decode("ascii")
-    stored_text = f"[[DKD_NEWS_META:{encoded}]]\\n{text}"
+    stored_text = f"[[DKD_NEWS_META:{encoded}]]\n{text}"
     row = execute(db().table("news").insert({"text": stored_text}), "Не удалось сохранить новость.")[0]
     audit(actor_id, "news_created", None, f"news:{row['id']}")
     _notify_news_subscribers(title, category, text, importance)
