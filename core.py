@@ -1566,15 +1566,27 @@ def create_election(actor_id: int, kind: str, title: str, options: list[str], en
     if kind == "presidential":
         # Привязываем варианты бюллетеня к Telegram ID, чтобы одинаковые ФИО
         # никогда не приводили к назначению не того человека после подсчёта.
+        candidate_map_key = f"presidential_election_candidates:{int(created[0]['id'])}"
         try:
             _setting_put(
-                f"presidential_election_candidates:{int(created[0]['id'])}",
+                candidate_map_key,
                 json.dumps(presidential_candidate_ids, ensure_ascii=False),
             )
         except Exception as exc:
-            # Совместимость: финализатор проверит уникальность одобренной заявки
-            # по ФИО, если запись карты кандидатов временно не удалась.
-            log.error("Could not persist candidate identity map for election %s: %s", created[0]["id"], exc)
+            # Не оставляем активные выборы без надёжной привязки кандидатов:
+            # иначе одинаковые ФИО могут привести к назначению не того человека.
+            log.exception("Could not persist candidate identity map for election %s", created[0]["id"])
+            try:
+                execute(
+                    db().table(ELECTION_TABLES[kind]).delete().eq("id", int(created[0]["id"])),
+                    "Не удалось отменить выборы с неполной привязкой кандидатов.",
+                )
+            except Exception:
+                log.exception("Could not roll back election %s after identity-map failure", created[0]["id"])
+            raise DKDError(
+                502,
+                "Не удалось надёжно сохранить список кандидатов. Создание выборов отменено; попробуйте ещё раз.",
+            ) from exc
     audit(actor_id, "election_created", None, f"{kind}:{created[0]['id']}")
     try:
         citizens = rows(db().table("subjects").select("user_id").eq("is_citizen", True))
