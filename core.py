@@ -2471,7 +2471,13 @@ def _ensure_canonical_role_rows() -> list[dict]:
 
 
 def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bool) -> dict:
-    subject = one(db().table("subjects").select("id,user_id").eq("id", int(subject_id)).limit(1))
+    """Ручное резервное управление системными ролями администратором.
+
+    Назначение Президента администратором является явным override: прежняя
+    президентская роль снимается, срок нового Президента начинается сразу.
+    Исторические результаты выборов не изменяются.
+    """
+    subject = one(db().table("subjects").select("id,user_id,full_name").eq("id", int(subject_id)).limit(1))
     if not subject:
         raise DKDError(404, "Пользователь не найден.")
     role = one(db().table("roles").select("id,name").eq("id", int(role_id)).limit(1))
@@ -2481,21 +2487,76 @@ def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bo
     if key not in ROLE_CANONICAL:
         raise DKDError(403, "Можно назначать только пять системных ролей.")
     link = one(db().table("subject_roles").select("subject_id").eq("subject_id", subject["id"]).eq("role_id", int(role_id)).limit(1))
-    if assigned and key in ROLE_LIMITED_SINGLE:
+    president_key = _role_key(president_role_name())
+
+    if assigned and key == president_key:
+        if subject.get("user_id") is None:
+            raise DKDError(409, "Нельзя назначить Президентом профиль без Telegram ID.")
+        all_roles = rows(db().table("roles").select("id,name"))
+        president_role_ids = [
+            int(item["id"]) for item in all_roles
+            if _role_key(item.get("name", "")) == president_key
+        ]
+        previous_links = fetch_all(
+            lambda: db().table("subject_roles").select("subject_id,role_id")
+            .in_("role_id", president_role_ids)
+        ) if president_role_ids else []
+        subjects_by_id = {
+            int(item["id"]): item for item in
+            rows(db().table("subjects").select("id,user_id"))
+        }
+        previous_users = sorted({
+            int(subjects_by_id[int(item["subject_id"])]["user_id"])
+            for item in previous_links
+            if int(item.get("subject_id") or 0) in subjects_by_id
+            and subjects_by_id[int(item["subject_id"])].get("user_id") is not None
+            and int(subjects_by_id[int(item["subject_id"])]["user_id"]) != int(subject["user_id"])
+        })
+        # Снимаем все варианты системной роли Президента, включая старые дубликаты.
+        for president_role_id in president_role_ids:
+            execute(db().table("subject_roles").delete().eq("role_id", president_role_id),
+                    "Не удалось снять прежние президентские полномочия.")
+        execute(db().table("subject_roles").insert({
+            "subject_id": int(subject["id"]), "role_id": int(role_id)
+        }), "Не удалось назначить Президента.")
+        started = utcnow()
+        ends = _add_calendar_months(started, 3)
+        _save_setting(PRESIDENT_TERM_USER_KEY, str(int(subject["user_id"])))
+        _save_setting(PRESIDENT_TERM_START_KEY, started.isoformat())
+        _save_setting(PRESIDENT_TERM_END_KEY, ends.isoformat())
+        for previous_uid in previous_users:
+            try:
+                create_notification(previous_uid, "Президентские полномочия завершены",
+                                    "Администратор изменил назначение Президента. Ваши полномочия прекращены.")
+            except Exception as exc:
+                log.warning("Could not notify former president %s: %s", previous_uid, exc)
+    elif assigned and key in ROLE_LIMITED_SINGLE:
         links = fetch_all(lambda: db().table("subject_roles").select("subject_id").eq("role_id", int(role_id)))
         if any(int(item["subject_id"]) != int(subject["id"]) for item in links):
             raise DKDError(409, f"Роль «{role['name']}» уже назначена другому человеку.")
-    if assigned and not link:
-        execute(db().table("subject_roles").insert({"subject_id": subject["id"], "role_id": int(role_id)}), "Не удалось назначить роль.")
-        # Срок Президента начинается в момент назначения, а не при первом открытии раздела.
-        if key == _role_key(president_role_name()) and subject.get("user_id") is not None:
-            _ensure_president_term(int(subject["user_id"]))
+        if not link:
+            execute(db().table("subject_roles").insert({"subject_id": subject["id"], "role_id": int(role_id)}),
+                    "Не удалось назначить роль.")
+    elif assigned and not link:
+        execute(db().table("subject_roles").insert({"subject_id": subject["id"], "role_id": int(role_id)}),
+                "Не удалось назначить роль.")
     elif not assigned and link:
-        execute(db().table("subject_roles").delete().eq("subject_id", subject["id"]).eq("role_id", int(role_id)), "Не удалось снять роль.")
+        execute(db().table("subject_roles").delete().eq("subject_id", subject["id"]).eq("role_id", int(role_id)),
+                "Не удалось снять роль.")
+        if key == president_key and str(_setting_value(PRESIDENT_TERM_USER_KEY) or "") == str(subject.get("user_id")):
+            _save_setting(PRESIDENT_TERM_USER_KEY, "")
+            _save_setting(PRESIDENT_TERM_START_KEY, "")
+            _save_setting(PRESIDENT_TERM_END_KEY, "")
+
     audit(actor_id, "role_assigned" if assigned else "role_removed", subject["user_id"], f"role:{role_id}")
     action = "назначена" if assigned else "снята"
-    create_notification(int(subject["user_id"]), "Изменение вашей должности", f"Вам {action} роль «{role['name']}».")
-    return {"ok": True}
+    try:
+        create_notification(int(subject["user_id"]), "Изменение вашей должности",
+                            f"Вам {action} роль «{role['name']}».")
+    except Exception as exc:
+        log.warning("Could not notify user %s about role change: %s", subject.get("user_id"), exc)
+    return {"ok": True, "assigned": bool(assigned), "role": role["name"],
+            "subject_id": int(subject["id"]), "telegram_user_id": int(subject["user_id"])}
 
 
 def president_list_subjects() -> dict:
