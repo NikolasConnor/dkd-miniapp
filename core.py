@@ -1249,12 +1249,33 @@ def _finalize_duma_election(actor_id: int, election_id: int) -> dict:
         raise DKDError(409, "Не удалось определить участников нового созыва.")
 
     deputy_role = _deputy_role_row()
-    # Снимаем только роль депутата, не затрагивая партийные и иные должности.
-    execute(db().table("subject_roles").delete().eq("role_id", int(deputy_role["id"])),
-            "Не удалось завершить предыдущий созыв.")
-    for subject_id in winners:
-        execute(db().table("subject_roles").insert({"subject_id": subject_id, "role_id": int(deputy_role["id"])}),
-                "Не удалось назначить роль депутата избранному кандидату.")
+    # Сначала выдаём полномочия всем победителям, проверяя существующие связи.
+    # Только после успешной выдачи полного нового состава снимаем роль с прежних депутатов.
+    deputy_role_id = int(deputy_role["id"])
+    existing_links = fetch_all(
+        lambda: db().table("subject_roles").select("subject_id")
+        .eq("role_id", deputy_role_id)
+    )
+    existing_subject_ids = {int(item["subject_id"]) for item in existing_links}
+    for subject_id in sorted(winners):
+        if subject_id not in existing_subject_ids:
+            execute(
+                db().table("subject_roles").insert({
+                    "subject_id": subject_id, "role_id": deputy_role_id
+                }),
+                "Не удалось назначить роль депутата избранному кандидату."
+            )
+
+    # Новый состав уже назначен. Теперь снимаем депутатские роли только с тех,
+    # кто не входит в подтверждённый список победителей.
+    for old_link in existing_links:
+        old_subject_id = int(old_link["subject_id"])
+        if old_subject_id not in winners:
+            execute(
+                db().table("subject_roles").delete()
+                .eq("subject_id", old_subject_id).eq("role_id", deputy_role_id),
+                "Не удалось завершить полномочия предыдущего созыва."
+            )
 
     started = utcnow()
     ends = _add_months(started, 3)
