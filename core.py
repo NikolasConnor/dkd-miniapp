@@ -808,8 +808,23 @@ def duma_party_lists(election_id: int) -> dict:
         return {}
 
 
+def _parse_moscow_schedule_dt(value: Any) -> datetime | None:
+    """Разбирает дату из datetime-local: значения без часового пояса считаются московским временем."""
+    if not value:
+        return None
+    text = str(value).strip().replace("Z", "+00:00").replace(" ", "T", 1)
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        from zoneinfo import ZoneInfo
+        dt = dt.replace(tzinfo=ZoneInfo("Europe/Moscow"))
+    return dt.astimezone(timezone.utc)
+
+
 def president_schedule_duma_election(actor_id: int, title: str, starts_at: str, ends_at: str) -> dict:
-    start, end = parse_dt(starts_at), parse_dt(ends_at)
+    start, end = _parse_moscow_schedule_dt(starts_at), _parse_moscow_schedule_dt(ends_at)
     if not start or not end:
         raise DKDError(400, "Укажите корректные дату и время начала и окончания выборов.")
     if start <= utcnow() or end <= start:
