@@ -1521,11 +1521,22 @@ def create_election(actor_id: int, kind: str, title: str, options: list[str], en
     if not 3 <= len(title) <= 160:
         raise DKDError(422, "Название выборов: от 3 до 160 символов.")
     cleaned = [clean_name(x) for x in options if clean_name(x)]
+    presidential_candidate_ids: dict[str, int] = {}
     if kind == "presidential":
-        approved = {clean_name(x.get("full_name")).casefold() for x in _presidential_candidate_applications()
-                    if x.get("status") == "approved" and clean_name(x.get("full_name"))}
-        if len(cleaned) < 2 or any(name.casefold() not in approved for name in cleaned):
+        approved_rows = [
+            item for item in _presidential_candidate_applications()
+            if item.get("status") == "approved" and clean_name(item.get("full_name"))
+        ]
+        approved_by_name: dict[str, list[dict]] = {}
+        for item in approved_rows:
+            approved_by_name.setdefault(clean_name(item.get("full_name")).casefold(), []).append(item)
+        if len(cleaned) < 2 or any(name.casefold() not in approved_by_name for name in cleaned):
             raise DKDError(409, "В президентский бюллетень можно включать только кандидатуры, утверждённые администратором.")
+        for name in cleaned:
+            matches = approved_by_name.get(name.casefold(), [])
+            if len(matches) != 1 or not matches[0].get("user_id"):
+                raise DKDError(409, f"Кандидатура «{name}» неоднозначна. Администратор должен оставить одну утверждённую заявку на это ФИО.")
+            presidential_candidate_ids[name.casefold()] = int(matches[0]["user_id"])
     if len(cleaned) < 2 or len({x.casefold() for x in cleaned}) != len(cleaned):
         raise DKDError(400, "Нужно минимум два разных варианта.")
     if len(cleaned) > 50 or any(len(x) > 200 for x in cleaned):
@@ -1541,6 +1552,18 @@ def create_election(actor_id: int, kind: str, title: str, options: list[str], en
     created = execute(db().table(ELECTION_TABLES[kind]).insert({
         "title": title, "options": cleaned, "ends_at": end_iso, "status": "active", "results": {},
     }), "Не удалось создать выборы.")
+    if kind == "presidential":
+        # Привязываем варианты бюллетеня к Telegram ID, чтобы одинаковые ФИО
+        # никогда не приводили к назначению не того человека после подсчёта.
+        try:
+            _setting_put(
+                f"presidential_election_candidates:{int(created[0]['id'])}",
+                json.dumps(presidential_candidate_ids, ensure_ascii=False),
+            )
+        except Exception as exc:
+            # Совместимость: финализатор проверит уникальность одобренной заявки
+            # по ФИО, если запись карты кандидатов временно не удалась.
+            log.error("Could not persist candidate identity map for election %s: %s", created[0]["id"], exc)
     audit(actor_id, "election_created", None, f"{kind}:{created[0]['id']}")
     try:
         citizens = rows(db().table("subjects").select("user_id").eq("is_citizen", True))
@@ -1577,16 +1600,41 @@ def _finalize_presidential_election(actor_id: int, election: dict, counts: dict[
         return {"appointed": False, "reason": "tie", "winners": winners}
 
     winning_name = winners[0]
-    applications = [
-        item for item in _presidential_candidate_applications()
-        if item.get("status") == "approved"
-        and clean_name(item.get("full_name")).casefold() == winning_name.casefold()
-    ]
-    if len(applications) != 1:
-        log.error("Presidential election %s winner %r has %s approved application matches",
-                  election_id, winning_name, len(applications))
-        return {"appointed": False, "reason": "candidate_not_unique", "winner": winning_name}
-    winner_uid = int(applications[0].get("user_id") or 0)
+    candidate_map_raw = _setting_value(f"presidential_election_candidates:{election_id}")
+    candidate_map: dict = {}
+    if candidate_map_raw:
+        try:
+            parsed_map = json.loads(candidate_map_raw)
+            if isinstance(parsed_map, dict):
+                candidate_map = parsed_map
+        except (TypeError, ValueError):
+            log.error("Presidential election %s has an invalid candidate identity map", election_id)
+    mapped_uid = candidate_map.get(winning_name.casefold())
+    if mapped_uid:
+        winner_uid = int(mapped_uid)
+        applications = [
+            item for item in _presidential_candidate_applications()
+            if item.get("status") == "approved"
+            and int(item.get("user_id") or 0) == winner_uid
+            and clean_name(item.get("full_name")).casefold() == winning_name.casefold()
+        ]
+        if len(applications) != 1:
+            log.error("Presidential election %s mapped winner %r no longer has one approved application",
+                      election_id, winning_name)
+            return {"appointed": False, "reason": "candidate_unavailable", "winner": winning_name}
+    else:
+        # Для исторических выборов без карты сохраняем совместимость, но не
+        # угадываем при совпадающих ФИО.
+        applications = [
+            item for item in _presidential_candidate_applications()
+            if item.get("status") == "approved"
+            and clean_name(item.get("full_name")).casefold() == winning_name.casefold()
+        ]
+        if len(applications) != 1:
+            log.error("Presidential election %s winner %r has %s approved application matches",
+                      election_id, winning_name, len(applications))
+            return {"appointed": False, "reason": "candidate_not_unique", "winner": winning_name}
+        winner_uid = int(applications[0].get("user_id") or 0)
     winner = get_subject(winner_uid)
     if not winner or not winner.get("is_citizen"):
         log.error("Presidential election %s winner %r is no longer an available citizen",
@@ -2763,11 +2811,6 @@ def duma_call_presidential_election(actor_id: int, ends_at: str) -> dict:
         raise DKDError(409, "Назначить президентские выборы через парламент можно после истечения срока действующего Президента.")
     if status["presidential_election_called"]:
         raise DKDError(409, "Выборы Президента на этот срок уже назначены.")
-    subjects = rows(db().table("subjects").select("full_name,is_citizen").limit(1000))
-    candidates = sorted({clean_name(x.get("full_name")) for x in subjects
-                         if x.get("is_citizen") and clean_name(x.get("full_name"))}, key=str.casefold)
-    if len(candidates) < 2:
-        raise DKDError(409, "Для президентских выборов нужны минимум два гражданина с заполненным ФИО.")
     now = utcnow()
     end = parse_dt(ends_at)
     if not end:
