@@ -508,10 +508,14 @@ def duma_constitutional_status(user: dict = Depends(auth_user)):
     return core.duma_constitutional_status(user)
 
 
+class ParliamentaryPresidentialElectionCreate(BaseModel):
+    ends_at: str = Field(min_length=16, max_length=40)
+
+
 @app.post("/api/duma/presidential-election")
-def duma_call_presidential_election(user: dict = Depends(auth_user)):
+def duma_call_presidential_election(payload: ParliamentaryPresidentialElectionCreate, user: dict = Depends(auth_user)):
     core.require_deputy(user)
-    return core.duma_call_presidential_election(user["id"])
+    return core.duma_call_presidential_election(user["id"], payload.ends_at)
 
 
 class ImpeachmentProposal(BaseModel):
