@@ -670,12 +670,36 @@ def admin_close_election(kind: str, election_id: int, user: dict = Depends(admin
 
 
 class NewsCreate(BaseModel):
+    title: str = Field(default="", max_length=180)
     text: str = Field(min_length=1, max_length=10000)
+    category: str = Field(default="other", pattern="^(politics|elections|government|documents|events|other)$")
+    importance: str = Field(default="normal", pattern="^(normal|important|urgent)$")
+    media_type: str | None = Field(default=None, pattern="^(photo|video)$")
+    media_base64: str | None = Field(default=None, max_length=65000000)
+    media_name: str = Field(default="news-media", max_length=180)
 
 
 @app.post("/api/admin/news")
 def admin_create_news(payload: NewsCreate, user: dict = Depends(admin_user)):
-    return {"ok": True, "news": core.publish_news(user["id"], payload.text)}
+    media_bytes = None
+    if payload.media_base64:
+        try:
+            import base64
+            media_bytes = base64.b64decode(payload.media_base64, validate=True)
+        except (ValueError, TypeError):
+            raise DKDError(422, "Не удалось прочитать прикреплённый файл.")
+    news = core.publish_news(user["id"], payload.text, payload.title, payload.category,
+                             payload.importance, payload.media_type, media_bytes, payload.media_name)
+    return {"ok": True, "news": news}
+
+
+class NewsPreferenceUpdate(BaseModel):
+    enabled: bool
+
+
+@app.patch("/api/profile/news-preferences")
+def update_news_preferences(payload: NewsPreferenceUpdate, user: dict = Depends(auth_user)):
+    return core.update_news_notifications(user, payload.enabled)
 
 
 class LawCreate(BaseModel):
