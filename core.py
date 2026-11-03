@@ -1690,35 +1690,14 @@ def _finalize_presidential_election(actor_id: int, election: dict, counts: dict[
         and int(subjects_by_id[int(link["subject_id"])]["user_id"]) != winner_uid
     })
 
-    # Сначала гарантируем, что победитель получил президентскую роль.
-    # Только после успешной вставки снимаем полномочия с прежних руководителей:
-    # при сетевом сбое старый Президент не исчезает до назначения нового.
-    president_role_id = int(president_role["id"])
-    winner_has_role = any(
-        int(link.get("subject_id") or 0) == winner_subject_id
-        and int(link.get("role_id") or 0) == president_role_id
-        for link in old_links
-    )
-    if not winner_has_role:
-        execute(db().table("subject_roles").insert({
-            "subject_id": winner_subject_id, "role_id": president_role_id
-        }), "Не удалось назначить победителя Президентом.")
-    for link in old_links:
-        old_role_id = int(link.get("role_id") or 0)
-        old_subject_id = int(link.get("subject_id") or 0)
-        if old_subject_id != winner_subject_id or old_role_id != president_role_id:
-            execute(
-                db().table("subject_roles").delete()
-                .eq("subject_id", old_subject_id).eq("role_id", old_role_id),
-                "Не удалось завершить прежние президентские полномочия."
-            )
-
+    # Роль, сроки и маркер финализации записываются одной транзакцией.
+    # Повторный вызов после сетевого обрыва не продлит срок второй раз.
     started = utcnow()
     ends = _add_calendar_months(started, 3)
-    _save_setting(PRESIDENT_TERM_USER_KEY, str(winner_uid))
-    _save_setting(PRESIDENT_TERM_START_KEY, started.isoformat())
-    _save_setting(PRESIDENT_TERM_END_KEY, ends.isoformat())
-    _save_setting(marker_key, str(winner_uid))
+    _assign_president_atomic(
+        winner_subject_id, winner_uid, int(president_role["id"]), started, ends,
+        marker_key=marker_key, marker_value=str(winner_uid),
+    )
 
     audit(actor_id, "presidential_election_finalized", winner_uid, json.dumps({
         "election_id": election_id, "winner": winning_name,
@@ -2576,6 +2555,30 @@ def _ensure_canonical_role_rows() -> list[dict]:
     return [by_key[k] for k in ROLE_CANONICAL if k in by_key]
 
 
+def _assign_president_atomic(subject_id: int, user_id: int, role_id: int,
+                              started: datetime, ends: datetime,
+                              marker_key: str | None = None,
+                              marker_value: str | None = None) -> dict:
+    """Атомарно меняет Президента, срок и при необходимости маркер финализации."""
+    result = execute(
+        db().rpc("dkd_set_president_atomic", {
+            "p_subject_id": int(subject_id),
+            "p_user_id": int(user_id),
+            "p_role_id": int(role_id),
+            "p_term_start": started.isoformat(),
+            "p_term_end": ends.isoformat(),
+            "p_marker_key": marker_key,
+            "p_marker_value": marker_value,
+        }),
+        "Не удалось атомарно назначить Президента и сохранить срок полномочий.",
+    )
+    # PostgREST возвращает JSONB как объект либо список с одним объектом.
+    payload = result[0] if isinstance(result, list) and result else result
+    if isinstance(payload, dict) and payload.get("ok") is False:
+        raise DKDError(502, "База данных не подтвердила назначение Президента.")
+    return payload if isinstance(payload, dict) else {"ok": True}
+
+
 def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bool) -> dict:
     """Ручное резервное управление системными ролями администратором.
 
@@ -2618,28 +2621,11 @@ def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bo
             and subjects_by_id[int(item["subject_id"])].get("user_id") is not None
             and int(subjects_by_id[int(item["subject_id"])]["user_id"]) != int(subject["user_id"])
         })
-        # Сначала назначаем нового Президента (если связь ещё отсутствует).
-        # Только после успешной записи снимаем прежние президентские роли:
-        # сетевой сбой не должен оставлять страну без Президента.
-        if not link:
-            execute(db().table("subject_roles").insert({
-                "subject_id": int(subject["id"]), "role_id": int(role_id)
-            }), "Не удалось назначить Президента.")
-        for president_role_id in president_role_ids:
-            if president_role_id == int(role_id):
-                # Не удаляем только что подтверждённую связь нового Президента.
-                execute(db().table("subject_roles").delete()
-                        .eq("role_id", president_role_id)
-                        .neq("subject_id", int(subject["id"])),
-                        "Не удалось завершить прежние президентские полномочия.")
-            else:
-                execute(db().table("subject_roles").delete().eq("role_id", president_role_id),
-                        "Не удалось завершить прежние президентские полномочия.")
         started = utcnow()
         ends = _add_calendar_months(started, 3)
-        _save_setting(PRESIDENT_TERM_USER_KEY, str(int(subject["user_id"])))
-        _save_setting(PRESIDENT_TERM_START_KEY, started.isoformat())
-        _save_setting(PRESIDENT_TERM_END_KEY, ends.isoformat())
+        _assign_president_atomic(
+            int(subject["id"]), int(subject["user_id"]), int(role_id), started, ends
+        )
         for previous_uid in previous_users:
             try:
                 create_notification(previous_uid, "Президентские полномочия завершены",
