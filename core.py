@@ -2469,6 +2469,36 @@ def list_news() -> list:
     )]
 
 
+
+def get_news_media(news_id: int) -> tuple[bytes, str] | None:
+    """Получает медиафайл из Telegram по сохранённому file_id для показа в Mini App."""
+    item = one(db().table("news").select("id,text").eq("id", int(news_id)).limit(1))
+    if not item:
+        raise DKDError(404, "Новость не найдена.")
+    news = _decode_news_row(item)
+    file_id = news.get("media_file_id")
+    media_type = news.get("media_type")
+    token = env("BOT_TOKEN")
+    if not file_id or not token or media_type not in ("photo", "video"):
+        return None
+    meta = _telegram_api("getFile", {"file_id": file_id})
+    file_path = (meta or {}).get("file_path")
+    if not file_path:
+        return None
+    try:
+        with urllib.request.urlopen(f"https://api.telegram.org/file/bot{token}/{file_path}", timeout=25) as response:
+            content = response.read(50 * 1024 * 1024 + 1)
+        if len(content) > 50 * 1024 * 1024:
+            raise DKDError(413, "Медиафайл слишком большой.")
+        mime = "image/jpeg" if media_type == "photo" else "video/mp4"
+        return content, mime
+    except DKDError:
+        raise
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        log.warning("News media download failed for %s: %s", news_id, exc)
+        return None
+
+
 def _publish_election_results_news_once(actor_id: int, kind: str, election: dict, counts: dict[str, int],
                                            extra: str = "") -> bool:
     """Публикует итоговую новость идемпотентно по типу и ID выборов."""
