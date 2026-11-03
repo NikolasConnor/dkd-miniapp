@@ -2592,14 +2592,14 @@ def _send_group_news(title: str, category: str, text: str, importance: str,
         mime = "image/jpeg" if media_type == "photo" else "video/mp4"
         safe_name = str(media_name or "news-media").replace('"', "")[:120]
         parts = [
-            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"chat_id\\"\\r\\n\\r\\n{chat_id}\\r\\n".encode(),
-            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"caption\\"\\r\\n\\r\\n{caption[:1024]}\\r\\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat_id}\r\n".encode(),
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"caption\"\r\n\r\n{caption[:1024]}\r\n".encode(),
         ]
         if keyboard:
-            parts.append(f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"reply_markup\\"\\r\\n\\r\\n{json.dumps(keyboard, ensure_ascii=False)}\\r\\n".encode())
+            parts.append(f"--{boundary}\r\nContent-Disposition: form-data; name=\"reply_markup\"\r\n\r\n{json.dumps(keyboard, ensure_ascii=False)}\r\n".encode())
         parts += [
-            f"--{boundary}\\r\\nContent-Disposition: form-data; name=\\"{field}\\"; filename=\\"{safe_name}\\"\\r\\nContent-Type: {mime}\\r\\n\\r\\n".encode(),
-            media_bytes, f"\\r\\n--{boundary}--\\r\\n".encode()
+            f"--{boundary}\r\nContent-Disposition: form-data; name=\"{field}\"; filename=\"{safe_name}\"\r\nContent-Type: {mime}\r\n\r\n".encode(),
+            media_bytes, f"\r\n--{boundary}--\r\n".encode()
         ]
         request = urllib.request.Request(
             f"https://api.telegram.org/bot{token}/{method}", data=b"".join(parts),
@@ -2626,7 +2626,7 @@ def _send_group_news(title: str, category: str, text: str, importance: str,
         media = sent.get("photo") or ([sent["video"]] if sent.get("video") else [])
         file_id = media[-1].get("file_id") if media else None
         if len(caption) > 1024:
-            extra = {"chat_id": chat_id, "text": text[:3900] + "\\n\\nПресс-центр ДКД"}
+            extra = {"chat_id": chat_id, "text": text[:3900] + "\n\nПресс-центр ДКД"}
             if keyboard:
                 extra["reply_markup"] = keyboard
             send_checked("sendMessage", extra)
