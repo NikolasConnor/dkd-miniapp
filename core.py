@@ -2591,7 +2591,8 @@ def admin_assign_role(actor_id: int, subject_id: int, role_id: int, assigned: bo
     except Exception as exc:
         log.warning("Could not notify user %s about role change: %s", subject.get("user_id"), exc)
     return {"ok": True, "assigned": bool(assigned), "role": role["name"],
-            "subject_id": int(subject["id"]), "telegram_user_id": int(subject["user_id"])}
+            "subject_id": int(subject["id"]),
+            "telegram_user_id": int(subject["user_id"]) if subject.get("user_id") is not None else None}
 
 
 def president_list_subjects() -> dict:
