@@ -637,7 +637,7 @@ async function loadElections(){
     }).join('');
     const canVote=status==='active'&&!v.has_voted&&opts.length>0;
     const form=canVote?
-     '<form class="ballot-form" onsubmit="castVote(event,'+JSON.stringify(kind)+','+Number(v.id)+')"><input type="hidden" name="option" value=""><div class="ballot-paper"><div class="ballot-paper-title">Отметьте только один вариант</div><div class="ballot-options">'+selected+'</div><button class="btn primary ballot-submit" type="submit">Подтвердить выбор</button><p class="ballot-footnote">После подтверждения изменить голос самостоятельно будет нельзя. Один гражданин — один голос.</p></div></form>':
+     '<div class="ballot-form" data-election-kind="'+esc(kind)+'" data-election-id="'+Number(v.id)+'"><input type="hidden" name="option" value=""><div class="ballot-paper"><div class="ballot-paper-title">Отметьте только один вариант</div><div class="ballot-options">'+selected+'</div><button class="btn primary ballot-submit" type="button" onclick="castVote(event)">Подтвердить выбор</button><p class="ballot-footnote">После подтверждения изменить голос самостоятельно будет нельзя. Один гражданин — один голос.</p></div></div>':
      (v.has_voted?'<div class="ballot-confirmed">✓ Ваш голос принят'+(v.my_option?' · Вы выбрали: '+esc(v.my_option):'')+'</div>':
       status==='scheduled'?'<div class="ballot-paper"><div class="notice">Голосование ещё не началось. Бюллетень станет доступен после открытия выборов.</div></div>':
       status==='closed'?'<div class="ballot-paper"><div class="notice">Голосование завершено. Ниже опубликованы итоги.</div></div>':
@@ -660,33 +660,44 @@ async function loadElections(){
   });
  }catch(e){showError(el,e)}
 }
-async function castVote(e,kind,id){
- e.preventDefault();
- const form=e.currentTarget;
+async function castVote(e){
+ if(e?.preventDefault)e.preventDefault();
+ const button=e?.currentTarget;
+ const form=button?.closest('.ballot-form');
+ if(!form)return;
  if(form.dataset.submitting==='1')return;
- const option=new FormData(form).get('option');
+ const option=form.querySelector('input[name="option"]')?.value||'';
  if(!option){showVoteResultModal('error','Не выбран вариант','Сначала отметьте один вариант бюллетеня.');return}
- form.dataset.submitting='1';
- const button=form.querySelector('button[type="submit"]');
- if(button){button.disabled=true;button.innerHTML='<span class="spinner"></span> Отправляем голос…'}
- if(!confirm('Подтвердить голос за «'+option+'»? После отправки изменить его будет нельзя.')){
-  form.dataset.submitting='0';
-  if(button){button.disabled=false;button.textContent='Подтвердить выбор'}
+ // Подтверждение встроено в сам бюллетень: не используем системный confirm,
+ // который может закрываться/перехватываться Telegram WebView.
+ if(form.dataset.confirming!=='1'){
+  form.dataset.confirming='1';
+  button.textContent='Нажмите ещё раз для подтверждения';
+  button.classList.add('danger');
   return;
  }
+ const kind=form.dataset.electionKind,id=Number(form.dataset.electionId);
+ form.dataset.submitting='1';
+ button.disabled=true;
+ button.innerHTML='<span class="spinner"></span> Отправляем голос…';
  try{
   await api('/api/votes/'+encodeURIComponent(kind)+'/'+id+'/cast',{method:'POST',body:{option}});
   showVoteResultModal('ok','Голос успешно принят','Ваш голос за «'+option+'» сохранён и учтён. Повторно проголосовать на этих выборах нельзя.');
-  await loadElections();
+  // Обновляем карточку отдельно: ошибка обновления списка не должна
+  // превращать успешную запись голоса в сообщение об ошибке.
+  loadElections().catch(err=>console.warn('Не удалось обновить бюллетени после голосования',err));
  }catch(err){
   const message=String(err?.message||'Не удалось отправить голос.');
   if(/уже голосовали|уже проголосовали|повторн/i.test(message)){
    showVoteResultModal('error','Вы уже голосовали','Ваш голос на этих выборах уже зарегистрирован. Второй голос не принимается.');
-   await loadElections();
+   loadElections().catch(err=>console.warn('Не удалось обновить бюллетени',err));
   }else{
    showVoteResultModal('error','Голос не принят',message);
    form.dataset.submitting='0';
-   if(button){button.disabled=false;button.textContent='Подтвердить выбор'}
+   form.dataset.confirming='0';
+   button.disabled=false;
+   button.classList.remove('danger');
+   button.textContent='Повторить отправку';
   }
  }
 }
