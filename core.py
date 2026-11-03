@@ -950,6 +950,71 @@ def save_duma_party_template(user: dict, candidate_user_ids: list[int]) -> dict:
     return {"ok": True, "selected_user_ids": chosen, "synced_elections": synced}
 
 
+def admin_get_duma_party_template(party_id: int) -> dict:
+    """Возвращает состав партии и сохранённый список кандидатов для панели администратора."""
+    party = one(db().table("parties").select(PARTY_COLS).eq("id", int(party_id)).limit(1))
+    if not party or party.get("status") != "active":
+        raise DKDError(404, "Активная партия не найдена.")
+    members = rows(db().table("party_members").select("user_id,username").eq("party_id", int(party_id)))
+    member_ids = [int(m["user_id"]) for m in members if m.get("user_id") is not None]
+    subjects = select_in("subjects", "user_id,full_name", "user_id", member_ids) if member_ids else []
+    by_id = {int(s["user_id"]): s for s in subjects}
+    raw = _setting_get(DUMA_PARTY_TEMPLATE_KEY_PREFIX + str(int(party_id)))
+    try:
+        selected = [int(x) for x in json.loads(raw or "[]")]
+    except (ValueError, TypeError, json.JSONDecodeError):
+        selected = []
+    member_set = set(member_ids)
+    selected = [uid for uid in selected if uid in member_set]
+    return {
+        "party": {"id": int(party["id"]), "name": party["name"], "emoji": party.get("emoji") or "🎭",
+                  "leader_user_id": party.get("leader_user_id")},
+        "members": [{"user_id": uid, "full_name": clean_name(by_id[uid].get("full_name") or next(
+            (m.get("username") for m in members if int(m.get("user_id") or 0) == uid), str(uid)))}
+            for uid in member_ids if uid in by_id],
+        "selected_user_ids": selected,
+    }
+
+
+def admin_save_duma_party_template(actor_id: int, party_id: int, candidate_user_ids: list[int]) -> dict:
+    """Администратор формирует список от имени председателя и синхронизирует незавершённые выборы."""
+    current = admin_get_duma_party_template(party_id)
+    allowed = {int(m["user_id"]): m["full_name"] for m in current["members"]}
+    chosen = [int(x) for x in candidate_user_ids]
+    if not chosen or len(chosen) > 50:
+        raise DKDError(400, "Выберите от 1 до 50 кандидатов из состава партии.")
+    if len(set(chosen)) != len(chosen):
+        raise DKDError(400, "В списке не должно быть повторяющихся участников.")
+    if any(uid not in allowed for uid in chosen):
+        raise DKDError(422, "Кандидатами могут быть только действующие члены выбранной партии.")
+    party = current["party"]
+    party_id = int(party["id"])
+    _setting_put(DUMA_PARTY_TEMPLATE_KEY_PREFIX + str(party_id), json.dumps(chosen))
+    lists_saved = 0
+    elections = rows(db().table("duma_elections").select(ELECTION_COLS).order("id", desc=True).limit(50))
+    for election in elections:
+        if election.get("status") in CLOSED_STATUSES:
+            continue
+        end = parse_dt(election.get("ends_at"))
+        if end and end <= utcnow():
+            continue
+        lists = duma_party_lists(int(election["id"]))
+        lists[str(party_id)] = {
+            "party_id": party_id, "party_name": party["name"], "party_emoji": party["emoji"],
+            "leader_user_id": int(party.get("leader_user_id") or 0),
+            "candidates": [allowed[uid] for uid in chosen], "candidate_user_ids": chosen,
+            "submitted_at": utcnow().isoformat(),
+        }
+        _setting_put(DUMA_LISTS_KEY_PREFIX + str(int(election["id"])), json.dumps(lists, ensure_ascii=False))
+        execute(db().table("duma_elections").update({"options": [x["party_name"] for x in lists.values()]})
+                .eq("id", int(election["id"])), "Не удалось обновить партийные списки в выборах.")
+        lists_saved += 1
+    audit(actor_id, "admin_duma_party_list_saved", None,
+          f"party:{party_id}:candidates:{len(chosen)}:elections:{lists_saved}")
+    return {"ok": True, "party_id": party_id, "candidate_user_ids": chosen,
+            "candidate_names": [allowed[uid] for uid in chosen], "synced_elections": lists_saved}
+
+
 def submit_duma_party_list(user: dict, election_id: int, candidates: list[str]) -> dict:
     uid = int(user["id"])
     parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
