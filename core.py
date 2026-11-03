@@ -64,8 +64,19 @@ def init_client_from_env() -> None:
     key = env("SUPABASE_SECRET_KEY") or env("SUPABASE_SERVICE_ROLE_KEY")
     if url and key:
         from supabase import create_client  # импорт здесь, чтобы тесты работали без пакета
+        from supabase.client import ClientOptions
 
-        _client = create_client(url, key)
+        # Более длинный явный таймаут снижает число обрывов при cold start
+        # и кратковременной сетевой деградации. Сам клиент создаётся один раз.
+        _client = create_client(
+            url,
+            key,
+            options=ClientOptions(
+                postgrest_client_timeout=20,
+                storage_client_timeout=20,
+                schema="public",
+            ),
+        )
 
 
 def configured() -> dict:
@@ -129,7 +140,7 @@ def execute(query: Any, public: str = "Ошибка базы данных.") -> 
             transient = any(marker in message for marker in (
                 "server disconnected", "remoteprotocolerror", "connection reset",
                 "connection aborted", "read timeout", "timed out",
-                "temporarily unavailable", "connecterror",
+                "temporarily unavailable", "connecterror", "localprotocolerror",
             ))
             if attempt + 1 >= attempts or not transient:
                 break
