@@ -196,6 +196,17 @@ def get_news(user: dict = Depends(auth_user)):
     return {"news": core.list_news()}
 
 
+@app.get("/api/news/{news_id}/media")
+def get_news_media(news_id: int, user: dict = Depends(auth_user)):
+    media = core.get_news_media(news_id)
+    if not media:
+        raise DKDError(404, "Медиафайл новости недоступен.")
+    content, media_type = media
+    from fastapi.responses import Response
+    return Response(content=content, media_type=media_type,
+                    headers={"Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff"})
+
+
 # ----------------------------------------------------------------------------
 # Партии
 # ----------------------------------------------------------------------------
