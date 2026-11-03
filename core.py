@@ -2457,7 +2457,7 @@ def _decode_news_row(row: dict) -> dict:
         try:
             header, body = raw.split("]]", 1)
             meta = json.loads(__import__("base64").b64decode(header[len("[[DKD_NEWS_META:"):]).decode("utf-8"))
-            row = {**row, **meta, "text": body.lstrip("\\n")}
+            row = {**row, **meta, "text": body.lstrip("\n")}
         except (ValueError, TypeError, json.JSONDecodeError):
             pass
     return row
