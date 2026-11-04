@@ -24,8 +24,31 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    import asyncio
     core.init_client_from_env()
-    yield
+    stop = asyncio.Event()
+
+    async def scheduled_news_worker():
+        while not stop.is_set():
+            try:
+                await asyncio.to_thread(core.process_due_scheduled_news)
+            except Exception:
+                logging.exception("Scheduled news worker iteration failed")
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=15)
+            except asyncio.TimeoutError:
+                pass
+
+    worker = asyncio.create_task(scheduled_news_worker(), name="scheduled-news-worker")
+    try:
+        yield
+    finally:
+        stop.set()
+        worker.cancel()
+        try:
+            await worker
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(title="DKD Mini App API", version=core.APP_VERSION, lifespan=lifespan)
@@ -704,6 +727,7 @@ class NewsCreate(BaseModel):
     media_type: str | None = Field(default=None, pattern="^(photo|video)$")
     media_base64: str | None = Field(default=None, max_length=65000000)
     media_name: str = Field(default="news-media", max_length=180)
+    scheduled_local: str | None = Field(default=None, max_length=32)
 
 
 @app.post("/api/admin/news")
@@ -715,9 +739,24 @@ def admin_create_news(payload: NewsCreate, user: dict = Depends(admin_user)):
             media_bytes = base64.b64decode(payload.media_base64, validate=True)
         except (ValueError, TypeError):
             raise DKDError(422, "Не удалось прочитать прикреплённый файл.")
+    if payload.scheduled_local:
+        news = core.schedule_news(user["id"], payload.text, payload.title, payload.category,
+                                  payload.importance, payload.scheduled_local,
+                                  payload.media_type, media_bytes, payload.media_name)
+        return {"ok": True, "scheduled": True, "news": news}
     news = core.publish_news(user["id"], payload.text, payload.title, payload.category,
                              payload.importance, payload.media_type, media_bytes, payload.media_name)
-    return {"ok": True, "news": news}
+    return {"ok": True, "scheduled": False, "news": news}
+
+
+@app.get("/api/admin/news/scheduled")
+def admin_list_scheduled_news(user: dict = Depends(admin_user)):
+    return {"news": core.list_scheduled_news()}
+
+
+@app.delete("/api/admin/news/scheduled/{scheduled_id}")
+def admin_cancel_scheduled_news(scheduled_id: int, user: dict = Depends(admin_user)):
+    return core.cancel_scheduled_news(user["id"], scheduled_id)
 
 
 class NewsPreferenceUpdate(BaseModel):
