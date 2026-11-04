@@ -2834,7 +2834,7 @@ def cancel_scheduled_news(actor_id: int, scheduled_id: int) -> dict:
     if row.get("status") != "scheduled":
         raise DKDError(409, "Эту новость уже нельзя отменить.")
     changed = execute(db().table("scheduled_news").update({"status": "cancelled"})
-                      .eq("id", int(scheduled_id)).eq("status", "scheduled"),
+                      .eq("id", int(scheduled_id)).eq("status", "scheduled").select("id"),
                       "Не удалось отменить публикацию.")
     if not changed:
         raise DKDError(409, "Публикация уже начала выполняться.")
@@ -2854,7 +2854,7 @@ def process_due_scheduled_news() -> int:
     for item in due:
         claimed = execute(db().table("scheduled_news").update({
             "status": "processing", "attempts": int(item.get("attempts") or 0) + 1
-        }).eq("id", item["id"]).eq("status", "scheduled"),
+        }).eq("id", item["id"]).eq("status", "scheduled").select("id"),
             "Не удалось зарезервировать отложенную новость.")
         if not claimed:
             continue
