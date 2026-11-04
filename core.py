@@ -23,6 +23,7 @@ import urllib.request
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 from urllib.parse import parse_qsl
 
 log = logging.getLogger("dkd")
@@ -2752,6 +2753,139 @@ def _notify_news_subscribers(title: str, category: str, text: str, importance: s
                 _telegram_api("sendMessage", payload)
     except Exception as exc:
         log.warning("News subscriber notifications failed: %s", exc)
+
+
+NEWS_TZ = ZoneInfo("Europe/Moscow")
+SCHEDULED_NEWS_BUCKET = "scheduled-news"
+
+
+def schedule_news(actor_id: int, text: str, title: str, category: str, importance: str,
+                  scheduled_local: str, media_type: str | None = None,
+                  media_bytes: bytes | None = None, media_name: str = "news-media") -> dict:
+    text = str(text or "").strip()
+    if not text or len(text) > 10000:
+        raise DKDError(422, "Текст новости: от 1 до 10000 символов.")
+    try:
+        local_dt = datetime.fromisoformat(str(scheduled_local))
+        if local_dt.tzinfo is None:
+            local_dt = local_dt.replace(tzinfo=NEWS_TZ)
+        else:
+            local_dt = local_dt.astimezone(NEWS_TZ)
+    except (TypeError, ValueError):
+        raise DKDError(422, "Укажите корректные дату и время публикации.") from None
+    scheduled_utc = local_dt.astimezone(timezone.utc)
+    if scheduled_utc <= utcnow() + timedelta(seconds=30):
+        raise DKDError(422, "Время отложенной публикации должно быть хотя бы на минуту позже текущего.")
+    if media_type and media_type not in ("photo", "video"):
+        raise DKDError(422, "Поддерживаются только фото и видео.")
+    if media_bytes and len(media_bytes) > 45 * 1024 * 1024:
+        raise DKDError(413, "Файл слишком большой (максимум 45 МБ).")
+    title = str(title or "").strip()[:180] or (text.splitlines()[0][:120] if text else "Новость ДКД")
+    category = category if category in {"politics", "elections", "government", "documents", "events", "other"} else "other"
+    importance = importance if importance in {"normal", "important", "urgent"} else "normal"
+    media_path = None
+    if media_bytes:
+        media_path = f"{int(actor_id)}/{uuid.uuid4().hex}"
+        mime = "image/jpeg" if media_type == "photo" else "video/mp4"
+        try:
+            db().storage.from_(SCHEDULED_NEWS_BUCKET).upload(
+                path=media_path, file=media_bytes,
+                file_options={"content-type": mime, "upsert": "false"}
+            )
+        except Exception as exc:
+            log.exception("Scheduled news media upload failed")
+            raise db_error(exc, "Не удалось сохранить медиафайл для отложенной новости.") from exc
+    payload = {
+        "title": title, "body": text, "category": category, "importance": importance,
+        "media_type": media_type if media_path else None, "media_path": media_path,
+        "media_name": str(media_name or "news-media")[:180],
+        "scheduled_at": scheduled_utc.isoformat(), "status": "scheduled",
+        "created_by": int(actor_id),
+    }
+    try:
+        row = execute(db().table("scheduled_news").insert(payload), "Не удалось запланировать новость.")[0]
+    except Exception:
+        if media_path:
+            try:
+                db().storage.from_(SCHEDULED_NEWS_BUCKET).remove([media_path])
+            except Exception:
+                log.warning("Could not clean up scheduled news media %s", media_path)
+        raise
+    audit(actor_id, "news_scheduled", None, f"scheduled_news:{row['id']} at {local_dt.isoformat()}")
+    return {**row, "scheduled_local": local_dt.strftime("%d.%m.%Y %H:%M"), "timezone": "МСК"}
+
+
+def list_scheduled_news() -> list[dict]:
+    items = rows(db().table("scheduled_news")
+                 .select("id,title,category,importance,scheduled_at,status,created_at,last_error")
+                 .eq("status", "scheduled").order("scheduled_at").limit(50))
+    for item in items:
+        dt = parse_dt(item.get("scheduled_at"))
+        item["scheduled_local"] = dt.astimezone(NEWS_TZ).strftime("%d.%m.%Y %H:%M") if dt else ""
+        item["timezone"] = "МСК"
+    return items
+
+
+def cancel_scheduled_news(actor_id: int, scheduled_id: int) -> dict:
+    row = one(db().table("scheduled_news").select("id,media_path,status")
+              .eq("id", int(scheduled_id)).limit(1))
+    if not row:
+        raise DKDError(404, "Запланированная новость не найдена.")
+    if row.get("status") != "scheduled":
+        raise DKDError(409, "Эту новость уже нельзя отменить.")
+    changed = execute(db().table("scheduled_news").update({"status": "cancelled"})
+                      .eq("id", int(scheduled_id)).eq("status", "scheduled"),
+                      "Не удалось отменить публикацию.")
+    if not changed:
+        raise DKDError(409, "Публикация уже начала выполняться.")
+    if row.get("media_path"):
+        try:
+            db().storage.from_(SCHEDULED_NEWS_BUCKET).remove([row["media_path"]])
+        except Exception as exc:
+            log.warning("Scheduled media cleanup failed: %s", exc)
+    audit(actor_id, "news_schedule_cancelled", None, f"scheduled_news:{scheduled_id}")
+    return {"ok": True}
+
+
+def process_due_scheduled_news() -> int:
+    due = rows(db().table("scheduled_news").select("*").eq("status", "scheduled")
+               .lte("scheduled_at", utcnow().isoformat()).order("scheduled_at").limit(10))
+    completed = 0
+    for item in due:
+        claimed = execute(db().table("scheduled_news").update({
+            "status": "processing", "attempts": int(item.get("attempts") or 0) + 1
+        }).eq("id", item["id"]).eq("status", "scheduled"),
+            "Не удалось зарезервировать отложенную новость.")
+        if not claimed:
+            continue
+        try:
+            media_bytes = None
+            if item.get("media_path"):
+                media_bytes = db().storage.from_(SCHEDULED_NEWS_BUCKET).download(item["media_path"])
+            published = publish_news(
+                int(item["created_by"]), item["body"], item.get("title") or "",
+                item.get("category") or "other", item.get("importance") or "normal",
+                item.get("media_type"), media_bytes, item.get("media_name") or "news-media"
+            )
+            execute(db().table("scheduled_news").update({
+                "status": "published", "published_news_id": published.get("id"),
+                "published_at": utcnow().isoformat(), "last_error": None
+            }).eq("id", item["id"]), "Не удалось отметить отложенную новость опубликованной.")
+            if item.get("media_path"):
+                try:
+                    db().storage.from_(SCHEDULED_NEWS_BUCKET).remove([item["media_path"]])
+                except Exception as exc:
+                    log.warning("Published scheduled media cleanup failed: %s", exc)
+            completed += 1
+        except Exception as exc:
+            log.exception("Scheduled news %s failed", item.get("id"))
+            try:
+                execute(db().table("scheduled_news").update({
+                    "status": "failed", "last_error": str(exc)[:1000]
+                }).eq("id", item["id"]), "Не удалось сохранить ошибку отложенной публикации.")
+            except Exception:
+                log.exception("Could not mark scheduled news %s as failed", item.get("id"))
+    return completed
 
 
 def publish_news(actor_id: int, text: str, title: str = "", category: str = "other",
