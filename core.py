@@ -3387,7 +3387,7 @@ def duma_list(user: dict) -> dict:
                     s["closed"] = True
     by_session = {s["id"]: s for s in sessions}
     laws = rows(db().table("laws").select("id,title,description,status,created_at").order("id", desc=True).limit(100))
-    law_events = [ev for ev in events if ev.get("action") in ("duma_law_submitted", "duma_law_vote", "duma_law_passed", "duma_law_failed")]
+    law_events = [ev for ev in events if ev.get("action") in ("duma_law_submitted", "duma_law_vote", "duma_law_admin_vote", "duma_law_passed", "duma_law_failed")]
     submitted = {}
     votes = {}
     for ev in law_events:
@@ -3400,6 +3400,8 @@ def duma_list(user: dict) -> dict:
             submitted[lid] = {"session_id": int(data.get("session_id", 0)), "author_id": int(ev["actor_user_id"])}
         elif ev["action"] == "duma_law_vote":
             votes.setdefault(lid, {})[int(ev["actor_user_id"])] = data.get("vote")
+        elif ev["action"] == "duma_law_admin_vote" and ev.get("target_user_id"):
+            votes.setdefault(lid, {})[int(ev["target_user_id"])] = data.get("vote")
         elif ev["action"] == "duma_law_admin_vote":
             target_id = int(ev.get("target_user_id") or 0)
             if target_id:
@@ -3413,6 +3415,7 @@ def duma_list(user: dict) -> dict:
         law["author_id"] = meta["author_id"]
         law["votes_for"] = sum(v == "for" for v in votes.get(lid, {}).values())
         law["votes_against"] = sum(v == "against" for v in votes.get(lid, {}).values())
+        law["votes_abstain"] = sum(v == "abstain" for v in votes.get(lid, {}).values())
         law["has_voted"] = int(user["id"]) in votes.get(lid, {})
         law["can_vote"] = law["status"] == "under_duma_review" and not law["has_voted"]
         session = by_session.get(meta["session_id"])
@@ -3524,8 +3527,23 @@ def duma_submit_law(actor_id: int, session_id: int, title: str, description: str
 
 def admin_law_management(actor_id: int) -> dict:
     """Возвращает доступные для передачи в Думу законопроекты и открытые заседания."""
-    listing = duma_list({"id": int(actor_id)})
     events = _duma_events()
+    sessions = []
+    for event in events:
+        if event.get("action") == "duma_session_opened":
+            try:
+                payload = json.loads(event.get("details") or "{}")
+            except (TypeError, ValueError):
+                payload = {}
+            sessions.append({"id": int(event["id"]), "title": payload.get("title", "Заседание Государственной думы"), "closed": False})
+        elif event.get("action") == "duma_session_closed":
+            try:
+                sid = int(json.loads(event.get("details") or "{}").get("session_id", 0))
+            except (TypeError, ValueError):
+                continue
+            for session in sessions:
+                if session["id"] == sid:
+                    session["closed"] = True
     submitted_ids = set()
     for event in events:
         if event.get("action") != "duma_law_submitted":
@@ -3538,7 +3556,7 @@ def admin_law_management(actor_id: int) -> dict:
                 .order("id", desc=True).limit(200))
     available = [law for law in laws
                  if law.get("status") == "active" and int(law.get("id", 0)) not in submitted_ids]
-    return {"sessions": [s for s in listing["sessions"] if not s["closed"]], "laws": available}
+    return {"sessions": [s for s in sessions if not s["closed"]], "laws": available}
 
 
 def admin_submit_law_to_duma(actor_id: int, law_id: int, session_id: int) -> dict:
