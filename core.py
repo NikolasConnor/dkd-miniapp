@@ -3402,10 +3402,6 @@ def duma_list(user: dict) -> dict:
             votes.setdefault(lid, {})[int(ev["actor_user_id"])] = data.get("vote")
         elif ev["action"] == "duma_law_admin_vote" and ev.get("target_user_id"):
             votes.setdefault(lid, {})[int(ev["target_user_id"])] = data.get("vote")
-        elif ev["action"] == "duma_law_admin_vote":
-            target_id = int(ev.get("target_user_id") or 0)
-            if target_id:
-                votes.setdefault(lid, {})[target_id] = data.get("vote")
     for law in laws:
         lid = int(law["id"])
         meta = submitted.get(lid)
