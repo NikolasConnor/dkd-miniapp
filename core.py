@@ -3710,8 +3710,10 @@ def admin_finalize_duma_law_vote(actor_id: int, law_id: int) -> dict:
             current[int(ev["actor_user_id"])] = data.get("vote")
         elif ev.get("action") == "duma_law_admin_vote" and ev.get("target_user_id"):
             current[int(ev["target_user_id"])] = data.get("vote")
-    if len(current) < len(deputies):
-        raise DKDError(409, f"Не заполнены голоса {len(deputies) - len(current)} депутат(ов). Отметьте их как «Не голосовал».")
+    deputy_ids = {int(d["id"]) for d in deputies}
+    current = {uid: vote for uid, vote in current.items() if uid in deputy_ids}
+    if len(current) < len(deputy_ids):
+        raise DKDError(409, f"Не заполнены голоса {len(deputy_ids) - len(current)} депутат(ов). Отметьте их как «Не голосовал».")
     for ev in events:
         if ev.get("action") == "duma_law_admin_finalized":
             try:
@@ -3765,18 +3767,23 @@ def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
     votes = [d.get("vote") for e,d in details if e.get("action") == "duma_law_vote" and int(d.get("law_id",0)) == int(law_id)]
     votes.append(vote)
     yes, no = votes.count("for"), votes.count("against")
+    manual_mode = any(
+        e.get("action") == "duma_law_admin_vote" and
+        int(json.loads(e.get("details") or "{}").get("law_id", 0)) == int(law_id)
+        for e in events
+    )
     total_deputies = fetch_all(lambda: db().table("roles").select("id,name").ilike("name", "Депутат"))
     deputy_role_ids = [int(r["id"]) for r in total_deputies]
     deputies = []
     for role_id in deputy_role_ids:
         links = fetch_all(lambda: db().table("subject_roles").select("subject_id").eq("role_id", role_id))
         deputies.extend(int(x["subject_id"]) for x in links)
-    majority_reached = yes > no and yes > (len(set(deputies)) / 2)
+    majority_reached = (not manual_mode) and yes > no and yes > (len(set(deputies)) / 2)
     if majority_reached:
         execute(db().table("laws").update({"status": "awaiting_president"}).eq("id", int(law_id)), "Не удалось передать закон Президенту.")
         audit(actor_id, "duma_law_passed", None, json.dumps({"law_id": int(law_id), "votes_for": yes, "votes_against": no}, ensure_ascii=False))
         status = "awaiting_president"
-    elif yes + no >= len(set(deputies)):
+    elif (not manual_mode) and yes + no >= len(set(deputies)):
         execute(db().table("laws").update({"status": "rejected_by_duma"}).eq("id", int(law_id)), "Не удалось завершить голосование.")
         audit(actor_id, "duma_law_failed", None, json.dumps({"law_id": int(law_id), "votes_for": yes, "votes_against": no}, ensure_ascii=False))
         status = "rejected_by_duma"
