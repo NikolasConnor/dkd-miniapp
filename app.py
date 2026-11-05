@@ -791,3 +791,23 @@ class AdminLawDumaSubmit(BaseModel):
 @app.post("/api/admin/laws/submit-to-duma")
 def admin_submit_law_to_duma(payload: AdminLawDumaSubmit, user: dict = Depends(admin_user)):
     return {"ok": True, "law": core.admin_submit_law_to_duma(user["id"], payload.law_id, payload.session_id)}
+
+
+class AdminDumaLawVote(BaseModel):
+    deputy_id: int = Field(gt=0)
+    vote: str = Field(pattern="^(for|against|abstain|not_voted)$")
+
+
+@app.get("/api/admin/duma/law-votes")
+def admin_get_duma_law_votes(user: dict = Depends(admin_user)):
+    return core.admin_duma_law_votes(user["id"])
+
+
+@app.put("/api/admin/duma/laws/{law_id}/votes")
+def admin_set_duma_law_vote(law_id: int, payload: AdminDumaLawVote, user: dict = Depends(admin_user)):
+    return core.admin_set_duma_law_vote(user["id"], law_id, payload.deputy_id, payload.vote)
+
+
+@app.post("/api/admin/duma/laws/{law_id}/finalize-votes")
+def admin_finalize_duma_law_votes(law_id: int, user: dict = Depends(admin_user)):
+    return core.admin_finalize_duma_law_vote(user["id"], law_id)
