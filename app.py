@@ -776,3 +776,18 @@ class LawCreate(BaseModel):
 @app.post("/api/admin/laws")
 def admin_create_law(payload: LawCreate, user: dict = Depends(admin_user)):
     return {"ok": True, "law": core.publish_law(user["id"], payload.title, payload.description)}
+
+
+@app.get("/api/admin/laws/for-duma")
+def admin_laws_for_duma(user: dict = Depends(admin_user)):
+    return core.admin_law_management(user["id"])
+
+
+class AdminLawDumaSubmit(BaseModel):
+    law_id: int = Field(gt=0)
+    session_id: int = Field(gt=0)
+
+
+@app.post("/api/admin/laws/submit-to-duma")
+def admin_submit_law_to_duma(payload: AdminLawDumaSubmit, user: dict = Depends(admin_user)):
+    return {"ok": True, "law": core.admin_submit_law_to_duma(user["id"], payload.law_id, payload.session_id)}
