@@ -303,6 +303,11 @@
           <button type="button" class="btn primary" onclick="adminStartLawVote()">Передать законопроект на голосование</button>
           <div id="adminDumaLawStatus" class="muted small" aria-live="polite"></div>
         </div>
+        <div class="card form">
+          <div class="row"><h3 style="margin:0">Внести голоса депутатов</h3><button type="button" class="btn secondary" onclick="loadAdminDumaManualVotes()">Обновить</button></div>
+          <p class="muted small">Администратор фиксирует позицию каждого депутата по законопроекту. Голос можно изменить до завершения подсчёта.</p>
+          <div id="adminDumaManualVotes" class="list"><div class="empty">Загрузка законопроектов…</div></div>
+        </div>
         <div class="section-head"><h3>Диагностика БД</h3></div><button class="btn secondary" onclick="diagnostics()">Проверить таблицы</button><pre id="diagnosticsResult" class="card" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
       </div>
     </section>
@@ -725,7 +730,7 @@ async function presidentCreateElection(e){e.preventDefault();try{const starts_at
 
 async function loadAdmin(){
   loadAdminPresidentialCandidates();
-  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory(),loadAdminDumaLaws()])}}
+  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory(),loadAdminDumaLaws(),loadAdminDumaManualVotes()])}}
   catch(e){$('adminStatus').textContent=e.message;$('claimBox').classList.remove('hidden');$('adminTools').classList.add('hidden')}
 }
 async function claimAdmin(e){e.preventDefault();try{await api('/api/admin/claim',{method:'POST',body:{code:$('adminCode').value}});notify('Администратор активирован');$('adminCode').value='';await loadAdmin()}catch(err){notify(err.message,'error')}}
@@ -909,6 +914,32 @@ async function adminStartLawVote(){
   await loadAdminDumaLaws();
  }catch(e){notify(e.message||'Не удалось открыть голосование','error')}
 }
+
+async function loadAdminDumaManualVotes(){
+ const el=$('adminDumaManualVotes');if(!el)return;
+ el.innerHTML='<div class="empty">Загрузка…</div>';
+ try{
+  const d=await api('/api/admin/duma/law-votes'),laws=d.laws||[];
+  if(!laws.length){el.innerHTML='<div class="empty">Сейчас нет законопроектов, находящихся на рассмотрении Госдумы.</div>';return}
+  const labels={for:'За',against:'Против',abstain:'Воздержался',not_voted:'Не голосовал'};
+  el.innerHTML=laws.map(l=>{
+   const deputies=l.deputies||[];
+   const rows=deputies.map(p=>'<div class="card" style="padding:12px;margin-top:8px"><div class="row"><strong>'+esc(p.full_name)+'</strong><span class="muted small">'+(p.username?'@'+esc(p.username):'Депутат')+'</span></div><div class="row" style="margin-top:8px"><select id="adminLawVote'+Number(l.id)+'_'+Number(p.id)+'" style="flex:1;min-width:0" '+(l.finalized?'disabled':'')+'>'+Object.entries(labels).map(([v,t])=>'<option value="'+v+'" '+(p.vote===v?'selected':'')+'>'+t+'</option>').join('')+'</select><button type="button" class="btn secondary" '+(l.finalized?'disabled':'')+' onclick="saveAdminDumaVote('+Number(l.id)+','+Number(p.id)+')">Сохранить</button></div></div>').join('');
+   return '<article class="card"><div class="row"><strong>'+esc(l.title||'Законопроект №'+l.id)+'</strong>'+statusPill(l.finalized?'Подсчёт завершён':'На рассмотрении')+'</div><p class="muted small">За: '+Number(l.votes_for||0)+' · Против: '+Number(l.votes_against||0)+' · Воздержались: '+Number(l.votes_abstain||0)+' · Депутатов: '+deputies.length+'</p>'+rows+(l.finalized?'':'<button type="button" class="btn primary" style="margin-top:12px" onclick="finalizeAdminDumaVotes('+Number(l.id)+')">Завершить подсчёт и определить результат</button>')+'</article>';
+  }).join('');
+ }catch(e){showError(el,e)}
+}
+async function saveAdminDumaVote(lawId,deputyId){
+ const el=$('adminLawVote'+lawId+'_'+deputyId);if(!el)return;
+ try{await api('/api/admin/duma/laws/'+lawId+'/votes',{method:'PUT',body:{deputy_id:deputyId,vote:el.value}});notify('Голос депутата сохранён');await loadAdminDumaManualVotes()}
+ catch(e){notify(e.message||'Не удалось сохранить голос','error')}
+}
+async function finalizeAdminDumaVotes(lawId){
+ if(!confirm('Завершить подсчёт по этому законопроекту? После этого голоса нельзя будет изменить, а законопроект получит итоговый статус.'))return;
+ try{const d=await api('/api/admin/duma/laws/'+lawId+'/finalize-votes',{method:'POST',body:{}});notify((d.status==='awaiting_president'?'Законопроект принят Госдумой и направлен Президенту. ':'Законопроект отклонён. ')+'За: '+d.votes_for+', против: '+d.votes_against+', воздержались: '+d.votes_abstain);await Promise.all([loadAdminDumaManualVotes(),loadAdminDumaLaws()])}
+ catch(e){notify(e.message||'Не удалось завершить подсчёт','error')}
+}
+
 async function diagnostics(){try{const d=await api('/api/admin/diagnostics');$('diagnosticsResult').textContent=JSON.stringify(d,null,2)}catch(e){$('diagnosticsResult').textContent=e.message}}
 init();
 </script>
