@@ -3205,7 +3205,7 @@ def _duma_events() -> list[dict]:
         "id,actor_user_id,action,target_user_id,details"
     ).in_("action", [
         "duma_session_opened", "duma_session_closed", "duma_law_submitted",
-        "duma_law_vote", "duma_law_passed", "duma_law_failed"
+        "duma_law_vote", "duma_law_admin_vote", "duma_law_admin_finalized", "duma_law_passed", "duma_law_failed"
     ]).order("id"))
 
 
@@ -3400,6 +3400,10 @@ def duma_list(user: dict) -> dict:
             submitted[lid] = {"session_id": int(data.get("session_id", 0)), "author_id": int(ev["actor_user_id"])}
         elif ev["action"] == "duma_law_vote":
             votes.setdefault(lid, {})[int(ev["actor_user_id"])] = data.get("vote")
+        elif ev["action"] == "duma_law_admin_vote":
+            target_id = int(ev.get("target_user_id") or 0)
+            if target_id:
+                votes.setdefault(lid, {})[target_id] = data.get("vote")
     for law in laws:
         lid = int(law["id"])
         meta = submitted.get(lid)
@@ -3588,6 +3592,134 @@ def admin_submit_law_to_duma(actor_id: int, law_id: int, session_id: int) -> dic
         f"в рамках заседания «{session_title}». Откройте раздел Госдумы и проголосуйте: «За» или «Против»."
     )
     return {**law, "status": "under_duma_review", "session_id": int(session_id)}
+
+
+def _admin_duma_deputies() -> list[dict]:
+    role = _deputy_role_row()
+    links = fetch_all(lambda: db().table("subject_roles").select("subject_id").eq("role_id", int(role["id"])))
+    ids = sorted({int(x["subject_id"]) for x in links if x.get("subject_id")})
+    subjects = select_in("subjects", "id,user_id,full_name,username", "id", ids) if ids else []
+    by_id = {int(x["id"]): x for x in subjects}
+    return [by_id[i] for i in ids if i in by_id]
+
+
+def admin_duma_law_votes(actor_id: int) -> dict:
+    deputies = _admin_duma_deputies()
+    events = _duma_events()
+    vote_map, submitted, finalized = {}, {}, set()
+    for ev in events:
+        try:
+            data = json.loads(ev.get("details") or "{}")
+        except (TypeError, ValueError):
+            continue
+        lid = int(data.get("law_id", 0))
+        if ev.get("action") == "duma_law_submitted":
+            submitted[lid] = int(data.get("session_id", 0))
+        elif ev.get("action") == "duma_law_vote":
+            vote_map.setdefault(lid, {})[int(ev["actor_user_id"])] = data.get("vote")
+        elif ev.get("action") == "duma_law_admin_vote" and ev.get("target_user_id"):
+            vote_map.setdefault(lid, {})[int(ev["target_user_id"])] = data.get("vote")
+        elif ev.get("action") == "duma_law_admin_finalized":
+            finalized.add(lid)
+    laws = rows(db().table("laws").select("id,title,description,status,created_at")
+                .in_("status", ["under_duma_review", "awaiting_president", "rejected_by_duma"])
+                .order("id", desc=True).limit(100))
+    result = []
+    for law in laws:
+        lid = int(law["id"])
+        if lid not in submitted:
+            continue
+        current = vote_map.get(lid, {})
+        law["session_id"] = submitted[lid]
+        law["finalized"] = lid in finalized
+        law["deputies"] = [{
+            "id": int(d["id"]), "full_name": d.get("full_name") or "Без ФИО",
+            "username": d.get("username") or "",
+            "vote": current.get(int(d["id"]), "not_voted")
+        } for d in deputies]
+        law["votes_for"] = sum(v == "for" for v in current.values())
+        law["votes_against"] = sum(v == "against" for v in current.values())
+        law["votes_abstain"] = sum(v == "abstain" for v in current.values())
+        result.append(law)
+    return {"laws": result, "deputies_total": len(deputies)}
+
+
+def admin_set_duma_law_vote(actor_id: int, law_id: int, deputy_id: int, vote: str) -> dict:
+    if vote not in ("for", "against", "abstain", "not_voted"):
+        raise DKDError(422, "Недопустимый вариант голоса.")
+    law = one(db().table("laws").select("id,status,title").eq("id", int(law_id)).limit(1))
+    if not law or law.get("status") != "under_duma_review":
+        raise DKDError(409, "Голосовать можно только по законопроекту, который сейчас рассматривает Госдума.")
+    deputy = next((d for d in _admin_duma_deputies() if int(d["id"]) == int(deputy_id)), None)
+    if not deputy:
+        raise DKDError(404, "Выбранный пользователь не является действующим депутатом.")
+    events = _duma_events()
+    submitted = False
+    for ev in events:
+        if ev.get("action") == "duma_law_submitted":
+            try:
+                if int(json.loads(ev.get("details") or "{}").get("law_id", 0)) == int(law_id):
+                    submitted = True
+            except (TypeError, ValueError):
+                continue
+    if not submitted:
+        raise DKDError(404, "Законопроект не зарегистрирован в Госдуме.")
+    for ev in events:
+        if ev.get("action") == "duma_law_admin_finalized":
+            try:
+                if int(json.loads(ev.get("details") or "{}").get("law_id", 0)) == int(law_id):
+                    raise DKDError(409, "Подсчёт по законопроекту уже завершён.")
+            except (TypeError, ValueError):
+                continue
+    event = audit(int(actor_id), "duma_law_admin_vote", int(deputy_id),
+                  json.dumps({"law_id": int(law_id), "vote": vote, "entered_by_admin": True}, ensure_ascii=False))
+    if not event or event.get("id") is None:
+        raise DKDError(502, "Не удалось сохранить голос депутата.")
+    return {"ok": True, "deputy_id": int(deputy_id), "vote": vote}
+
+
+def admin_finalize_duma_law_vote(actor_id: int, law_id: int) -> dict:
+    law = one(db().table("laws").select("id,status,title").eq("id", int(law_id)).limit(1))
+    if not law or law.get("status") != "under_duma_review":
+        raise DKDError(409, "Законопроект не находится на голосовании.")
+    deputies = _admin_duma_deputies()
+    events = _duma_events()
+    current = {}
+    for ev in events:
+        try:
+            data = json.loads(ev.get("details") or "{}")
+        except (TypeError, ValueError):
+            continue
+        if int(data.get("law_id", 0)) != int(law_id):
+            continue
+        if ev.get("action") == "duma_law_vote":
+            current[int(ev["actor_user_id"])] = data.get("vote")
+        elif ev.get("action") == "duma_law_admin_vote" and ev.get("target_user_id"):
+            current[int(ev["target_user_id"])] = data.get("vote")
+    if len(current) < len(deputies):
+        raise DKDError(409, f"Не заполнены голоса {len(deputies) - len(current)} депутат(ов). Отметьте их как «Не голосовал».")
+    for ev in events:
+        if ev.get("action") == "duma_law_admin_finalized":
+            try:
+                if int(json.loads(ev.get("details") or "{}").get("law_id", 0)) == int(law_id):
+                    raise DKDError(409, "Подсчёт уже завершён.")
+            except (TypeError, ValueError):
+                continue
+    yes = sum(v == "for" for v in current.values())
+    no = sum(v == "against" for v in current.values())
+    abstain = sum(v == "abstain" for v in current.values())
+    passed = yes > no and yes > len(deputies) / 2
+    status = "awaiting_president" if passed else "rejected_by_duma"
+    execute(db().table("laws").update({"status": status}).eq("id", int(law_id)).eq("status", "under_duma_review"),
+            "Не удалось сохранить результат голосования.")
+    audit(int(actor_id), "duma_law_admin_finalized", None,
+          json.dumps({"law_id": int(law_id), "votes_for": yes, "votes_against": no,
+                      "votes_abstain": abstain, "deputies_total": len(deputies), "status": status}, ensure_ascii=False))
+    audit(int(actor_id), "duma_law_passed" if passed else "duma_law_failed", None,
+          json.dumps({"law_id": int(law_id), "votes_for": yes, "votes_against": no,
+                      "votes_abstain": abstain, "admin_entered": True}, ensure_ascii=False))
+    return {"ok": True, "status": status, "votes_for": yes, "votes_against": no,
+            "votes_abstain": abstain, "deputies_total": len(deputies)}
 
 def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
     require_deputy({"id": int(actor_id)})
