@@ -3517,6 +3517,78 @@ def duma_submit_law(actor_id: int, session_id: int, title: str, description: str
     return law
 
 
+
+def admin_law_management(actor_id: int) -> dict:
+    """Возвращает доступные для передачи в Думу законопроекты и открытые заседания."""
+    listing = duma_list({"id": int(actor_id)})
+    events = _duma_events()
+    submitted_ids = set()
+    for event in events:
+        if event.get("action") != "duma_law_submitted":
+            continue
+        try:
+            submitted_ids.add(int(json.loads(event.get("details") or "{}").get("law_id", 0)))
+        except (TypeError, ValueError):
+            continue
+    laws = rows(db().table("laws").select("id,title,description,status,created_at")
+                .order("id", desc=True).limit(200))
+    available = [law for law in laws
+                 if law.get("status") == "active" and int(law.get("id", 0)) not in submitted_ids]
+    return {"sessions": [s for s in listing["sessions"] if not s["closed"]], "laws": available}
+
+
+def admin_submit_law_to_duma(actor_id: int, law_id: int, session_id: int) -> dict:
+    """Администратор передаёт опубликованный законопроект в открытое заседание Думы."""
+    law = one(db().table("laws").select("id,title,description,status")
+              .eq("id", int(law_id)).limit(1))
+    if not law:
+        raise DKDError(404, "Законопроект не найден.")
+    if law.get("status") != "active":
+        raise DKDError(409, "В Думу можно передать только опубликованный законопроект, ещё не находящийся на рассмотрении.")
+    events = _duma_events()
+    session_event = next((e for e in events
+                          if e.get("action") == "duma_session_opened"
+                          and int(e.get("id", 0)) == int(session_id)), None)
+    if not session_event:
+        raise DKDError(404, "Заседание Государственной думы не найдено.")
+    if _is_duma_session_closed(events, int(session_id)):
+        raise DKDError(409, "Нельзя открыть голосование в закрытом заседании.")
+    for event in events:
+        if event.get("action") != "duma_law_submitted":
+            continue
+        try:
+            submitted_id = int(json.loads(event.get("details") or "{}").get("law_id", 0))
+        except (TypeError, ValueError):
+            continue
+        if submitted_id == int(law_id):
+            raise DKDError(409, "Этот законопроект уже передан на рассмотрение Госдумы.")
+    updated = execute(db().table("laws").update({"status": "under_duma_review"})
+                      .eq("id", int(law_id)).eq("status", "active"),
+                      "Не удалось открыть голосование по законопроекту.")
+    if not updated:
+        raise DKDError(409, "Статус законопроекта уже изменился. Обновите панель администратора.")
+    event = audit(int(actor_id), "duma_law_submitted", None,
+                  json.dumps({"law_id": int(law_id), "session_id": int(session_id),
+                              "started_by_admin": True}, ensure_ascii=False))
+    if not event or event.get("id") is None:
+        try:
+            db().table("laws").update({"status": "active"}).eq("id", int(law_id)).eq(
+                "status", "under_duma_review").execute()
+        except Exception as rollback_exc:  # noqa: BLE001
+            log.error("Could not roll back law %s after audit failure: %s", law_id, rollback_exc)
+        raise DKDError(502, "Не удалось зарегистрировать голосование. Попробуйте ещё раз.")
+    try:
+        session_data = json.loads(session_event.get("details") or "{}")
+    except (TypeError, ValueError):
+        session_data = {}
+    session_title = session_data.get("title", "Государственная Дума")
+    _notify_current_deputies(
+        "Началось голосование по законопроекту",
+        f"Администратор передал на рассмотрение Госдумы законопроект «{law.get('title', '')}» "
+        f"в рамках заседания «{session_title}». Откройте раздел Госдумы и проголосуйте: «За» или «Против»."
+    )
+    return {**law, "status": "under_duma_review", "session_id": int(session_id)}
+
 def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
     require_deputy({"id": int(actor_id)})
     if vote not in ("for", "against"):
