@@ -294,7 +294,15 @@
         <div class="notice small">Системные роли: Президент (1), Министр иностранных дел (1), Премьер-министр (1), Депутат (без ограничения), Гражданин. Депутатов назначает только администратор.</div>
         <form class="card form" onsubmit="createElection(event)"><h3 style="margin:0">Создать выборы</h3><div class="field"><label>Тип</label><select id="electionKind"><option value="president">Президентские</option><option value="duma">В Думу</option></select></div><div class="field"><label>Название</label><input id="electionTitle" minlength="3" maxlength="160" required></div><div class="field"><label>Варианты — каждый с новой строки, минимум два</label><textarea id="electionOptions" required></textarea></div><div class="field"><label for="electionEndDate">Дата окончания (необязательно)</label><input id="electionEndDate" type="date"></div><div class="field"><label for="electionEndTime">Время окончания (необязательно)</label><input id="electionEndTime" type="time" step="60" inputmode="numeric"></div><button class="btn primary">Создать выборы</button></form>
         <form class="card form" onsubmit="createNews(event)"><h3 style="margin:0">Опубликовать новость</h3><div class="field"><label>Заголовок</label><input id="newsTitle" maxlength="180" placeholder="Например: Избран новый Президент"></div><div class="field"><label>Категория</label><select id="newsCategory"><option value="politics">Политика</option><option value="elections">Выборы</option><option value="government">Государство</option><option value="documents">Документы</option><option value="events">События</option><option value="other" selected>Общество</option></select></div><div class="field"><label>Важность публикации</label><select id="newsImportance"><option value="normal">Обычная новость</option><option value="important">Важная — уведомить подписчиков</option><option value="urgent">Срочная — уведомить подписчиков</option></select></div><div class="field"><label>Текст новости</label><textarea id="newsText" maxlength="10000" required placeholder="Текст официального сообщения…"></textarea></div><div class="field"><label>Фото или видео (необязательно, до 45 МБ)</label><input id="newsMedia" type="file" accept="image/*,video/mp4,video/quicktime"></div><div class="field"><label for="newsScheduleDate">Дата публикации по Москве (необязательно)</label><input id="newsScheduleDate" type="date"></div><div class="field"><label for="newsScheduleTime">Время публикации по Москве (МСК, UTC+3)</label><input id="newsScheduleTime" type="time" step="60"></div><p class="muted small">При выборе времени новость будет сохранена как запланированная и выйдет автоматически по Москве. До этого момента её не будет в ленте и Telegram-группе. Важные и срочные публикации уведомят подписчиков после выхода.</p><button class="btn primary">Опубликовать / запланировать</button></form><div class="card form"><div class="row"><h3 style="margin:0">Запланированные публикации</h3><button type="button" class="btn secondary" onclick="loadScheduledNews()">Обновить</button></div><div id="scheduledNewsList" class="muted small">Загрузка…</div></div>
-        <form class="card form" onsubmit="createLaw(event)"><h3 style="margin:0">Опубликовать закон</h3><div class="field"><label>Название</label><input id="lawTitle" minlength="2" maxlength="200" required></div><div class="field"><label>Описание / текст</label><textarea id="lawDescription" maxlength="20000"></textarea></div><button class="btn primary">Опубликовать закон</button></form>
+        <form class="card form" onsubmit="createLaw(event)"><h3 style="margin:0">Опубликовать закон</h3><div class="field"><label>Название</label><input id="lawTitle" minlength="2" maxlength="200" required></div><div class="field"><label>Описание / текст</label><textarea id="lawDescription" maxlength="20000"></textarea></div><button class="btn primary">Опубликовать закон</button></form> 
+        <div class="card form">
+          <div class="row"><h3 style="margin:0">Голосование по законопроекту в Госдуме</h3><button type="button" class="btn secondary" onclick="loadAdminDumaLaws()">Обновить</button></div>
+          <p class="muted small">Выберите опубликованный законопроект и открытое заседание. После запуска депутаты смогут проголосовать в разделе «Государственная дума».</p>
+          <div class="field"><label for="adminDumaLawSelect">Законопроект</label><select id="adminDumaLawSelect"><option value="">Загрузка законопроектов…</option></select></div>
+          <div class="field"><label for="adminDumaSessionSelect">Открытое заседание</label><select id="adminDumaSessionSelect"><option value="">Загрузка заседаний…</option></select></div>
+          <button type="button" class="btn primary" onclick="adminStartLawVote()">Передать законопроект на голосование</button>
+          <div id="adminDumaLawStatus" class="muted small" aria-live="polite"></div>
+        </div>
         <div class="section-head"><h3>Диагностика БД</h3></div><button class="btn secondary" onclick="diagnostics()">Проверить таблицы</button><pre id="diagnosticsResult" class="card" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
       </div>
     </section>
@@ -717,7 +725,7 @@ async function presidentCreateElection(e){e.preventDefault();try{const starts_at
 
 async function loadAdmin(){
   loadAdminPresidentialCandidates();
-  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory()])}}
+  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory(),loadAdminDumaLaws()])}}
   catch(e){$('adminStatus').textContent=e.message;$('claimBox').classList.remove('hidden');$('adminTools').classList.add('hidden')}
 }
 async function claimAdmin(e){e.preventDefault();try{await api('/api/admin/claim',{method:'POST',body:{code:$('adminCode').value}});notify('Администратор активирован');$('adminCode').value='';await loadAdmin()}catch(err){notify(err.message,'error')}}
@@ -876,6 +884,31 @@ async function createNews(e){e.preventDefault();const file=$('newsMedia')?.files
 async function loadScheduledNews(){const el=$('scheduledNewsList');if(!el)return;try{const d=await api('/api/admin/news/scheduled');const arr=d.news||[];el.innerHTML=arr.length?arr.map(n=>'<article class="notice" style="margin-top:8px"><strong>'+esc(n.title||'Новость ДКД')+'</strong><p class="small muted">'+esc(n.scheduled_local)+' МСК · '+esc(n.category||'other')+' · '+esc(n.importance||'normal')+'</p><button class="btn danger" type="button" onclick="cancelScheduledNews('+Number(n.id)+')">Отменить</button></article>').join(''):'<div class="empty">Запланированных публикаций нет.</div>'}catch(err){el.textContent=err.message||'Не удалось загрузить расписание'}}
 async function cancelScheduledNews(id){if(!confirm('Отменить запланированную публикацию?'))return;try{await api('/api/admin/news/scheduled/'+id,{method:'DELETE'});notify('Публикация отменена');await loadScheduledNews()}catch(err){notify(err.message||'Не удалось отменить публикацию','error')}}
 async function createLaw(e){e.preventDefault();try{await api('/api/admin/laws',{method:'POST',body:{title:$('lawTitle').value.trim(),description:$('lawDescription').value.trim()}});notify('Закон опубликован');e.target.reset()}catch(err){notify(err.message,'error')}}
+
+async function loadAdminDumaLaws(){
+ const lawSelect=$('adminDumaLawSelect'),sessionSelect=$('adminDumaSessionSelect'),status=$('adminDumaLawStatus');
+ if(!lawSelect||!sessionSelect)return;
+ if(status)status.textContent='Загрузка…';
+ try{
+  const d=await api('/api/admin/laws/for-duma');
+  const laws=d.laws||[],sessions=d.sessions||[];
+  lawSelect.innerHTML='<option value="">Выберите законопроект</option>'+laws.map(l=>'<option value="'+Number(l.id)+'">№'+Number(l.id)+' · '+esc(l.title||'Без названия')+'</option>').join('');
+  sessionSelect.innerHTML='<option value="">Выберите открытое заседание</option>'+sessions.map(s=>'<option value="'+Number(s.id)+'">№'+Number(s.id)+' · '+esc(s.title||'Заседание Госдумы')+'</option>').join('');
+  if(status)status.textContent=!laws.length?'Нет опубликованных законопроектов, доступных для передачи.':!sessions.length?'Нет открытых заседаний. Сначала созовите заседание в разделе Госдумы.':'Выберите законопроект и заседание.';
+ }catch(e){lawSelect.innerHTML='<option value="">Не удалось загрузить</option>';sessionSelect.innerHTML='<option value="">Не удалось загрузить</option>';if(status)status.textContent=e.message||'Ошибка загрузки'}
+}
+async function adminStartLawVote(){
+ const lawId=Number($('adminDumaLawSelect')?.value),sessionId=Number($('adminDumaSessionSelect')?.value);
+ if(!lawId||!sessionId){notify('Выберите законопроект и открытое заседание','error');return}
+ const title=$('adminDumaLawSelect').selectedOptions?.[0]?.textContent||'законопроект';
+ if(!confirm('Передать '+title+' на голосование в Госдуму? После запуска депутаты смогут голосовать, а повторная передача будет запрещена.'))return;
+ try{
+  const d=await api('/api/admin/laws/submit-to-duma',{method:'POST',body:{law_id:lawId,session_id:sessionId}});
+  notify('Голосование по законопроекту открыто');
+  if($('adminDumaLawStatus'))$('adminDumaLawStatus').textContent='Голосование открыто. Депутаты получили уведомление.';
+  await loadAdminDumaLaws();
+ }catch(e){notify(e.message||'Не удалось открыть голосование','error')}
+}
 async function diagnostics(){try{const d=await api('/api/admin/diagnostics');$('diagnosticsResult').textContent=JSON.stringify(d,null,2)}catch(e){$('diagnosticsResult').textContent=e.message}}
 init();
 </script>
