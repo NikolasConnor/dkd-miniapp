@@ -340,7 +340,7 @@ private suspend fun apiCall(token: String, method: String, path: String, payload
             val json = runCatching { JSONObject(body) }.getOrNull()
             if (status in 200..299) NetResult(json, null)
             else NetResult(error = json?.optString("detail")?.takeIf { it.isNotBlank() && it != "null" }
-                ?: "Ошибка сервера: HTTP " + status)
+                ?: if (status == 404) "Этот сервис ещё не опубликован на сервере ДКД." else "Ошибка сервера: HTTP " + status)
         } catch (e: Exception) {
             NetResult(error = when (e) {
                 is java.net.UnknownHostException -> "Нет соединения с сервером ДКД."
@@ -834,6 +834,7 @@ private fun SocialFeedScreen(
     var filter by remember { mutableIntStateOf(0) }
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var refreshing by remember { mutableIntStateOf(0) }
+    var loadError by remember { mutableStateOf<String?>(null) }
     val picker = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent()
     ) { selectedUri = it }
@@ -846,64 +847,136 @@ private fun SocialFeedScreen(
             if (filter == 1) path += "&following_only=true"
             if (filter == 2) path += "&saved_only=true"
             val result = apiCall(token, "GET", path)
-            if (result.error != null) onError(result.error)
+            loadError = result.error
             posts = result.data?.array("posts") ?: emptyList()
             loading = false
         }
     }
     LaunchedEffect(token, filter, refreshing) { reload() }
 
-    Column(Modifier.fillMaxSize()) {
-        ScreenHeader("Лента", "Публикации граждан ДКД")
-        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            OutlinedTextField(
-                value = text, onValueChange = { text = it },
-                modifier = Modifier.fillMaxWidth(), placeholder = { Text("Что нового?") },
-                minLines = 2, maxLines = 4
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = {
-                    if (text.isNotBlank() || selectedUri != null) scope.launch {
-                        loading = true
-                        val result = if (selectedUri != null) apiUpload(token, "/api/social/posts/media", context, selectedUri!!, text)
-                        else apiCall(token, "POST", "/api/social/posts", JSONObject().put("body", text.trim()))
-                        loading = false
-                        if (result.error != null) onError(result.error)
-                        else { text = ""; selectedUri = null; refreshing++ }
-                    } else onError("Напишите текст или прикрепите файл.")
-                }, enabled = !loading && (text.isNotBlank() || selectedUri != null)) { Text("Опубликовать") }
-                OutlinedButton(onClick = { picker.launch("*/*") }) { Text(if (selectedUri == null) "＋ Медиа" else "Файл выбран") }
-                if (selectedUri != null) TextButton(onClick = { selectedUri = null }) { Text("Убрать") }
-            }
-            OutlinedTextField(
-                value = search, onValueChange = { search = it },
-                modifier = Modifier.fillMaxWidth(), singleLine = true,
-                placeholder = { Text("Поиск по публикациям") },
-                trailingIcon = { TextButton(onClick = { reload() }) { Text("Найти") } }
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = filter == 0, onClick = { filter = 0 }, label = { Text("Все") })
-                FilterChip(selected = filter == 1, onClick = { filter = 1 }, label = { Text("Подписки") })
-                FilterChip(selected = filter == 2, onClick = { filter = 2 }, label = { Text("Сохранённые") })
+    Column(Modifier.fillMaxSize().background(Navy)) {
+        Column(Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("DKD  /  COMMUNITY", color = Blue, fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold, letterSpacing = 2.2.sp)
+                    Text("Лента", color = White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                    Text("Жизнь и события цифрового государства", color = Muted, fontSize = 11.sp)
+                }
+                Box(Modifier.size(42.dp).background(Color(0xFF17243B), RoundedCornerShape(15.dp)),
+                    contentAlignment = Alignment.Center) {
+                    Text("✦", color = Blue, fontSize = 22.sp)
+                }
             }
         }
-        if (loading && posts.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Blue) }
-        } else if (posts.isEmpty()) {
-            EmptyState("Публикаций пока нет", "Создайте первую запись или измените фильтр.")
-        } else {
-            androidx.compose.foundation.lazy.LazyColumn(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = PaddingValues(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(posts, key = { it.int("id") }) { post ->
+        Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState())
+            .padding(horizontal = 16.dp)) {
+            Surface(color = Color(0xFF111722), shape = RoundedCornerShape(20.dp),
+                modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(34.dp).background(Color(0xFF263B59), RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center) { Text("N", color = Blue, fontWeight = FontWeight.Bold) }
+                        Spacer(Modifier.width(10.dp))
+                        Column {
+                            Text("Создать публикацию", color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Поделитесь новостью с гражданами", color = Muted, fontSize = 10.sp)
+                        }
+                    }
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = text, onValueChange = { text = it },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 66.dp),
+                        textStyle = androidx.compose.ui.text.TextStyle(color = White, fontSize = 14.sp, lineHeight = 20.sp),
+                        decorationBox = { inner ->
+                            Box {
+                                if (text.isEmpty()) Text("Что нового?", color = Muted, fontSize = 14.sp)
+                                inner()
+                            }
+                        }
+                    )
+                    if (selectedUri != null) Text("Медиафайл выбран", color = Blue, fontSize = 11.sp)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = { picker.launch("image/*") }) { Text("＋ Фото", color = Blue, fontSize = 12.sp) }
+                        TextButton(onClick = { picker.launch("video/*") }) { Text("▶ Видео", color = Blue, fontSize = 12.sp) }
+                        Spacer(Modifier.weight(1f))
+                        Button(onClick = {
+                            if (text.isNotBlank() || selectedUri != null) scope.launch {
+                                loading = true
+                                val result = if (selectedUri != null) apiUpload(token, "/api/social/posts/media", context, selectedUri!!, text)
+                                else apiCall(token, "POST", "/api/social/posts", JSONObject().put("body", text.trim()))
+                                loading = false
+                                if (result.error != null) onError(result.error)
+                                else { text = ""; selectedUri = null; refreshing++ }
+                            } else onError("Добавьте текст или медиа.")
+                        }, enabled = !loading && (text.isNotBlank() || selectedUri != null),
+                            shape = RoundedCornerShape(12.dp), contentPadding = PaddingValues(horizontal = 17.dp, vertical = 8.dp)) {
+                            Text(if (loading) "..." else "Опубликовать", fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(15.dp))
+            Surface(color = Color(0xFF111722), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                Row(Modifier.padding(start = 14.dp, end = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("⌕", color = Muted, fontSize = 21.sp)
+                    Spacer(Modifier.width(9.dp))
+                    androidx.compose.foundation.text.BasicTextField(
+                        value = search, onValueChange = { search = it },
+                        modifier = Modifier.weight(1f).padding(vertical = 14.dp),
+                        singleLine = true, textStyle = androidx.compose.ui.text.TextStyle(color = White, fontSize = 12.sp),
+                        decorationBox = { inner ->
+                            Box {
+                                if (search.isEmpty()) Text("Поиск публикаций", color = Muted, fontSize = 12.sp)
+                                inner()
+                            }
+                        }
+                    )
+                    TextButton(onClick = { reload() }) { Text("Найти", color = Blue, fontSize = 11.sp) }
+                }
+            }
+            Spacer(Modifier.height(13.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Все", "Подписки", "Сохранённые").forEachIndexed { index, label ->
+                    val selected = filter == index
+                    Surface(color = if (selected) Color(0xFF263B59) else Color(0xFF111722),
+                        shape = RoundedCornerShape(20.dp), modifier = Modifier.clickable { filter = index }) {
+                        Text(label, color = if (selected) Blue else Muted, fontSize = 11.sp,
+                            modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp))
+                    }
+                }
+            }
+            Spacer(Modifier.height(15.dp))
+            when {
+                loading && posts.isEmpty() -> Box(Modifier.fillMaxWidth().padding(38.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Blue, strokeWidth = 2.dp)
+                }
+                loadError != null && posts.isEmpty() -> Surface(color = Color(0xFF211A20),
+                    shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Лента пока недоступна", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Сервер ещё не получил обновление социального API. Это не ошибка твоего аккаунта.",
+                            color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+                        TextButton(onClick = { refreshing++ }) { Text("Повторить", color = Blue) }
+                    }
+                }
+                posts.isEmpty() -> Surface(color = Color(0xFF111722), shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.fillMaxWidth().padding(25.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("✦", color = Blue, fontSize = 28.sp)
+                        Text("Здесь начинается общение", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Пока нет публикаций. Поделитесь первой новостью.", color = Muted, fontSize = 11.sp)
+                    }
+                }
+                else -> posts.forEach { post ->
                     SocialPostCard(token, post, currentUserId,
                         onAuthor = { onOpenProfile(it) },
                         onComments = { onOpenComments(post.int("id")) },
                         onRefresh = { refreshing++ }, onError = onError)
+                    Spacer(Modifier.height(12.dp))
                 }
             }
+            Spacer(Modifier.height(18.dp))
         }
     }
 }
