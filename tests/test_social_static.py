@@ -239,6 +239,18 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn("notificationPollInFlight", html)
         self.assertIn("if(nearBottom)pane.scrollTop=pane.scrollHeight", html)
 
+    def test_social_post_and_comment_edit_are_owner_checked_and_time_limited(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('@app.patch("/api/social/posts/{post_id}")', app)
+        self.assertIn('@app.patch("/api/social/comments/{comment_id}")', app)
+        self.assertIn('SOCIAL_EDIT_WINDOW = 15 * 60', core)
+        self.assertIn('def edit_own_social_post(', core)
+        self.assertIn('def edit_own_social_comment(', core)
+        self.assertIn('function editSocialPost(', html)
+        self.assertIn('function editSocialComment(', html)
+
     def test_social_write_limits_are_enforced(self):
         source = (ROOT / "core.py").read_text(encoding="utf-8")
         self.assertIn('len(text_value) > 5000', source)
