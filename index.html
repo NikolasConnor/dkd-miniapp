@@ -860,7 +860,7 @@ async function repostSocialPost(id){
  try{await api('/api/social/posts/'+id+'/repost',{method:'POST',body:{caption}});notify('Публикация добавлена в вашу ленту');await loadSocialFeed(true)}
  catch(e){notify(e.message,'error')}
 }
-async function toggleSocialReaction(id){
+async async function toggleSocialReaction(id){
  try{await api('/api/social/posts/'+id+'/reaction',{method:'POST'});await loadSocialFeed(true)}
  catch(e){notify(e.message,'error')}
 }
