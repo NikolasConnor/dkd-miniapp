@@ -95,3 +95,5 @@ create trigger dkd_single_active_marriage
 before insert or update of partner_one_user_id,partner_two_user_id,status
 on public.marriages
 for each row execute function public.dkd_guard_single_active_marriage();
+
+revoke all on function public.dkd_guard_single_active_marriage() from public, anon, authenticated;
