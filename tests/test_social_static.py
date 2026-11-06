@@ -282,7 +282,7 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('search=search, following_only=following_only', app)
         self.assertIn('query.ilike("body", f"%{safe_search}%")', core)
         self.assertIn('query.in_("author_user_id", followed_ids)', core)
-        self.assertIn('def setSocialFeedMode(following)', html)
+        self.assertIn('function setSocialFeedMode(following)', html)
         self.assertIn('function scheduleSocialFeedSearch()', html)
         self.assertIn('function searchSocialPeople()', html)
         self.assertIn('id="socialPeopleSearch"', html)
