@@ -268,13 +268,15 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
     <section id="adminView" class="view">
       <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Администрация</h3><button class="btn secondary" onclick="loadAdmin()">Обновить</button></div>
       <div id="adminStatus" class="notice">Проверка прав…</div>
+
+      <div id="claimBox" class="card hidden"><h3 style="margin-top:0">Первичная активация администратора</h3><p class="muted small">Введите одноразовый код, выданный владельцем системы.</p><form class="form" onsubmit="claimAdmin(event)"><div class="field"><label>Код активации</label><input id="adminCode" type="password" minlength="8" required autocomplete="off"></div><button class="btn primary">Активировать</button></form></div>
+      <div id="adminTools" class="hidden">
       <section id="adminSocialModeration" class="card" style="margin-top:12px">
         <div class="section-head"><h3>Модерация социальной сети</h3><button class="btn secondary" type="button" onclick="loadSocialModeration()">Обновить</button></div>
         <div class="row"><select id="socialReportStatus" onchange="loadSocialModeration()" aria-label="Статус жалоб"><option value="open">Новые</option><option value="reviewing">На рассмотрении</option><option value="resolved">Решённые</option><option value="dismissed">Отклонённые</option><option value="all">Все</option></select></div>
         <div id="socialModerationQueue" class="list"><div class="empty">Очередь жалоб загружается…</div></div>
       </section>
-      <div id="claimBox" class="card hidden"><h3 style="margin-top:0">Первичная активация администратора</h3><p class="muted small">Введите одноразовый код, выданный владельцем системы.</p><form class="form" onsubmit="claimAdmin(event)"><div class="field"><label>Код активации</label><input id="adminCode" type="password" minlength="8" required autocomplete="off"></div><button class="btn primary">Активировать</button></form></div>
-      <div id="adminTools" class="hidden">
+
         <div class="card form" style="margin-top:12px">
           <h4 style="margin:0">Вход в отдельное Android-приложение</h4>
           <p class="muted small" style="margin:0">Введите Telegram ID участника. Код действует 15 минут и используется один раз. Передайте его владельцу аккаунта лично.</p>
