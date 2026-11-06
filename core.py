@@ -3688,6 +3688,22 @@ def create_social_comment(user: dict, post_id: int, body: str,
         "post_id": int(post_id), "author_user_id": int(user["id"]), "body": text_value,
         "parent_comment_id": parent_id, "status": "published",
     }), "Не удалось добавить комментарий.")
+    post_owner_id = int(_social_visible_post(user, post_id).get("author_user_id") or 0)
+    actor = get_subject(int(user["id"])) or user
+    actor_name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+    recipients = set()
+    if post_owner_id and post_owner_id != int(user["id"]):
+        recipients.add(post_owner_id)
+    if parent_id is not None:
+        parent_owner = int(parent.get("author_user_id") or 0)
+        if parent_owner and parent_owner != int(user["id"]):
+            recipients.add(parent_owner)
+    for recipient_id in recipients:
+        title = "Ответ на ваш комментарий" if parent_id is not None and recipient_id == int(parent.get("author_user_id") or 0) else "Новый комментарий"
+        try:
+            create_notification(recipient_id, title, f"{actor_name}: {text_value[:500]}")
+        except Exception:
+            log.exception("Could not create social comment notification")
     return created[0]
 
 
@@ -3937,6 +3953,15 @@ def toggle_social_reaction(user: dict, post_id: int) -> dict:
     execute(db().table("social_reactions").insert({
         "post_id": int(post_id), "user_id": int(user["id"]), "reaction": "like",
     }), "Не удалось поставить реакцию.")
+    owner_id = int(post.get("author_user_id") or 0)
+    if owner_id and owner_id != int(user["id"]):
+        try:
+            actor = get_subject(int(user["id"])) or user
+            actor_name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+            create_notification(owner_id, "Новая отметка «Нравится»",
+                                f"{actor_name} отметил(а) вашу публикацию.")
+        except Exception:
+            log.exception("Could not create social like notification")
     return {"reacted": True}
 
 
@@ -4106,6 +4131,15 @@ def toggle_social_follow(user: dict, target_user_id: int) -> dict:
     execute(db().table("social_follows").insert({
         "follower_user_id": int(user["id"]), "followed_user_id": target_id,
     }), "Не удалось подписаться.")
+    try:
+        actor = get_subject(int(user["id"])) or user
+        actor_name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+        create_notification(
+            target_id, "Новый подписчик",
+            f"{actor_name} подписался(ась) на ваш профиль."
+        )
+    except Exception:
+        log.exception("Could not create social follow notification")
     return {"following": True}
 
 
