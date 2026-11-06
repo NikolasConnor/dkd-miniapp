@@ -4111,8 +4111,21 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
         "id,author_user_id,body,status,created_at,updated_at"
     ).in_("id", repost_ids).eq("status", "published").is_("deleted_at", "null"),
        "Не удалось загрузить исходные публикации профиля.") if repost_ids else []
+    profile_repost_private_ids = _social_private_user_ids(
+        sorted({int(p["author_user_id"]) for p in repost_originals})
+    )
+    if profile_repost_private_ids:
+        profile_repost_follows = rows(db().table("social_follows").select("followed_user_id")
+                                      .eq("follower_user_id", int(user["id"]))
+                                      .in_("followed_user_id", sorted(profile_repost_private_ids)),
+                                      "Не удалось проверить приватность исходных публикаций профиля.")
+        profile_repost_allowed = {int(x["followed_user_id"]) for x in profile_repost_follows}
+    else:
+        profile_repost_allowed = set()
     repost_original_map = {int(p["id"]): p for p in repost_originals
-                           if int(p["author_user_id"]) not in hidden_ids}
+                           if int(p["author_user_id"]) not in hidden_ids
+                           and (int(p["author_user_id"]) not in profile_repost_private_ids
+                                or int(p["author_user_id"]) in profile_repost_allowed)}
     repost_author_ids = sorted({int(p["author_user_id"]) for p in repost_original_map.values()})
     repost_authors = rows(db().table("subjects").select(
         "user_id,username,full_name,avatar_emoji"
