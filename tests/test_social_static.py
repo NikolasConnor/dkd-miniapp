@@ -335,6 +335,38 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('def _social_can_view_profile(', core)
 
 
+    def test_chat_replies_are_scoped_to_the_same_conversation(self):
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        sql = (ROOT / "supabase/migrations/20261106235000_chat_replies.sql").read_text(encoding="utf-8").lower()
+        self.assertIn("reply_to_message_id", core)
+        self.assertIn('.eq("conversation_id", cid).limit(1)', core[core.index("def send_chat_message"):])
+        self.assertIn("reply_to_message_id: int | None", app)
+        self.assertIn("function setChatReply(", html)
+        self.assertIn("function cancelChatReply(", html)
+        self.assertIn("m.reply_to", html)
+        self.assertIn("references public.chat_messages(id) on delete set null", sql)
+
+    def test_chat_message_search_is_scoped_and_bounded(self):
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        fn = core[core.index("def list_chat_messages"):core.index("CHAT_MESSAGE_EDIT_WINDOW")]
+        self.assertIn("def list_chat_messages", fn)
+        self.assertIn("_chat_participant(cid, int(user[\"id\"]))", fn)
+        self.assertIn('query.ilike("body"', fn)
+        self.assertIn("len(term) > 80", fn)
+        self.assertIn("search: str = \"\"", app)
+        self.assertIn("function searchCurrentChatMessages()", html)
+        self.assertIn("chatSearchRequestId", html)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+
 if __name__ == "__main__":
     unittest.main()
 
