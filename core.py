@@ -2783,6 +2783,107 @@ def toggle_social_reaction(user: dict, post_id: int) -> dict:
     return {"reacted": True}
 
 
+def get_social_profile(user: dict, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    target_id = int(target_user_id)
+    target = get_subject(target_id)
+    if not target or not target.get("is_citizen"):
+        raise DKDError(404, "Профиль гражданина не найден.")
+    profile = one(db().table("social_profiles").select(
+        "user_id,bio,cover_storage_path,updated_at"
+    ).eq("user_id", target_id).limit(1)) or {
+        "user_id": target_id, "bio": "", "cover_storage_path": None,
+    }
+    followers = rows(db().table("social_follows").select("follower_user_id")
+                     .eq("followed_user_id", target_id), "Не удалось загрузить подписчиков.")
+    following = rows(db().table("social_follows").select("followed_user_id")
+                     .eq("follower_user_id", target_id), "Не удалось загрузить подписки.")
+    own_follow = one(db().table("social_follows").select("follower_user_id")
+                     .eq("follower_user_id", int(user["id"]))
+                     .eq("followed_user_id", target_id).limit(1))
+    posts = rows(db().table("social_posts").select(
+        "id,author_user_id,body,status,created_at,updated_at"
+    ).eq("author_user_id", target_id).eq("status", "published")
+      .is_("deleted_at", "null").order("id", desc=True).limit(30),
+      "Не удалось загрузить публикации профиля.")
+    post_ids = [int(p["id"]) for p in posts]
+    reaction_counts: dict[int, int] = {}
+    comment_counts: dict[int, int] = {}
+    if post_ids:
+        reactions = rows(db().table("social_reactions").select("post_id")
+                         .in_("post_id", post_ids), "Не удалось загрузить реакции.")
+        comments = rows(db().table("social_comments").select("post_id")
+                        .in_("post_id", post_ids).eq("status", "published")
+                        .is_("deleted_at", "null"), "Не удалось загрузить комментарии.")
+        for item in reactions:
+            pid = int(item["post_id"])
+            reaction_counts[pid] = reaction_counts.get(pid, 0) + 1
+        for item in comments:
+            pid = int(item["post_id"])
+            comment_counts[pid] = comment_counts.get(pid, 0) + 1
+    post_items = []
+    for post in posts:
+        pid = int(post["id"])
+        post_items.append({
+            **post,
+            "reaction_count": reaction_counts.get(pid, 0),
+            "comment_count": comment_counts.get(pid, 0),
+        })
+    return {
+        "user_id": target_id,
+        "username": target.get("username"),
+        "full_name": target.get("full_name") or "Гражданин ДКД",
+        "avatar_emoji": target.get("avatar_emoji") or "👤",
+        "bio": profile.get("bio") or "",
+        "cover_storage_path": profile.get("cover_storage_path"),
+        "followers_count": len(followers),
+        "following_count": len(following),
+        "posts_count": len(posts),
+        "is_me": target_id == int(user["id"]),
+        "is_following": bool(own_follow),
+        "posts": post_items,
+    }
+
+
+def update_social_profile(user: dict, bio: str) -> dict:
+    subject = _require_social_citizen(user)
+    text_value = str(bio or "").strip()
+    if len(text_value) > 280:
+        raise DKDError(422, "Описание профиля не должно превышать 280 символов.")
+    payload = {"user_id": int(user["id"]), "bio": text_value,
+               "updated_at": datetime.now(timezone.utc).isoformat()}
+    execute(db().table("social_profiles").upsert(payload, on_conflict="user_id"),
+            "Не удалось сохранить описание профиля.")
+    return get_social_profile(user, int(user["id"]))
+
+
+def toggle_social_follow(user: dict, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    target_id = int(target_user_id)
+    if target_id == int(user["id"]):
+        raise DKDError(422, "Нельзя подписаться на собственный профиль.")
+    target = get_subject(target_id)
+    if not target or not target.get("is_citizen"):
+        raise DKDError(404, "Профиль гражданина не найден.")
+    blocked = one(db().table("social_user_blocks").select("blocker_user_id")
+                  .or_(f"and(blocker_user_id.eq.{int(user['id'])},blocked_user_id.eq.{target_id}),and(blocker_user_id.eq.{target_id},blocked_user_id.eq.{int(user['id'])})")
+                  .limit(1))
+    if blocked:
+        raise DKDError(403, "Подписка недоступна.")
+    existing = one(db().table("social_follows").select("follower_user_id")
+                   .eq("follower_user_id", int(user["id"]))
+                   .eq("followed_user_id", target_id).limit(1))
+    if existing:
+        execute(db().table("social_follows").delete()
+                .eq("follower_user_id", int(user["id"]))
+                .eq("followed_user_id", target_id), "Не удалось отменить подписку.")
+        return {"following": False}
+    execute(db().table("social_follows").insert({
+        "follower_user_id": int(user["id"]), "followed_user_id": target_id,
+    }), "Не удалось подписаться.")
+    return {"following": True}
+
+
 def _news_photo_mime(data: bytes, media_type: str | None) -> str:
     """Определяет поддерживаемый формат фото по бинарной сигнатуре."""
     if media_type != "photo":
