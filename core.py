@@ -3106,10 +3106,7 @@ def create_social_comment(user: dict, post_id: int, body: str) -> dict:
     text_value = str(body or "").strip()
     if not text_value or len(text_value) > 2000:
         raise DKDError(422, "Комментарий должен содержать от 1 до 2000 символов.")
-    post = one(db().table("social_posts").select("id,status,deleted_at")
-               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
-    if not post or post.get("status") != "published" or post.get("deleted_at"):
-        raise DKDError(404, "Публикация не найдена.")
+    post = _social_visible_post(user, post_id)
     created = execute(db().table("social_comments").insert({
         "post_id": int(post_id), "author_user_id": int(user["id"]), "body": text_value,
         "status": "published",
@@ -3119,10 +3116,7 @@ def create_social_comment(user: dict, post_id: int, body: str) -> dict:
 
 def list_social_comments(user: dict, post_id: int) -> list[dict]:
     _require_social_citizen(user)
-    post = one(db().table("social_posts").select("id,status,deleted_at")
-               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
-    if not post or post.get("status") != "published" or post.get("deleted_at"):
-        raise DKDError(404, "Публикация не найдена.")
+    post = _social_visible_post(user, post_id)
     comments = rows(db().table("social_comments").select(
         "id,post_id,author_user_id,parent_comment_id,body,created_at"
     ).eq("post_id", int(post_id)).eq("status", "published")
@@ -3140,10 +3134,7 @@ def list_social_comments(user: dict, post_id: int) -> list[dict]:
 
 def report_social_post(user: dict, post_id: int, reason: str, details: str = "") -> dict:
     _require_social_citizen(user)
-    post = one(db().table("social_posts").select("id,status,deleted_at")
-               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
-    if not post or post.get("status") != "published" or post.get("deleted_at"):
-        raise DKDError(404, "Публикация не найдена.")
+    post = _social_visible_post(user, post_id)
     allowed = {"spam", "harassment", "violence", "sexual_content", "illegal_content", "other"}
     reason_value = str(reason or "other").strip()
     details_value = str(details or "").strip()
@@ -3182,10 +3173,7 @@ def toggle_social_block(user: dict, target_user_id: int) -> dict:
 
 def toggle_social_reaction(user: dict, post_id: int) -> dict:
     _require_social_citizen(user)
-    post = one(db().table("social_posts").select("id,status,deleted_at")
-               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
-    if not post or post.get("status") != "published" or post.get("deleted_at"):
-        raise DKDError(404, "Публикация не найдена.")
+    post = _social_visible_post(user, post_id)
     existing = one(db().table("social_reactions").select("id")
                    .eq("post_id", int(post_id)).eq("user_id", int(user["id"])).limit(1))
     if existing:
