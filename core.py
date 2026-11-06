@@ -3408,7 +3408,8 @@ def _require_social_citizen(user: dict) -> dict:
     return subject
 
 
-def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20) -> list[dict]:
+def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
+                     search: str = "", following_only: bool = False) -> list[dict]:
     _require_social_citizen(user)
     size = max(1, min(int(limit), 50))
     query = db().table("social_posts").select(
@@ -3416,6 +3417,20 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20) 
     ).eq("status", "published").is_("deleted_at", "null")
     if before_id is not None:
         query = query.lt("id", int(before_id))
+    search_value = str(search or "").strip()
+    if len(search_value) > 80:
+        raise DKDError(422, "Поисковый запрос не должен превышать 80 символов.")
+    if search_value:
+        safe_search = search_value.replace("%", "").replace("*", "").replace(",", " ").strip()
+        if safe_search:
+            query = query.ilike("body", f"%{safe_search}%")
+    if following_only:
+        followed = rows(db().table("social_follows").select("followed_user_id")
+                        .eq("follower_user_id", int(user["id"])),
+                        "Не удалось загрузить список подписок.")
+        followed_ids = [int(x["followed_user_id"]) for x in followed]
+        followed_ids.append(int(user["id"]))
+        query = query.in_("author_user_id", followed_ids)
     posts = rows(query.order("id", desc=True).limit(size), "Не удалось загрузить ленту.")
     if not posts:
         return []
