@@ -3160,6 +3160,13 @@ def president_create_duma_election(actor_id: int, title: str, starts_at: str, en
     return president_schedule_duma_election(actor_id, title, starts_at, ends_at)
 
 
+def president_list_laws(actor_id: int) -> dict:
+    """Список законопроектов и решений, доступный действующему Президенту."""
+    laws = rows(db().table("laws").select(
+        "id,title,description,status,created_at"
+    ).order("id", desc=True).limit(200))
+    return {"laws": laws}
+
 def president_publish_law(actor_id: int, title: str, description: str) -> dict:
     return publish_law(actor_id, title, description)
 
