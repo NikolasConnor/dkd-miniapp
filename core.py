@@ -3122,6 +3122,8 @@ def list_social_comments(user: dict, post_id: int) -> list[dict]:
     ).eq("post_id", int(post_id)).eq("status", "published")
       .is_("deleted_at", "null").order("created_at"),
       "Не удалось загрузить комментарии.")
+    hidden_ids = _social_blocked_user_ids(int(user["id"]))
+    comments = [x for x in comments if int(x["author_user_id"]) not in hidden_ids]
     author_ids = sorted({int(x["author_user_id"]) for x in comments})
     authors = rows(db().table("subjects").select(
         "user_id,full_name,username,avatar_emoji"
@@ -3376,8 +3378,8 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
         "avatar_emoji": target.get("avatar_emoji") or "👤",
         "bio": profile.get("bio") or "",
         "cover_storage_path": profile.get("cover_storage_path"),
-        "followers_count": len(followers),
-        "following_count": len(following),
+        "followers_count": len(follower_list),
+        "following_count": len(following_list),
         "followers": follower_list,
         "following": following_list,
         "posts_count": len(posts),
