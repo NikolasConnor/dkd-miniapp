@@ -2884,6 +2884,75 @@ def toggle_social_follow(user: dict, target_user_id: int) -> dict:
     return {"following": True}
 
 
+def set_social_cover(user: dict, data: bytes, filename: str) -> dict:
+    _require_social_citizen(user)
+    if not data:
+        raise DKDError(422, "Выберите изображение обложки.")
+    if len(data) > 8 * 1024 * 1024:
+        raise DKDError(413, "Обложка должна быть не больше 8 МБ.")
+    if data.startswith(bytes.fromhex("ffd8ff")):
+        mime, ext = "image/jpeg", "jpg"
+    elif data.startswith(bytes.fromhex("89504e470d0a1a0a")):
+        mime, ext = "image/png", "png"
+    elif len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        mime, ext = "image/webp", "webp"
+    else:
+        raise DKDError(422, "Обложка должна быть изображением JPEG, PNG или WebP.")
+    user_id = int(user["id"])
+    previous = one(db().table("social_profiles").select("cover_storage_path")
+                   .eq("user_id", user_id).limit(1))
+    path = f"{user_id}/cover/{uuid.uuid4().hex}.{ext}"
+    try:
+        db().storage.from_("social-media").upload(
+            path=path, file=data,
+            file_options={"content-type": mime, "upsert": "false"}
+        )
+    except Exception as exc:
+        log.exception("Social profile cover upload failed")
+        raise db_error(exc, "Не удалось загрузить обложку профиля.") from exc
+    try:
+        execute(db().table("social_profiles").upsert({
+            "user_id": user_id, "cover_storage_path": path,
+            "updated_at": utcnow().isoformat(),
+        }, on_conflict="user_id"), "Не удалось сохранить обложку профиля.")
+    except Exception:
+        try:
+            db().storage.from_("social-media").remove([path])
+        except Exception:
+            log.warning("Could not clean up failed profile cover upload %s", path)
+        raise
+    old_path = (previous or {}).get("cover_storage_path")
+    if old_path and old_path != path:
+        try:
+            db().storage.from_("social-media").remove([old_path])
+        except Exception as exc:
+            log.warning("Old social profile cover cleanup failed: %s", exc)
+    return {"ok": True, "cover_url": f"/api/social/profiles/{user_id}/cover"}
+
+
+def get_social_cover(user: dict, target_user_id: int) -> tuple[bytes, str]:
+    _require_social_citizen(user)
+    target_id = int(target_user_id)
+    target = get_subject(target_id)
+    if not target or not target.get("is_citizen"):
+        raise DKDError(404, "Профиль гражданина не найден.")
+    profile = one(db().table("social_profiles").select("cover_storage_path")
+                  .eq("user_id", target_id).limit(1))
+    path = (profile or {}).get("cover_storage_path")
+    if not path:
+        raise DKDError(404, "Обложка профиля не установлена.")
+    try:
+        data = db().storage.from_("social-media").download(path)
+    except Exception as exc:
+        raise db_error(exc, "Не удалось загрузить обложку профиля.") from exc
+    suffix = str(path).rsplit(".", 1)[-1].lower()
+    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "png": "image/png", "webp": "image/webp"}.get(suffix)
+    if not mime:
+        raise DKDError(415, "Формат обложки не поддерживается.")
+    return data, mime
+
+
 def _news_photo_mime(data: bytes, media_type: str | None) -> str:
     """Определяет поддерживаемый формат фото по бинарной сигнатуре."""
     if media_type != "photo":
