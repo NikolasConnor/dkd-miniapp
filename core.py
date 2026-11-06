@@ -2770,7 +2770,8 @@ def list_documents(user: dict, admin: bool) -> dict:
         else:
             item.pop("secret_for_user_id", None)
             public_decrees.append(item)
-    marriages = list_marriages(user).get("marriages", [])
+    subject_for_family = get_subject(uid) or {}
+    marriages = list_marriages(user).get("marriages", []) if subject_for_family.get("is_citizen") else []
     return {"laws": laws, "decrees": public_decrees, "mandates": mandates,
             "president_certificate": president_certificate, "marriages": marriages}
 
