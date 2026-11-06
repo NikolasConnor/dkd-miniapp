@@ -211,6 +211,34 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('function startChatPolling(', html)
         self.assertIn('clearInterval(chatPollTimer)', html)
 
+    def test_chat_message_edit_delete_are_owner_checked_and_time_limited(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('@app.patch("/api/chats/{conversation_id}/messages/{message_id}")', app)
+        self.assertIn('@app.delete("/api/chats/{conversation_id}/messages/{message_id}")', app)
+        self.assertIn('CHAT_MESSAGE_EDIT_WINDOW = 15 * 60', core)
+        self.assertIn('Изменять или удалять можно только свои сообщения.', core)
+        self.assertIn('def edit_chat_message(', core)
+        self.assertIn('def delete_chat_message(', core)
+        self.assertIn('function editChatMessage(', html)
+        self.assertIn('function deleteChatMessage(', html)
+
+    def test_chat_member_picker_uses_search_not_manual_ids(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="chatGroupPeopleSearch"', html)
+        self.assertIn('id="chatAddPeopleSearch"', html)
+        self.assertIn("function searchGroupPeople(mode)", html)
+        self.assertIn("api('/api/chats/people?search='", html)
+        self.assertNotIn('id="chatGroupMembers"', html)
+        self.assertNotIn('id="chatAddMemberIds"', html)
+
+    def test_chat_and_notification_polling_respect_page_visibility(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn("document.visibilityState==='hidden'", html)
+        self.assertIn("notificationPollInFlight", html)
+        self.assertIn("if(nearBottom)pane.scrollTop=pane.scrollHeight", html)
+
     def test_social_write_limits_are_enforced(self):
         source = (ROOT / "core.py").read_text(encoding="utf-8")
         self.assertIn('len(text_value) > 5000', source)
