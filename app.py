@@ -260,6 +260,40 @@ def get_documents(user: dict = Depends(auth_user)):
     return core.list_documents(user, core.is_admin(user))
 
 
+# ----------------------------------------------------------------------------
+# Социальная сеть: лента, публикации, комментарии и реакции
+# ----------------------------------------------------------------------------
+
+class SocialPostCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=5000)
+
+
+class SocialCommentCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+
+
+@app.get("/api/social/feed")
+def social_feed(before_id: int | None = None, limit: int = 20,
+                user: dict = Depends(auth_user)):
+    return {"posts": core.list_social_feed(user, before_id=before_id, limit=limit)}
+
+
+@app.post("/api/social/posts")
+def social_create_post(payload: SocialPostCreate, user: dict = Depends(auth_user)):
+    return {"ok": True, "post": core.create_social_post(user, payload.body)}
+
+
+@app.post("/api/social/posts/{post_id}/comments")
+def social_create_comment(post_id: int, payload: SocialCommentCreate,
+                          user: dict = Depends(auth_user)):
+    return {"ok": True, "comment": core.create_social_comment(user, post_id, payload.body)}
+
+
+@app.post("/api/social/posts/{post_id}/reaction")
+def social_toggle_reaction(post_id: int, user: dict = Depends(auth_user)):
+    return core.toggle_social_reaction(user, post_id)
+
+
 @app.get("/api/news")
 def get_news(user: dict = Depends(auth_user)):
     return {"news": core.list_news()}
