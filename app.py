@@ -441,6 +441,61 @@ def social_get_cover(target_user_id: int, user: dict = Depends(auth_user)):
                              "X-Content-Type-Options": "nosniff"})
 
 
+
+# Direct and group chats
+class ChatDirectCreate(BaseModel):
+    target_user_id: int = Field(gt=0)
+
+class ChatGroupCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=80)
+    member_ids: list[int] = Field(default_factory=list, max_length=49)
+
+class ChatMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+class ChatMembersAdd(BaseModel):
+    member_ids: list[int] = Field(min_length=1, max_length=20)
+
+@app.get("/api/chats/people")
+def chats_people(search: str = "", user: dict = Depends(auth_user)):
+    return {"people": core.list_chat_people(user, search)}
+
+@app.get("/api/chats")
+def chats_list(user: dict = Depends(auth_user)):
+    return {"chats": core.list_chats(user)}
+
+@app.post("/api/chats/direct")
+def chats_create_direct(payload: ChatDirectCreate, user: dict = Depends(auth_user)):
+    return core.create_direct_chat(user, payload.target_user_id)
+
+@app.post("/api/chats/groups")
+def chats_create_group(payload: ChatGroupCreate, user: dict = Depends(auth_user)):
+    return core.create_group_chat(user, payload.title, payload.member_ids)
+
+@app.get("/api/chats/{conversation_id}/messages")
+def chats_messages(conversation_id: int, before_id: int | None = None,
+                   limit: int = 50, user: dict = Depends(auth_user)):
+    return {"messages": core.list_chat_messages(user, conversation_id, before_id, limit)}
+
+@app.post("/api/chats/{conversation_id}/messages")
+def chats_send_message(conversation_id: int, payload: ChatMessageCreate,
+                       user: dict = Depends(auth_user)):
+    return core.send_chat_message(user, conversation_id, payload.body)
+
+@app.post("/api/chats/{conversation_id}/read")
+def chats_mark_read(conversation_id: int, user: dict = Depends(auth_user)):
+    return core.mark_chat_read(user, conversation_id)
+
+@app.post("/api/chats/{conversation_id}/leave")
+def chats_leave(conversation_id: int, user: dict = Depends(auth_user)):
+    return core.leave_chat(user, conversation_id)
+
+@app.post("/api/chats/{conversation_id}/members")
+def chats_add_members(conversation_id: int, payload: ChatMembersAdd,
+                      user: dict = Depends(auth_user)):
+    return core.add_chat_members(user, conversation_id, payload.member_ids)
+
+
 # Закон №3: регистрация брака, развод и Суд ДКД
 @app.get("/api/family")
 def family_list(user: dict = Depends(auth_user)):
