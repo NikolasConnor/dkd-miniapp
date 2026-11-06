@@ -507,6 +507,7 @@ class ChatGroupCreate(BaseModel):
 
 class ChatMessageCreate(BaseModel):
     body: str = Field(min_length=1, max_length=4000)
+    reply_to_message_id: int | None = Field(default=None, gt=0)
 
 class ChatMembersAdd(BaseModel):
     member_ids: list[int] = Field(min_length=1, max_length=20)
@@ -535,7 +536,9 @@ def chats_messages(conversation_id: int, before_id: int | None = None,
 @app.post("/api/chats/{conversation_id}/messages")
 def chats_send_message(conversation_id: int, payload: ChatMessageCreate,
                        user: dict = Depends(auth_user)):
-    return core.send_chat_message(user, conversation_id, payload.body)
+    return core.send_chat_message(
+        user, conversation_id, payload.body, payload.reply_to_message_id
+    )
 
 
 class ChatMessageEdit(BaseModel):
