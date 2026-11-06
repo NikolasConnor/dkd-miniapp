@@ -3080,6 +3080,118 @@ def send_chat_message(user: dict, conversation_id: int, body: str) -> dict:
             log.warning("chat notification failed for %s: %s", recipient, exc)
     return {"ok": True, "message": message}
 
+
+CHAT_MEDIA_MAX_BYTES = 25 * 1024 * 1024
+
+def create_chat_message_with_media(user: dict, conversation_id: int,
+                                   body: str, data: bytes, filename: str) -> dict:
+    _require_social_citizen(user)
+    uid, cid = int(user["id"]), int(conversation_id)
+    _chat_participant(cid, uid)
+    text_value = str(body or "").strip()
+    if len(text_value) > CHAT_MESSAGE_MAX_LENGTH:
+        raise DKDError(422, "Текст сообщения слишком длинный.")
+    if not data:
+        raise DKDError(422, "Файл пуст.")
+    if len(data) > CHAT_MEDIA_MAX_BYTES:
+        raise DKDError(413, "Вложение должно быть не больше 25 МБ.")
+    if data.startswith(bytes.fromhex("ffd8ff")):
+        mime, ext, kind = "image/jpeg", "jpg", "image"
+    elif data.startswith(bytes.fromhex("89504e470d0a1a0a")):
+        mime, ext, kind = "image/png", "png", "image"
+    elif len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        mime, ext, kind = "image/webp", "webp", "image"
+    elif len(data) >= 12 and data[4:8] == b"ftyp":
+        mime, ext, kind = "video/mp4", "mp4", "video"
+    else:
+        raise DKDError(415, "Поддерживаются JPEG, PNG, WebP и MP4.")
+    conv = one(db().table("chat_conversations").select("id,type")
+               .eq("id", cid).limit(1), "Не удалось проверить чат.")
+    if not conv:
+        raise DKDError(404, "Чат не найден.")
+    members = rows(db().table("chat_participants").select("user_id")
+                   .eq("conversation_id", cid).is_("left_at", "null"))
+    recipients = [int(x["user_id"]) for x in members if int(x["user_id"]) != uid]
+    if conv["type"] == "direct" and any(
+        x in _social_blocked_user_ids(uid) for x in recipients
+    ):
+        raise DKDError(403, "Отправка сообщений недоступна из-за блокировки.")
+    path = f"chat/{cid}/{uid}/{uuid.uuid4().hex}.{ext}"
+    try:
+        db().storage.from_("social-media").upload(
+            path=path, file=data,
+            file_options={"content-type": mime, "upsert": "false"}
+        )
+    except Exception as exc:
+        log.exception("Chat attachment upload failed")
+        raise db_error(exc, "Не удалось загрузить вложение.") from exc
+    message = None
+    try:
+        created = execute(db().table("chat_messages").insert({
+            "conversation_id": cid, "sender_user_id": uid,
+            "body": text_value or ("📷 Фото" if kind == "image" else "🎬 Видео"),
+        }).select("id,conversation_id,sender_user_id,body,created_at"),
+           "Не удалось отправить сообщение.")
+        if not created:
+            raise DKDError(502, "Сервер не подтвердил отправку сообщения.")
+        message = created[0]
+        attached = execute(db().table("chat_message_media").insert({
+            "message_id": int(message["id"]), "conversation_id": cid,
+            "owner_user_id": uid, "storage_path": path, "media_type": kind,
+            "mime_type": mime, "size_bytes": len(data),
+        }).select("id,message_id,media_type,mime_type,size_bytes,created_at"),
+           "Не удалось сохранить вложение.")
+        if not attached:
+            raise DKDError(502, "Сервер не подтвердил сохранение вложения.")
+        execute(db().table("chat_conversations").update({
+            "last_message_at": message["created_at"]
+        }).eq("id", cid), "Не удалось обновить чат.")
+    except Exception:
+        if message:
+            try:
+                db().table("chat_messages").delete().eq("id", int(message["id"])).execute()
+            except Exception:
+                log.exception("Could not roll back chat message")
+        try:
+            db().storage.from_("social-media").remove([path])
+        except Exception:
+            log.exception("Could not clean up chat attachment")
+        raise
+    for recipient in recipients:
+        try:
+            create_notification(recipient, "Новое сообщение",
+                               "Вам отправили сообщение с вложением в ДКД.",
+                               send_telegram=False)
+        except Exception as exc:
+            log.warning("chat attachment notification failed: %s", exc)
+    return {"ok": True, "message": {**message, "media": [{
+        **attached[0], "url": f"/api/chats/{cid}/media/{int(attached[0]['id'])}"
+    }]}}
+
+def get_chat_message_media(user: dict, conversation_id: int, media_id: int) -> tuple[bytes, str]:
+    _require_social_citizen(user)
+    cid = int(conversation_id)
+    _chat_participant(cid, int(user["id"]))
+    media = one(db().table("chat_message_media").select(
+        "id,conversation_id,message_id,storage_path,mime_type"
+    ).eq("id", int(media_id)).eq("conversation_id", cid).limit(1),
+       "Не удалось найти вложение.")
+    if not media:
+        raise DKDError(404, "Вложение не найдено.")
+    msg = one(db().table("chat_messages").select("id,deleted_at")
+              .eq("id", int(media["message_id"])).eq("conversation_id", cid).limit(1))
+    if not msg or msg.get("deleted_at"):
+        raise DKDError(404, "Вложение не найдено.")
+    try:
+        data = db().storage.from_("social-media").download(media["storage_path"])
+    except Exception as exc:
+        raise db_error(exc, "Не удалось получить вложение.") from exc
+    mime = str(media.get("mime_type") or "")
+    if mime not in ("image/jpeg", "image/png", "image/webp", "video/mp4"):
+        raise DKDError(415, "Формат вложения не поддерживается.")
+    return data, mime
+
+
 def mark_chat_read(user: dict, conversation_id: int) -> dict:
     _require_social_citizen(user)
     uid, cid = int(user["id"]), int(conversation_id)
