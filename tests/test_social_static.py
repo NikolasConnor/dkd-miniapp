@@ -176,6 +176,33 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('revoke all on function public.transfer_chat_ownership', sql)
         self.assertIn('grant execute on function public.transfer_chat_ownership', sql)
 
+    def test_chat_media_api_is_authenticated_and_size_limited(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        self.assertIn('@app.post("/api/chats/{conversation_id}/media")', app)
+        self.assertIn('@app.get("/api/chats/{conversation_id}/media/{media_id}")', app)
+        self.assertIn('Depends(auth_user)', app)
+        self.assertIn('25 * 1024 * 1024 + 1', app)
+        self.assertIn('def create_chat_message_with_media(', core)
+        self.assertIn('def get_chat_message_media(', core)
+        self.assertIn('CHAT_MEDIA_MAX_BYTES = 25 * 1024 * 1024', core)
+        self.assertIn('db().storage.from_("social-media").upload(', core)
+
+    def test_chat_media_migration_is_private_and_constrained(self):
+        sql = (ROOT / "supabase/migrations/20261106220000_chat_message_media.sql").read_text(encoding="utf-8").lower()
+        self.assertIn('create table if not exists public.chat_message_media', sql)
+        self.assertIn('alter table public.chat_message_media enable row level security', sql)
+        self.assertIn('revoke all on public.chat_message_media from anon, authenticated', sql)
+        self.assertIn('grant all on public.chat_message_media to service_role', sql)
+        self.assertIn('size_bytes between 1 and 26214400', sql)
+
+    def test_chat_ui_supports_image_and_video_attachments(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="chatAttachment"', html)
+        self.assertIn('function sendChatAttachment(', html)
+        self.assertIn("m.media||[]", html)
+        self.assertIn('<video controls playsinline', html)
+
     def test_chat_ui_has_group_moderation_and_polling(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
         self.assertIn('id="chatMemberTools"', html)
