@@ -171,7 +171,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 <div class="card form"><h3>Новый личный чат</h3><input id="chatPeopleSearch" maxlength="80" placeholder="Поиск гражданина" oninput="searchChatPeople()"><div id="chatPeopleResults"></div></div>
 <form class="card form" onsubmit="createChatGroup(event)"><h3>Создать группу</h3><input id="chatGroupTitle" required minlength="2" maxlength="80" placeholder="Название группы"><div><input id="chatGroupPeopleSearch" placeholder="Найти граждан по имени или @username" oninput="searchGroupPeople('create')"><div id="chatGroupPeopleResults" class="list"></div><div id="chatGroupPeopleSelected" class="muted small"></div></div><button class="btn primary">Создать группу</button></form>
 <div id="chatList" class="list"></div></div>
-<div id="chatRoomPane" class="hidden"><button class="btn secondary" onclick="closeChatRoom()">← К чатам</button><h3 id="chatRoomTitle">Чат</h3><div id="chatParticipants" class="muted small"></div><div id="chatMemberTools" class="card form hidden"><strong>Участники группы</strong><div id="chatMemberList" class="list"></div><input id="chatAddPeopleSearch" placeholder="Найти граждан по имени или @username" oninput="searchGroupPeople('add')"><div id="chatAddPeopleResults" class="list"></div><div id="chatAddPeopleSelected" class="muted small"></div><button class="btn secondary" onclick="addChatMembersUI()">Добавить выбранных</button></div><div id="chatReplyPreview" class="notice hidden" style="margin:10px 0"><div class="row"><span id="chatReplyPreviewText" class="small"></span><button class="btn secondary" type="button" onclick="cancelChatReply()">Отмена</button></div></div><div id="chatMessages" class="list"></div><form class="row" onsubmit="sendChatMessage(event)"><input id="chatMessageBody" maxlength="4000" placeholder="Сообщение"><button class="btn primary">Отправить</button></form><form class="row" onsubmit="sendChatAttachment(event)"><input id="chatAttachment" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" required><button class="btn secondary">Прикрепить</button></form><small class="muted">Фото или MP4-видео, до 25 МБ.</small><button id="chatLeaveButton" class="btn secondary hidden" onclick="leaveCurrentChat()">Покинуть группу</button></div>
+<div id="chatRoomPane" class="hidden"><button class="btn secondary" onclick="closeChatRoom()">← К чатам</button><h3 id="chatRoomTitle">Чат</h3><div id="chatParticipants" class="muted small"></div><div id="chatMemberTools" class="card form hidden"><strong>Участники группы</strong><div id="chatMemberList" class="list"></div><input id="chatAddPeopleSearch" placeholder="Найти граждан по имени или @username" oninput="searchGroupPeople('add')"><div id="chatAddPeopleResults" class="list"></div><div id="chatAddPeopleSelected" class="muted small"></div><button class="btn secondary" onclick="addChatMembersUI()">Добавить выбранных</button></div><div id="chatReplyPreview" class="notice hidden" style="margin:10px 0"><div class="row"><span id="chatReplyPreviewText" class="small"></span><button class="btn secondary" type="button" onclick="cancelChatReply()">Отмена</button></div></div><input id="chatMessageSearch" maxlength="80" placeholder="Поиск по сообщениям" oninput="searchCurrentChatMessages()"><div id="chatMessages" class="list"></div><form class="row" onsubmit="sendChatMessage(event)"><input id="chatMessageBody" maxlength="4000" placeholder="Сообщение"><button class="btn primary">Отправить</button></form><form class="row" onsubmit="sendChatAttachment(event)"><input id="chatAttachment" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" required><button class="btn secondary">Прикрепить</button></form><small class="muted">Фото или MP4-видео, до 25 МБ.</small><button id="chatLeaveButton" class="btn secondary hidden" onclick="leaveCurrentChat()">Покинуть группу</button></div>
 </section>
 <section id="socialProfileView" class="view">
       <button class="back" onclick="openView('social')">← К ленте</button>
@@ -640,10 +640,13 @@ async function createChatGroup(e){
   await openChat(d.conversation.id);
  }catch(e){notify(e.message,'error')}
 }
-async function openChat(id){state.currentChatId=Number(id);$('chatListPane').classList.add('hidden');$('chatRoomPane').classList.remove('hidden');try{const [list,msgs]=await Promise.all([api('/api/chats'),api('/api/chats/'+id+'/messages')]);state.currentChat=(list.chats||[]).find(x=>Number(x.id)===Number(id));if(!state.currentChat)throw new Error('Чат не найден');const other=(state.currentChat.participants||[]).find(p=>Number(p.user_id)!==Number(state.profile?.user_id));$('chatRoomTitle').textContent=state.currentChat.title||other?.profile?.full_name||'Личный чат';$('chatParticipants').textContent=(state.currentChat.participants||[]).map(p=>p.profile?.full_name||'Гражданин').join(' · ');renderChatMembers();$('chatLeaveButton').classList.toggle('hidden',state.currentChat.type!=='group'||state.currentChat.my_role==='owner');renderChatMessages(msgs.messages||[]);await api('/api/chats/'+id+'/read',{method:'POST',body:{}});startChatPolling()}catch(e){showError($('chatMessages'),e)}}
+async function openChat(id){state.currentChatId=Number(id);chatSearchQuery="";$('chatMessageSearch').value="";$('chatListPane').classList.add('hidden');$('chatRoomPane').classList.remove('hidden');try{const [list,msgs]=await Promise.all([api('/api/chats'),api('/api/chats/'+id+'/messages')]);state.currentChat=(list.chats||[]).find(x=>Number(x.id)===Number(id));if(!state.currentChat)throw new Error('Чат не найден');const other=(state.currentChat.participants||[]).find(p=>Number(p.user_id)!==Number(state.profile?.user_id));$('chatRoomTitle').textContent=state.currentChat.title||other?.profile?.full_name||'Личный чат';$('chatParticipants').textContent=(state.currentChat.participants||[]).map(p=>p.profile?.full_name||'Гражданин').join(' · ');renderChatMembers();$('chatLeaveButton').classList.toggle('hidden',state.currentChat.type!=='group'||state.currentChat.my_role==='owner');renderChatMessages(msgs.messages||[]);await api('/api/chats/'+id+'/read',{method:'POST',body:{}});startChatPolling()}catch(e){showError($('chatMessages'),e)}}
 
 let chatPollTimer=null;
 let chatReplyToMessageId=null;
+let chatSearchTimer=null;
+let chatSearchRequestId=0;
+let chatSearchQuery="";
 function setChatReply(id,body){
  chatReplyToMessageId=Number(id);
  $('chatReplyPreviewText').textContent='Ответ на сообщение: '+String(body||'').slice(0,180);
@@ -655,6 +658,20 @@ function cancelChatReply(){
  $('chatReplyPreview').classList.add('hidden');
  $('chatReplyPreviewText').textContent='';
 }
+function searchCurrentChatMessages(){
+ clearTimeout(chatSearchTimer);
+ chatSearchTimer=setTimeout(async()=>{
+  const id=state.currentChatId;
+  if(!id)return;
+  const query=$('chatMessageSearch').value.trim();
+  chatSearchQuery=query;
+  const requestId=++chatSearchRequestId;
+  try{
+   const d=await api('/api/chats/'+id+'/messages?search='+encodeURIComponent(query));
+   if(id===state.currentChatId&&requestId===chatSearchRequestId)renderChatMessages(d.messages||[]);
+  }catch(e){if(requestId===chatSearchRequestId)showError($('chatMessages'),e)}
+ },250);
+}
 function startChatPolling(){
  if(chatPollTimer)clearInterval(chatPollTimer);
  chatPollTimer=setInterval(async()=>{
@@ -662,7 +679,7 @@ function startChatPolling(){
   if(!id||document.visibilityState==='hidden'||!document.getElementById('chatsView')?.classList.contains('active'))return;
   try{
    const pane=$('chatMessages'),nearBottom=pane.scrollHeight-pane.scrollTop-pane.clientHeight<100;
-   const d=await api('/api/chats/'+id+'/messages');
+   const d=await api('/api/chats/'+id+'/messages?search='+encodeURIComponent(chatSearchQuery));
    if(id===state.currentChatId){
     renderChatMessages(d.messages||[]);
     if(nearBottom)pane.scrollTop=pane.scrollHeight;
@@ -739,7 +756,7 @@ async function deleteChatMessage(messageId){
 }
 async function refreshCurrentChatMessages(){
  if(!state.currentChatId)return;
- const d=await api('/api/chats/'+state.currentChatId+'/messages');renderChatMessages(d.messages||[]);await loadChats();
+ const d=await api('/api/chats/'+state.currentChatId+'/messages?search='+encodeURIComponent(chatSearchQuery));renderChatMessages(d.messages||[]);await loadChats();
 }
 async function sendChatAttachment(e){
  e.preventDefault();
@@ -757,7 +774,7 @@ async function sendChatAttachment(e){
  }catch(err){notify(err.message,'error')}
 }
 async function sendChatMessage(e){e.preventDefault();const body=$('chatMessageBody').value.trim();if(!body||!state.currentChatId)return;try{await api('/api/chats/'+state.currentChatId+'/messages',{method:'POST',body:{body,reply_to_message_id:chatReplyToMessageId}});$('chatMessageBody').value='';cancelChatReply();const d=await api('/api/chats/'+state.currentChatId+'/messages');renderChatMessages(d.messages||[]);await loadChats()}catch(e){notify(e.message,'error')}}
-function closeChatRoom(){stopChatPolling();state.currentChatId=null;$('chatRoomPane').classList.add('hidden');$('chatListPane').classList.remove('hidden');loadChats()}
+function closeChatRoom(){stopChatPolling();clearTimeout(chatSearchTimer);chatSearchRequestId++;chatSearchQuery="";state.currentChatId=null;$('chatRoomPane').classList.add('hidden');$('chatListPane').classList.remove('hidden');loadChats()}
 async function leaveCurrentChat(){if(!state.currentChatId||!confirm('Покинуть группу?'))return;try{await api('/api/chats/'+state.currentChatId+'/leave',{method:'POST',body:{}});closeChatRoom()}catch(e){notify(e.message,'error')}}
 
 let socialFeedSearchTimer=null,socialPeopleSearchTimer=null,socialPeopleSearchRequestId=0;
