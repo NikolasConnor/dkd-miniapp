@@ -3,7 +3,7 @@ name: Build DKD Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [android-prototype, android-security-hardening]
+    branches: [android-prototype, android-security-hardening, android-dkd-portal-redesign]
     paths:
       - "app/**"
       - "*.gradle.kts"
