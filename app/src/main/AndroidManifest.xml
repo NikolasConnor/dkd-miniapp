@@ -4,6 +4,7 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <application
         android:allowBackup="false"
+        android:usesCleartextTraffic="false"
         android:icon="@drawable/ic_dkd"
         android:label="ДКД"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
