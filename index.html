@@ -481,7 +481,6 @@ async function refreshNotifications(showNew=true){
   if(document.visibilityState==='hidden'&&!$('notificationPanel')?.classList.contains('hidden'))return;
   notificationPollInFlight=true;
   try{
-  try{
     const data=await api('/api/notifications'),items=data.notifications||[],count=Number(data.unread_count||0);
     const badge=$('notificationCount');badge.textContent=count>99?'99+':String(count);badge.classList.toggle('hidden',count===0);
     if(showNew&&count>0&&(notificationUnreadPrevious===null||count>notificationUnreadPrevious)){
