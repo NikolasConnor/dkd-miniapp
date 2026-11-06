@@ -2537,7 +2537,8 @@ def list_marriages(user: dict) -> dict:
     for item in records:
         partner_id = int(item["partner_two_user_id"] if int(item["partner_one_user_id"]) == uid else item["partner_one_user_id"])
         result.append({**item, "partner": _subject_public(partner_id),
-                       "is_my_proposal": int(item.get("proposed_by") or 0) == uid})
+                       "is_my_proposal": int(item.get("proposed_by") or 0) == uid,
+                       "is_divorce_requester": int(item.get("divorce_requested_by") or 0) == uid})
     return {"marriages": result}
 
 
