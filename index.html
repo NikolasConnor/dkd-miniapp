@@ -268,6 +268,11 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
     <section id="adminView" class="view">
       <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Администрация</h3><button class="btn secondary" onclick="loadAdmin()">Обновить</button></div>
       <div id="adminStatus" class="notice">Проверка прав…</div>
+      <section id="adminSocialModeration" class="card" style="margin-top:12px">
+        <div class="section-head"><h3>Модерация социальной сети</h3><button class="btn secondary" type="button" onclick="loadSocialModeration()">Обновить</button></div>
+        <div class="row"><select id="socialReportStatus" onchange="loadSocialModeration()" aria-label="Статус жалоб"><option value="open">Новые</option><option value="reviewing">На рассмотрении</option><option value="resolved">Решённые</option><option value="dismissed">Отклонённые</option><option value="all">Все</option></select></div>
+        <div id="socialModerationQueue" class="list"><div class="empty">Очередь жалоб загружается…</div></div>
+      </section>
       <div id="claimBox" class="card hidden"><h3 style="margin-top:0">Первичная активация администратора</h3><p class="muted small">Введите одноразовый код, выданный владельцем системы.</p><form class="form" onsubmit="claimAdmin(event)"><div class="field"><label>Код активации</label><input id="adminCode" type="password" minlength="8" required autocomplete="off"></div><button class="btn primary">Активировать</button></form></div>
       <div id="adminTools" class="hidden">
         <div class="card form" style="margin-top:12px">
@@ -921,9 +926,37 @@ async function createAndroidLoginCode(){
   notify('Одноразовый код создан');
  }catch(e){notify(e.message||'Не удалось создать код','error')}
 }
+
+async function loadSocialModeration(){
+ const el=$('socialModerationQueue');if(!el)return;
+ el.innerHTML='<div class="empty">Загрузка жалоб…</div>';
+ try{
+  const status=$('socialReportStatus')?.value||'open';
+  const d=await api('/api/admin/social/reports?status='+encodeURIComponent(status));
+  const reports=d.reports||[];
+  const reasonLabels={spam:'Спам',harassment:'Травля',violence:'Насилие',sexual_content:'Недопустимый контент',illegal_content:'Незаконный контент',other:'Другое'};
+  if(!reports.length){el.innerHTML='<div class="empty">Жалоб с таким статусом нет.</div>';return}
+  el.innerHTML=reports.map(r=>{
+   const target=r.target||{},isPost=!!r.post_id,content=target.body||'[Содержимое удалено или недоступно]';
+   const author=target.author_user_id?' · ID автора '+Number(target.author_user_id):'';
+   const reporter=r.reporter?.full_name||('ID '+Number(r.reporter_user_id));
+   const stateLabels={open:'Новая',reviewing:'На рассмотрении',resolved:'Решена',dismissed:'Отклонена'};
+   const targetLabel=isPost?'Публикация #'+Number(r.post_id):'Комментарий #'+Number(r.comment_id);
+   const safeContent=esc(content.slice(0,700));
+   return '<article class="card" style="padding:13px"><div class="row"><strong>Жалоба #'+Number(r.id)+'</strong>'+statusPill(stateLabels[r.status]||r.status)+'</div><p class="muted small">'+esc(targetLabel)+' · '+esc(reasonLabels[r.reason]||r.reason)+' · '+fmtDate(r.created_at)+'</p><p class="small">Отправитель: <strong>'+esc(reporter)+'</strong></p><div class="notice" style="white-space:pre-wrap;overflow-wrap:anywhere">'+safeContent+'</div><p class="small muted">Причина / пояснение: '+esc(r.details||'Не указано')+author+'</p><div class="row" style="flex-wrap:wrap"><button class="btn secondary" onclick="reviewSocialReport('+Number(r.id)+',\'reviewing\',\'none\')">В работу</button><button class="btn primary" onclick="reviewSocialReport('+Number(r.id)+',\'resolved\',\'none\')">Решено</button><button class="btn danger" onclick="reviewSocialReport('+Number(r.id)+',\'resolved\',\'hide\')">Скрыть материал</button><button class="btn secondary" onclick="reviewSocialReport('+Number(r.id)+',\'dismissed\',\'none\')">Отклонить</button></div></article>';
+  }).join('');
+ }catch(e){showError(el,e)}
+}
+async function reviewSocialReport(id,status,action){
+ const promptText=action==='hide'?'Скрыть материал для всех граждан и закрыть жалобу?':'Изменить статус жалобы?';
+ if(!confirm(promptText))return;
+ try{await api('/api/admin/social/reports/'+id,{method:'PATCH',body:{status,action}});notify('Решение модератора сохранено');await loadSocialModeration()}
+ catch(e){notify(e.message||'Не удалось обработать жалобу','error')}
+}
+
 async function loadAdmin(){
   loadAdminPresidentialCandidates();
-  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory(),loadAdminDumaLaws(),loadAdminDumaManualVotes()])}}
+  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory(),loadAdminDumaLaws(),loadAdminDumaManualVotes(),loadSocialModeration()])}}
   catch(e){$('adminStatus').textContent=e.message;$('claimBox').classList.remove('hidden');$('adminTools').classList.add('hidden')}
 }
 async function claimAdmin(e){e.preventDefault();try{await api('/api/admin/claim',{method:'POST',body:{code:$('adminCode').value}});notify('Администратор активирован');$('adminCode').value='';await loadAdmin()}catch(err){notify(err.message,'error')}}
