@@ -644,9 +644,9 @@ async function openChat(id){state.currentChatId=Number(id);$('chatListPane').cla
 
 let chatPollTimer=null;
 let chatReplyToMessageId=null;
-function setChatReply(id,author,body){
+function setChatReply(id,body){
  chatReplyToMessageId=Number(id);
- $('chatReplyPreviewText').textContent='Ответ '+(author||'участнику')+': '+String(body||'').slice(0,180);
+ $('chatReplyPreviewText').textContent='Ответ на сообщение: '+String(body||'').slice(0,180);
  $('chatReplyPreview').classList.remove('hidden');
  $('chatMessageBody').focus();
 }
@@ -724,7 +724,7 @@ function renderChatMessages(items){
   }).join('');
   const own=!!m.can_edit;
   const quoted=m.reply_to?'<div class="notice small" style="margin:7px 0;padding:8px;border-left:3px solid var(--accent)"><strong>'+esc(m.reply_to.author?.full_name||'Ответ на сообщение')+'</strong><div>'+esc(m.reply_to.body||'')+'</div></div>':'';
-  const controls='<div class="row" style="gap:8px;margin-top:8px"><button class="btn secondary" type="button" onclick="setChatReply('+Number(m.id)+',\''+esc(m.author?.full_name||'участнику').replace(/'/g,'&#39;')+'\',chatMessageCache['+Number(m.id)+'])">Ответить</button>'+(own?'<button class="btn secondary" type="button" onclick="editChatMessage('+Number(m.id)+')">Изменить</button><button class="btn danger" type="button" onclick="deleteChatMessage('+Number(m.id)+')">Удалить</button>':'')+'</div>';
+  const controls='<div class="row" style="gap:8px;margin-top:8px"><button class="btn secondary" type="button" onclick="setChatReply('+Number(m.id)+',chatMessageCache['+Number(m.id)+'])">Ответить</button>'+(own?'<button class="btn secondary" type="button" onclick="editChatMessage('+Number(m.id)+')">Изменить</button><button class="btn danger" type="button" onclick="deleteChatMessage('+Number(m.id)+')">Удалить</button>':'')+'</div>';
   return '<article class="card"><small>'+esc(m.author?.full_name||'Гражданин')+' · '+fmtDate(m.created_at)+(m.updated_at&&m.updated_at!==m.created_at?' · изменено':'')+'</small>'+quoted+'<p style="white-space:pre-wrap">'+esc(m.body)+'</p>'+media+controls+'</article>';
  }).join('')||'<div class="empty">Сообщений пока нет.</div>';
 }
