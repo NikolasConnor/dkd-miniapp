@@ -747,7 +747,7 @@ async function sendChatMessage(e){e.preventDefault();const body=$('chatMessageBo
 function closeChatRoom(){stopChatPolling();state.currentChatId=null;$('chatRoomPane').classList.add('hidden');$('chatListPane').classList.remove('hidden');loadChats()}
 async function leaveCurrentChat(){if(!state.currentChatId||!confirm('Покинуть группу?'))return;try{await api('/api/chats/'+state.currentChatId+'/leave',{method:'POST',body:{}});closeChatRoom()}catch(e){notify(e.message,'error')}}
 
-let socialFeedSearchTimer=null,socialPeopleSearchTimer=null;
+let socialFeedSearchTimer=null,socialPeopleSearchTimer=null,socialPeopleSearchRequestId=0;
 let socialFeedFollowingOnly=false,socialFeedSavedOnly=false;
 function setSocialFeedMode(following){
  socialFeedFollowingOnly=!!following;socialFeedSavedOnly=false;
@@ -762,19 +762,22 @@ function setSocialSavedMode(){
  loadSocialFeed(true);
 }
 function scheduleSocialFeedSearch(){
+ socialFeedRequestId++;
  clearTimeout(socialFeedSearchTimer);
  socialFeedSearchTimer=setTimeout(()=>loadSocialFeed(true),300);
 }
 async function searchSocialPeople(){
+ const requestId=++socialPeopleSearchRequestId;
  clearTimeout(socialPeopleSearchTimer);
+ const input=$('socialPeopleSearch'),box=$('socialPeopleResults'),q=input.value.trim();
+ if(q.length<2){box.innerHTML='';return}
+ box.innerHTML='<div class="muted small">Поиск граждан…</div>';
  socialPeopleSearchTimer=setTimeout(async()=>{
-  const input=$('socialPeopleSearch'),box=$('socialPeopleResults'),q=input.value.trim();
-  if(q.length<2){box.innerHTML='';return}
-  box.innerHTML='<div class="muted small">Поиск граждан…</div>';
   try{
    const d=await api('/api/chats/people?search='+encodeURIComponent(q));
+   if(requestId!==socialPeopleSearchRequestId)return;
    box.innerHTML=(d.people||[]).map(p=>'<button type="button" class="card row" style="width:100%;text-align:left" onclick="openSocialProfile('+Number(p.user_id)+')"><span style="font-size:24px">'+esc(p.avatar_emoji||'👤')+'</span><span style="flex:1"><strong>'+esc(p.full_name||'Гражданин ДКД')+'</strong><small class="muted" style="display:block">'+(p.username?'@'+esc(p.username):'')+'</small></span></button>').join('')||'<div class="empty">Граждане не найдены.</div>';
-  }catch(e){showError(box,e)}
+  }catch(e){if(requestId===socialPeopleSearchRequestId)showError(box,e)}
  },250);
 }
 let socialFeedRequestId=0;
