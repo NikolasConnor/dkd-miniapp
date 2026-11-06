@@ -328,6 +328,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
             settings.setSupportMultipleWindows(false)
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.safeBrowsingEnabled = true
+            settings.mediaPlaybackRequiresUserGesture = true
             addJavascriptInterface(AndroidSessionBridge { token }, "AndroidDKD")
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
