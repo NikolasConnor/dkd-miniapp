@@ -524,6 +524,11 @@ def admin_close_duma_election(election_id: int, user: dict = Depends(admin_user)
     return core.admin_close_duma_election(user["id"], election_id)
 
 
+@app.get("/api/president/laws")
+def president_list_laws(user: dict = Depends(president_user)):
+    return core.president_list_laws(user["id"])
+
+
 @app.post("/api/president/laws")
 def president_publish_law(payload: PresidentLawCreate, user: dict = Depends(president_user)):
     return {"ok": True, "law": core.president_publish_law(user["id"], payload.title, payload.description)}
