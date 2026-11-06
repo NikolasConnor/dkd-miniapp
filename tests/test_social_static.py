@@ -144,6 +144,14 @@ class SocialApiStaticTests(unittest.TestCase):
         ):
             self.assertIn(marker, core)
 
+    def test_chat_ui_uses_subject_user_id(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        chat = html[html.index("let chatPeopleSearchTimer=null;"):html.index("async function loadSocialFeed(reset=true);")]
+        self.assertIn("state.profile?.user_id", chat)
+        self.assertNotIn("state.profile?.telegram_id", chat)
+        self.assertIn('id="chatsView"', html)
+        self.assertIn('data-view="chats"', html)
+
     def test_chat_migration_is_private_and_indexed(self):
         sql = (ROOT / "supabase/migrations/20261106200000_chat_foundation.sql").read_text(encoding="utf-8").lower()
         for table in ('chat_conversations','chat_participants','chat_messages'):
