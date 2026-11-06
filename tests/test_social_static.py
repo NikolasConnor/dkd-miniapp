@@ -72,6 +72,12 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn("dkd_guard_single_active_marriage", sql)
         self.assertIn("revoke all on function public.dkd_guard_single_active_marriage()", sql)
 
+    def test_divorce_decision_is_only_shown_to_non_requesting_spouse(self):
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('"is_divorce_requester": int(item.get("divorce_requested_by") or 0) == uid', core)
+        self.assertIn("m.status==='divorce_pending'&&!m.is_divorce_requester", html)
+
     def test_law3_ui_has_family_and_court_workflows(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
         for marker in ("id=\"familyView\"","proposeMarriage(event)","decideMarriage(","fileCourtCase(event)","respondCourtCase(","appealCourtCase(","courtArchive"):
