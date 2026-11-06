@@ -282,7 +282,8 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('search=search, following_only=following_only', app)
         self.assertIn('query.ilike("body", f"%{safe_search}%")', core)
         self.assertIn('query.not_.in_("author_user_id", sorted(hidden_ids))', core)
-        self.assertIn('re.sub(r"[^\\\\w\\\\s@.\\\\-]", " ", search_value, flags=re.UNICODE)', core)
+        self.assertIn('re.sub(r"[^\\w\\s@.-]", " ", search_value, flags=re.UNICODE)', core)
+        self.assertIn('re.sub(r"[^\\w\\s@.-]", " ", value, flags=re.UNICODE)', core)
         self.assertIn('query.in_("author_user_id", followed_ids)', core)
         self.assertIn('if not followed_ids:', core)
         self.assertIn('if not safe:', core)
@@ -290,6 +291,7 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('function setSocialFeedMode(following)', html)
         self.assertIn('function scheduleSocialFeedSearch()', html)
         self.assertIn('function searchSocialPeople()', html)
+        self.assertIn("el.querySelector('#socialConnectionsPanel')?.remove()", html)
         self.assertIn('id="socialPeopleSearch"', html)
         self.assertIn("params.set('following_only','true')", html)
 
