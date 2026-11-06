@@ -90,7 +90,8 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
         <div id="avatarGrid" class="avatar-grid"></div>
         <div class="row" style="margin-top:12px"><span class="muted small">Выбрано: <strong id="avatarCurrent">👤</strong></span><button class="btn primary" type="button" onclick="saveAvatar()">Сохранить аватарку</button></div>
       </div>
-      <form class="card form" onsubmit="saveProfile(event)"><div class="field"><label for="fullName">ФИО</label><input id="fullName" minlength="2" maxlength="120" placeholder="Введите ФИО" required></div><button class="btn primary">Сохранить изменения</button></form>
+      <form class="card form" onsubmit="saveProfile(event)"><div class="field"><label for="fullName">ФИО</label><input id="fullName" minlength="2" maxlength="120" placeholder="Введите ФИО" required></div><button class="btn primary">Сохранить ФИО</button></form>
+      <div class="card form"><div class="field"><label for="profileGender">Пол · согласно Закону №3</label><select id="profileGender" onchange="saveProfileGender(this.value)"><option value="">Не указан</option><option value="male">Мужской</option><option value="female">Женский</option></select></div><small class="muted">Пол указывается гражданином самостоятельно. Его можно изменить в любой момент.</small></div>
     </section>
 
     <section id="documentsView" class="view">
@@ -366,6 +367,10 @@ const AVATAR_GROUPS = {'Все':'👤 👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️
 function renderAvatarPicker(){const cats=Object.keys(AVATAR_GROUPS);$('avatarCategories').innerHTML=cats.map(c=>`<button type="button" class="${state.avatarCategory===c?'active':''}" onclick="setAvatarCategory('${esc(c)}')">${esc(c)}</button>`).join('');const list=AVATAR_GROUPS[state.avatarCategory]||AVATAR_GROUPS['Все'];$('avatarGrid').innerHTML=[...new Set(list)].map(e=>`<button type="button" aria-label="Выбрать ${e}" class="avatar-option ${state.pendingAvatar===e?'selected':''}" onclick="pickAvatar('${e}')">${e}</button>`).join('');$('avatarCurrent').textContent=state.pendingAvatar;}
 function setAvatarCategory(c){state.avatarCategory=c;renderAvatarPicker()}
 function pickAvatar(e){state.pendingAvatar=e;renderAvatarPicker()}
+async function saveProfileGender(gender){
+ try{const d=await api('/api/profile/gender',{method:'PATCH',body:{gender}});state.profile=d.profile||state.profile;notify('Пол в профиле обновлён')}
+ catch(e){notify(e.message,'error');$('profileGender').value=state.profile?.gender||''}
+}
 async function saveAvatar(){try{const d=await api('/api/profile/avatar',{method:'PATCH',body:{avatar_emoji:state.pendingAvatar}});state.profile=d.profile||state.profile;notify('Аватарка сохранена');await loadProfile();await loadDocuments()}catch(e){notify(e.message,'error')}}
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -630,7 +635,7 @@ async function init(){
 async function loadProfile(){
   try{const d=await api('/api/profile');state.profile=d.profile||{};const p=state.profile;
     $('welcome').textContent=p.full_name?`Здравствуйте, ${p.full_name.trim().split(/\s+/)[1] || p.full_name.trim().split(/\s+/)[0]}!`:'Добро пожаловать в ДКД';
-    $('fullName').value=p.full_name||'';state.pendingAvatar=p.avatar_emoji||'👤';renderAvatarPicker();
+    $('fullName').value=p.full_name||'';$('profileGender').value=p.gender||'';state.pendingAvatar=p.avatar_emoji||'👤';renderAvatarPicker();
     $('profileContent').innerHTML=`<div class="card"><div class="row"><div><div class="muted small">Пользователь</div><h2 style="margin:4px 0 0">${esc(p.full_name||'Без имени')}</h2></div><div class="profile-avatar">${esc(p.avatar_emoji||'👤')}</div></div><hr style="border:0;border-top:1px solid var(--line);margin:15px 0"><div class="row"><span class="muted">Гражданство</span>${statusPill(p.is_citizen?'Гражданин':'Нет гражданства')}</div><div class="row" style="margin-top:12px"><span class="muted">Telegram ID</span><strong>${esc(p.telegram_id??'Скрыт')}</strong></div><div class="row" style="margin-top:12px"><span class="muted">Роли</span><strong>${esc((p.roles||[]).map(r=>typeof r==='string'?r:r.name).join(', ')||'Нет ролей')}</strong></div><hr style="border:0;border-top:1px solid var(--line);margin:15px 0"><label class="row" style="align-items:center;gap:12px;cursor:pointer"><span><strong>Уведомления о важных новостях</strong><small class="muted" style="display:block">Срочные и важные публикации в Telegram</small></span><input id="newsNotificationsToggle" type="checkbox" style="width:22px;height:22px" ${p.news_notifications_enabled!==false?'checked':''} onchange="saveNewsNotificationPreference(this.checked)"></label></div>`;
     return p;
   }catch(e){showError($('profileContent'),e);throw e}
