@@ -3391,7 +3391,7 @@ def _social_visible_post(user: dict, post_id: int) -> dict:
     """Load a published post and enforce mutual block visibility."""
     _require_social_citizen(user)
     post = one(db().table("social_posts").select(
-        "id,author_user_id,status,deleted_at"
+        "id,author_user_id,status,deleted_at,repost_of_post_id"
     ).eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
     if not post or post.get("status") != "published" or post.get("deleted_at"):
         raise DKDError(404, "Публикация не найдена.")
@@ -3412,7 +3412,7 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20) 
     _require_social_citizen(user)
     size = max(1, min(int(limit), 50))
     query = db().table("social_posts").select(
-        "id,author_user_id,body,status,created_at,updated_at"
+        "id,author_user_id,body,status,created_at,updated_at,repost_of_post_id"
     ).eq("status", "published").is_("deleted_at", "null")
     if before_id is not None:
         query = query.lt("id", int(before_id))
@@ -3423,12 +3423,21 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20) 
     posts = [p for p in posts if int(p["author_user_id"]) not in hidden_ids]
     if not posts:
         return []
-    author_ids = sorted({int(p["author_user_id"]) for p in posts})
+    original_ids = sorted({int(p["repost_of_post_id"]) for p in posts if p.get("repost_of_post_id")})
+    originals = rows(db().table("social_posts").select(
+        "id,author_user_id,body,status,created_at,updated_at"
+    ).in_("id", original_ids).eq("status", "published").is_("deleted_at", "null"),
+       "Не удалось загрузить исходные публикации для репоста.") if original_ids else []
+    original_map = {int(p["id"]): p for p in originals
+                    if int(p["author_user_id"]) not in hidden_ids}
+    author_ids = sorted({int(p["author_user_id"]) for p in posts}
+                        | {int(p["author_user_id"]) for p in original_map.values()})
     authors = rows(db().table("subjects").select(
         "user_id,username,full_name,avatar_emoji"
     ).in_("user_id", author_ids), "Не удалось загрузить авторов публикаций.")
     author_map = {int(a["user_id"]): a for a in authors}
     post_ids = [int(p["id"]) for p in posts]
+    all_media_post_ids = sorted(set(post_ids) | set(original_map))
     reactions = rows(db().table("social_reactions").select(
         "post_id,user_id,reaction"
     ).in_("post_id", post_ids), "Не удалось загрузить реакции.")
@@ -3449,30 +3458,41 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20) 
         comment_counts[pid] = comment_counts.get(pid, 0) + 1
     media_rows = rows(db().table("social_post_media").select(
         "id,post_id,media_type,mime_type,size_bytes"
-    ).in_("post_id", post_ids), "Не удалось загрузить вложения публикаций.")
+    ).in_("post_id", all_media_post_ids), "Не удалось загрузить вложения публикаций.") if all_media_post_ids else []
     media_map: dict[int, list[dict]] = {}
     for media in media_rows:
         pid = int(media["post_id"])
         media_map.setdefault(pid, []).append({
-            **media,
-            "url": f"/api/social/posts/{pid}/media/{int(media['id'])}",
+            **media, "url": f"/api/social/posts/{pid}/media/{int(media['id'])}",
         })
     result = []
     for post in posts:
         pid = int(post["id"])
-        result.append({
+        item = {
             **post,
             "author": author_map.get(int(post["author_user_id"]), {
-                "user_id": int(post["author_user_id"]),
-                "full_name": "Пользователь ДКД",
-                "username": None,
-                "avatar_emoji": "👤",
+                "user_id": int(post["author_user_id"]), "full_name": "Пользователь ДКД",
+                "username": None, "avatar_emoji": "👤",
             }),
             "reaction_count": reaction_counts.get(pid, 0),
             "comment_count": comment_counts.get(pid, 0),
             "my_reaction": my_reactions.get(pid),
             "media": media_map.get(pid, []),
-        })
+        }
+        original = original_map.get(int(post["repost_of_post_id"])) if post.get("repost_of_post_id") else None
+        if original:
+            oid = int(original["id"])
+            item["repost_of"] = {
+                **original,
+                "author": author_map.get(int(original["author_user_id"]), {
+                    "user_id": int(original["author_user_id"]), "full_name": "Пользователь ДКД",
+                    "username": None, "avatar_emoji": "👤",
+                }),
+                "media": media_map.get(oid, []),
+            }
+        elif post.get("repost_of_post_id"):
+            item["repost_unavailable"] = True
+        result.append(item)
     return result
 
 
@@ -3503,6 +3523,37 @@ def create_social_post(user: dict, body: str) -> dict:
         "reaction_count": 0,
         "comment_count": 0,
         "my_reaction": None,
+    }
+
+
+def create_social_repost(user: dict, post_id: int, caption: str = "") -> dict:
+    _require_social_citizen(user)
+    source = _social_visible_post(user, post_id)
+    original_id = int(source.get("repost_of_post_id") or source["id"])
+    _social_visible_post(user, original_id)
+    caption_value = str(caption or "").strip()
+    if len(caption_value) > 5000:
+        raise DKDError(422, "Подпись к репосту не должна превышать 5000 символов.")
+    duplicate = one(db().table("social_posts").select("id")
+        .eq("author_user_id", int(user["id"])).eq("repost_of_post_id", original_id)
+        .eq("status", "published").is_("deleted_at", "null").limit(1),
+        "Не удалось проверить повторную публикацию.")
+    if duplicate:
+        raise DKDError(409, "Вы уже делились этой публикацией.")
+    created = execute(db().table("social_posts").insert({
+        "author_user_id": int(user["id"]), "body": caption_value,
+        "repost_of_post_id": original_id, "status": "published",
+    }), "Не удалось сделать репост.")
+    if not created:
+        raise DKDError(502, "Сервер не подтвердил создание репоста.")
+    subject = get_subject(int(user["id"])) or {}
+    return {
+        **created[0],
+        "author": {"user_id": int(user["id"]), "username": subject.get("username"),
+                   "full_name": subject.get("full_name") or "Пользователь ДКД",
+                   "avatar_emoji": subject.get("avatar_emoji") or "👤"},
+        "reaction_count": 0, "comment_count": 0, "my_reaction": None,
+        "media": [], "repost_of_post_id": original_id,
     }
 
 
@@ -3597,37 +3648,28 @@ def get_social_post_media(user: dict, post_id: int, media_id: int) -> tuple[byte
     return data, mime
 
 
-def create_social_comment(user: dict, post_id: int, body: str) -> dict:
+def create_social_comment(user: dict, post_id: int, body: str,
+                         parent_comment_id: int | None = None) -> dict:
     _require_social_citizen(user)
     text_value = str(body or "").strip()
     if not text_value or len(text_value) > 2000:
         raise DKDError(422, "Комментарий должен содержать от 1 до 2000 символов.")
-    post = _social_visible_post(user, post_id)
+    _social_visible_post(user, post_id)
+    parent_id = int(parent_comment_id) if parent_comment_id is not None else None
+    if parent_id is not None:
+        parent = one(db().table("social_comments").select(
+            "id,post_id,author_user_id,status,deleted_at"
+        ).eq("id", parent_id).limit(1), "Не удалось проверить комментарий, на который вы отвечаете.")
+        if (not parent or int(parent["post_id"]) != int(post_id)
+                or parent.get("status") != "published" or parent.get("deleted_at")):
+            raise DKDError(404, "Комментарий, на который вы отвечаете, не найден.")
+        if int(parent["author_user_id"]) in _social_blocked_user_ids(int(user["id"])):
+            raise DKDError(404, "Комментарий, на который вы отвечаете, не найден.")
     created = execute(db().table("social_comments").insert({
         "post_id": int(post_id), "author_user_id": int(user["id"]), "body": text_value,
-        "status": "published",
+        "parent_comment_id": parent_id, "status": "published",
     }), "Не удалось добавить комментарий.")
     return created[0]
-
-
-def list_social_comments(user: dict, post_id: int) -> list[dict]:
-    _require_social_citizen(user)
-    post = _social_visible_post(user, post_id)
-    comments = rows(db().table("social_comments").select(
-        "id,post_id,author_user_id,parent_comment_id,body,created_at"
-    ).eq("post_id", int(post_id)).eq("status", "published")
-      .is_("deleted_at", "null").order("created_at"),
-      "Не удалось загрузить комментарии.")
-    hidden_ids = _social_blocked_user_ids(int(user["id"]))
-    comments = [x for x in comments if int(x["author_user_id"]) not in hidden_ids]
-    author_ids = sorted({int(x["author_user_id"]) for x in comments})
-    authors = rows(db().table("subjects").select(
-        "user_id,full_name,username,avatar_emoji"
-    ).in_("user_id", author_ids), "Не удалось загрузить авторов комментариев.") if author_ids else []
-    author_map = {int(x["user_id"]): x for x in authors}
-    return [{**item, "author": author_map.get(int(item["author_user_id"]), {
-        "full_name": "Гражданин ДКД", "avatar_emoji": "👤"
-    })} for item in comments]
 
 
 SOCIAL_EDIT_WINDOW = 15 * 60
