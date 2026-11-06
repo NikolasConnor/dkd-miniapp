@@ -622,15 +622,13 @@ private fun GovernmentScreen(onOpen: (String) -> Unit) {
 }
 
 @Composable
-private fun PortalDetailScreen(
-    token: String,
-    title: String,
-    onBack: () -> Unit,
-    onError: (String) -> Unit
-) {
+private fun PortalDetailScreen(token: String, title: String, onBack: () -> Unit, onError: (String) -> Unit) {
     var payload by remember(title) { mutableStateOf<JSONObject?>(null) }
     var loading by remember(title) { mutableStateOf(true) }
     var refresh by remember { mutableIntStateOf(0) }
+    var fullName by remember { mutableStateOf("") }
+    var details by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val endpoint = when (title) {
         "Статус гражданина" -> "/api/passport"
@@ -638,7 +636,7 @@ private fun PortalDetailScreen(
         "Новости" -> "/api/news"
         "Партии", "Политические партии" -> "/api/parties"
         "Выборы" -> "/api/votes"
-        "Государственная Дума" -> "/api/duma"
+        "Государственная Дума" -> "/api/parliament-roster"
         "Президент", "Правительство" -> "/api/president/status"
         "Законы" -> "/api/president/laws"
         "Обращения" -> "/api/applications"
@@ -654,57 +652,131 @@ private fun PortalDetailScreen(
         loading = false
     }
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextButton(onClick = onBack) { Text("← Назад", color = Blue) }
             Spacer(Modifier.weight(1f))
             TextButton(onClick = { refresh++ }) { Text("Обновить", color = Blue) }
         }
-        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp)) {
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
             Text("СЕРВИС ДКД", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
             Text(title, color = White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(14.dp))
             when {
-                loading -> Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Blue)
+                loading -> Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Blue) }
+                payload == null -> Text("Не удалось загрузить сведения. Проверьте соединение и повторите попытку.", color = Muted, fontSize = 13.sp)
+                title == "Обращения" -> {
+                    Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(18.dp)) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("Новое заявление", color = White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                            OutlinedTextField(value = fullName, onValueChange = { fullName = it }, modifier = Modifier.fillMaxWidth(), label = { Text("ФИО") }, singleLine = true)
+                            OutlinedTextField(value = details, onValueChange = { details = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Текст обращения") }, minLines = 3)
+                            Button(onClick = {
+                                if (fullName.trim().length < 2) onError("Укажите ФИО.")
+                                else scope.launch {
+                                    busy = true
+                                    val result = apiCall(token, "POST", "/api/applications", JSONObject().put("kind", "citizenship").put("full_name", fullName.trim()).put("details", details.trim()))
+                                    busy = false
+                                    if (result.error != null) onError(result.error) else { onError("Заявление отправлено."); fullName = ""; details = ""; refresh++ }
+                                }
+                            }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(if (busy) "Отправка…" else "Подать заявление на гражданство") }
+                            Button(onClick = {
+                                if (fullName.trim().length < 2) onError("Укажите ФИО.")
+                                else scope.launch {
+                                    busy = true
+                                    val result = apiCall(token, "POST", "/api/applications", JSONObject().put("kind", "other").put("full_name", fullName.trim()).put("details", details.trim()))
+                                    busy = false
+                                    if (result.error != null) onError(result.error) else { onError("Обращение отправлено."); fullName = ""; details = ""; refresh++ }
+                                }
+                            }, enabled = !busy, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF28364D))) { Text("Отправить другое обращение") }
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    JsonDataCards(payload!!)
                 }
-                payload != null -> {
-                    val keys = payload!!.keys().asSequence().toList()
-                    if (keys.isEmpty()) {
-                        Text("Пока нет данных в этом разделе.", color = Muted, fontSize = 13.sp)
-                    } else {
-                        keys.forEach { key ->
-                            val value = payload!!.opt(key)
-                            val rendered = when (value) {
-                                is JSONObject -> value.toString(2)
-                                is org.json.JSONArray -> value.toString(2)
-                                JSONObject.NULL -> "—"
-                                else -> value.toString()
-                            }
-                            Surface(
-                                color = Color(0xFF151C2A),
-                                shape = RoundedCornerShape(16.dp),
-                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
-                            ) {
-                                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text(key.replace('_', ' ').replaceFirstChar { it.uppercase() },
-                                        color = Blue, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                    Text(rendered, color = White, fontSize = 12.sp)
+                title == "Выборы" -> {
+                    listOf("presidential", "duma").forEach { kind ->
+                        val arr = payload!!.optJSONArray(kind) ?: return@forEach
+                        if (arr.length() > 0) Text(if (kind == "presidential") "Президентские выборы" else "Выборы в Госдуму", color = Blue, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+                        for (i in 0 until arr.length()) {
+                            val election = arr.optJSONObject(i) ?: continue
+                            val id = election.optInt("id")
+                            Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(election.optString("title", "Выборы"), color = White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                                    Text("Статус: "+election.optString("status"), color = Muted, fontSize = 11.sp)
+                                    if (election.optBoolean("has_voted")) Text("Ваш голос: "+election.optString("my_option"), color = Green)
+                                    else if (election.optBoolean("is_open")) {
+                                        val options = election.optJSONArray("options") ?: org.json.JSONArray()
+                                        for (j in 0 until options.length()) {
+                                            val option = options.optString(j)
+                                            Button(onClick = { scope.launch {
+                                                busy = true
+                                                val result = apiCall(token, "POST", "/api/votes/"+kind+"/"+id+"/cast", JSONObject().put("option", option))
+                                                busy = false
+                                                if (result.error != null) onError(result.error) else { onError("Голос принят."); refresh++ }
+                                            } }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text(option) }
+                                        }
+                                    }
+                                    val counts = election.optJSONObject("vote_counts")
+                                    if (counts != null) {
+                                        Text("Результаты", color = Blue, fontWeight = FontWeight.SemiBold)
+                                        counts.keys().forEach { key -> Text(key+" — "+counts.optInt(key), color = White, fontSize = 12.sp) }
+                                    }
                                 }
                             }
                         }
                     }
                 }
-                else -> Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(18.dp)) {
-                    Text(
-                        "Для этого раздела ещё не подключён отдельный API-экран.",
-                        color = Muted, fontSize = 12.sp, modifier = Modifier.padding(18.dp)
-                    )
+                else -> JsonDataCards(payload!!)
+            }
+            Spacer(Modifier.height(22.dp))
+            Text("NEXORA GROUP  ·  TECHNOLOGY. IDEAS. FUTURE.", color = Color(0xFF66758F), fontSize = 9.sp, letterSpacing = 1.sp)
+            Spacer(Modifier.height(14.dp))
+        }
+    }
+}
+
+@Composable
+private fun JsonDataCards(data: JSONObject) {
+    data.keys().asSequence().toList().forEach { key ->
+        when (val value = data.opt(key)) {
+            is org.json.JSONArray -> {
+                if (value.length() > 0) Text(key.replace('_', ' ').replaceFirstChar { it.uppercase() }, color = Blue, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+                for (i in 0 until value.length()) {
+                    val item = value.opt(i)
+                    Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 9.dp)) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            if (item is JSONObject) JsonObjectFields(item) else Text(item.toString(), color = White, fontSize = 13.sp)
+                        }
+                    }
+                }
+            }
+            is JSONObject -> Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(key.replace('_', ' ').replaceFirstChar { it.uppercase() }, color = Blue, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    JsonObjectFields(value)
+                }
+            }
+            else -> Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+                Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(key.replace('_', ' ').replaceFirstChar { it.uppercase() }, color = Blue, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (value == JSONObject.NULL) "—" else value.toString(), color = White, fontSize = 13.sp)
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun JsonObjectFields(item: JSONObject) {
+    val preferred = listOf("full_name", "name", "title", "status", "role", "position", "description", "text", "number", "created_at", "term_start", "term_end", "emoji", "members_count")
+    item.keys().asSequence().toList().sortedBy { key -> val n = preferred.indexOf(key); if (n < 0) preferred.size else n }.forEach { key ->
+        val value = item.opt(key)
+        if (value is JSONObject || value is org.json.JSONArray || value == JSONObject.NULL) return@forEach
+        val prominent = key in listOf("title", "name", "full_name")
+        Text(key.replace('_', ' ').replaceFirstChar { it.uppercase() }+": "+value,
+            color = if (prominent) White else Muted, fontSize = if (prominent) 14.sp else 11.sp,
+            fontWeight = if (prominent) FontWeight.SemiBold else FontWeight.Normal)
     }
 }
 
