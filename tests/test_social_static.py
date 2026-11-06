@@ -274,5 +274,20 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('if not subject or not subject.get("is_citizen")', source)
 
 
+    def test_social_feed_search_and_following_filter_are_authenticated(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('search: str = "", following_only: bool = False', app)
+        self.assertIn('search=search, following_only=following_only', app)
+        self.assertIn('query.ilike("body", f"%{safe_search}%")', core)
+        self.assertIn('query.in_("author_user_id", followed_ids)', core)
+        self.assertIn('def setSocialFeedMode(following)', html)
+        self.assertIn('function scheduleSocialFeedSearch()', html)
+        self.assertIn('function searchSocialPeople()', html)
+        self.assertIn('id="socialPeopleSearch"', html)
+        self.assertIn("params.set('following_only','true')", html)
+
+
 if __name__ == "__main__":
     unittest.main()
