@@ -163,7 +163,16 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
       <button id="socialMore" class="btn secondary hidden" style="width:100%;margin-top:12px" onclick="loadSocialFeed(false)">Загрузить ещё</button>
     </section>
 
-    <section id="socialProfileView" class="view">
+    <section id="chatsView" class="view">
+<button class="back" onclick="openView('home')">← На главную</button>
+<div class="section-head"><h2>Сообщения</h2><button class="btn secondary" onclick="loadChats()">Обновить</button></div>
+<div id="chatListPane">
+<div class="card form"><h3>Новый личный чат</h3><input id="chatPeopleSearch" maxlength="80" placeholder="Поиск гражданина" oninput="searchChatPeople()"><div id="chatPeopleResults"></div></div>
+<form class="card form" onsubmit="createChatGroup(event)"><h3>Создать группу</h3><input id="chatGroupTitle" required minlength="2" maxlength="80" placeholder="Название группы"><input id="chatGroupMembers" placeholder="Telegram ID участников через запятую"><button class="btn primary">Создать группу</button></form>
+<div id="chatList" class="list"></div></div>
+<div id="chatRoomPane" class="hidden"><button class="btn secondary" onclick="closeChatRoom()">← К чатам</button><h3 id="chatRoomTitle">Чат</h3><div id="chatParticipants" class="muted small"></div><div id="chatMessages" class="list"></div><form class="row" onsubmit="sendChatMessage(event)"><input id="chatMessageBody" maxlength="4000" required placeholder="Сообщение"><button class="btn primary">Отправить</button></form><button id="chatLeaveButton" class="btn secondary hidden" onclick="leaveCurrentChat()">Покинуть группу</button></div>
+</section>
+<section id="socialProfileView" class="view">
       <button class="back" onclick="openView('social')">← К ленте</button>
       <div id="socialProfileContent"><div class="empty">Загрузка профиля…</div></div>
     </section>
@@ -378,6 +387,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 <nav class="bottom"><div class="nav">
   <button class="active" data-view="home" onclick="openView('home')"><span>⌂</span>Главная</button>
   <button data-view="social" onclick="openView('social')"><span>▤</span>Лента</button>
+<button data-view="chats" onclick="openView('chats')"><span>✉</span>Чаты</button>
   <button data-view="elections" onclick="openView('elections')"><span>◉</span>Государство</button>
   <button data-view="profile" onclick="openView('profile')"><span>○</span>Профиль</button>
 </div></nav>
@@ -394,7 +404,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0d1024'); tg.setBackgroundColor('#0d1024'); } catch(e) {} }
 const initData = tg?.initData || (window.AndroidDKD?.hasSession?.() ? 'native-session' : '');
-const state = {profile:null, isAdmin:false, isPresident:false, isDeputy:false, docs:null, apps:[], socialBeforeId:null, socialHasMore:false, socialProfileId:null, socialCommentsOpen:{}, avatarCategory:'Все', pendingAvatar:'👤'};
+const state = {profile:null, isAdmin:false, isPresident:false, isDeputy:false, docs:null, apps:[], socialBeforeId:null, socialHasMore:false, socialProfileId:null, socialCommentsOpen:{}, currentChatId:null, currentChat:null, avatarCategory:'Все', pendingAvatar:'👤'};
 const AVATAR_GROUPS = {'Все':'👤 👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️ 👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬 😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽 🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄 🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹 💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩 🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬'.split(' '), 'Государство':'👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️', 'Профессии':'👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬', 'Настроение':'😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽', 'Животные':'🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄', 'Фэнтези':'🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹', 'Стиль':'💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩', 'Космос':'🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬 👾 👽'};
 function renderAvatarPicker(){const cats=Object.keys(AVATAR_GROUPS);$('avatarCategories').innerHTML=cats.map(c=>`<button type="button" class="${state.avatarCategory===c?'active':''}" onclick="setAvatarCategory('${esc(c)}')">${esc(c)}</button>`).join('');const list=AVATAR_GROUPS[state.avatarCategory]||AVATAR_GROUPS['Все'];$('avatarGrid').innerHTML=[...new Set(list)].map(e=>`<button type="button" aria-label="Выбрать ${e}" class="avatar-option ${state.pendingAvatar===e?'selected':''}" onclick="pickAvatar('${e}')">${e}</button>`).join('');$('avatarCurrent').textContent=state.pendingAvatar;}
 function setAvatarCategory(c){state.avatarCategory=c;renderAvatarPicker()}
@@ -574,6 +584,17 @@ async async function toggleSocialBlock(id){
  try{const d=await api('/api/social/profiles/'+id+'/block',{method:'POST'});notify(d.blocked?'Пользователь заблокирован':'Блокировка снята');await loadSocialFeed(true);openView('social')}catch(e){notify(e.message,'error')}
 }
 async function toggleSocialFollow(id){try{const d=await api('/api/social/profiles/'+id+'/follow',{method:'POST'});notify(d.following?'Вы подписались':'Подписка отменена');await openSocialProfile(id)}catch(e){notify(e.message,'error')}}
+let chatPeopleSearchTimer=null;
+async function loadChats(){const el=$('chatList');try{const d=await api('/api/chats');el.innerHTML=(d.chats||[]).map(x=>{const p=(x.participants||[]).find(v=>Number(v.user_id)!==Number(state.profile?.telegram_id));const title=x.type==='group'?(x.title||'Группа'):(p?.profile?.full_name||'Личный чат');return '<button class="card row" onclick="openChat('+Number(x.id)+')"><strong>'+esc(title)+'</strong><span>'+Number(x.unread_count||0)+'</span></button>'}).join('')||'<div class="empty">Пока нет чатов.</div>'}catch(e){showError(el,e)}}
+async function searchChatPeople(){clearTimeout(chatPeopleSearchTimer);chatPeopleSearchTimer=setTimeout(async()=>{const q=$('chatPeopleSearch').value.trim(),el=$('chatPeopleResults');if(q.length<2){el.innerHTML='';return}try{const d=await api('/api/chats/people?search='+encodeURIComponent(q));el.innerHTML=(d.people||[]).map(p=>'<button class="card row" onclick="startDirectChat('+Number(p.user_id)+')">'+esc(p.avatar_emoji||'👤')+' '+esc(p.full_name||'Гражданин')+'</button>').join('')||'Никого не найдено'}catch(e){showError(el,e)}},250)}
+async function startDirectChat(id){try{const d=await api('/api/chats/direct',{method:'POST',body:{target_user_id:id}});await openChat(d.conversation.id)}catch(e){notify(e.message,'error')}}
+async function createChatGroup(e){e.preventDefault();const ids=$('chatGroupMembers').value.split(',').map(x=>Number(x.trim())).filter(x=>x>0);try{const d=await api('/api/chats/groups',{method:'POST',body:{title:$('chatGroupTitle').value,member_ids:ids}});await openChat(d.conversation.id)}catch(e){notify(e.message,'error')}}
+async function openChat(id){state.currentChatId=Number(id);$('chatListPane').classList.add('hidden');$('chatRoomPane').classList.remove('hidden');try{const [list,msgs]=await Promise.all([api('/api/chats'),api('/api/chats/'+id+'/messages')]);state.currentChat=(list.chats||[]).find(x=>Number(x.id)===Number(id));if(!state.currentChat)throw new Error('Чат не найден');const other=(state.currentChat.participants||[]).find(p=>Number(p.user_id)!==Number(state.profile?.telegram_id));$('chatRoomTitle').textContent=state.currentChat.title||other?.profile?.full_name||'Личный чат';$('chatParticipants').textContent=(state.currentChat.participants||[]).map(p=>p.profile?.full_name||'Гражданин').join(' · ');$('chatLeaveButton').classList.toggle('hidden',state.currentChat.type!=='group'||state.currentChat.my_role==='owner');renderChatMessages(msgs.messages||[]);await api('/api/chats/'+id+'/read',{method:'POST',body:{}})}catch(e){showError($('chatMessages'),e)}}
+function renderChatMessages(items){$('chatMessages').innerHTML=items.map(m=>'<article class="card"><small>'+esc(m.author?.full_name||'Гражданин')+' · '+fmtDate(m.created_at)+'</small><p style="white-space:pre-wrap">'+esc(m.body)+'</p></article>').join('')||'<div class="empty">Сообщений пока нет.</div>'}
+async function sendChatMessage(e){e.preventDefault();const body=$('chatMessageBody').value.trim();if(!body||!state.currentChatId)return;try{await api('/api/chats/'+state.currentChatId+'/messages',{method:'POST',body:{body}});$('chatMessageBody').value='';const d=await api('/api/chats/'+state.currentChatId+'/messages');renderChatMessages(d.messages||[]);await loadChats()}catch(e){notify(e.message,'error')}}
+function closeChatRoom(){state.currentChatId=null;$('chatRoomPane').classList.add('hidden');$('chatListPane').classList.remove('hidden');loadChats()}
+async function leaveCurrentChat(){if(!state.currentChatId||!confirm('Покинуть группу?'))return;try{await api('/api/chats/'+state.currentChatId+'/leave',{method:'POST',body:{}});closeChatRoom()}catch(e){notify(e.message,'error')}}
+
 async function loadSocialFeed(reset=true){
  const el=$('socialFeed'),more=$('socialMore');
  if(reset){state.socialBeforeId=null;state.socialHasMore=false;el.innerHTML='<div class="empty">Загрузка ленты…</div>'}
@@ -629,7 +650,7 @@ function openView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   const target=$(name+'View');if(target)target.classList.add('active');
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
-  if(name==='family')loadFamilyCourt();if(name==='social')loadSocialFeed(true);if(name==='parliament')loadParliament();if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='admin')loadAdmin();if(name==='president'){checkPresident();loadPresidentLaws()};
+  if(name==='family')loadFamilyCourt();if(name==='chats')loadChats();if(name==='social')loadSocialFeed(true);if(name==='parliament')loadParliament();if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='admin')loadAdmin();if(name==='president'){checkPresident();loadPresidentLaws()};
   window.scrollTo({top:0,behavior:'smooth'});
 }
 function statusPill(s){const val=String(s||'');let cls=/approved|active|citizen|опублик/i.test(val)?'good':/rejected|отклон|denied/i.test(val)?'bad':'';return `<span class="status ${cls}">${esc(val||'Не указан')}</span>`}
