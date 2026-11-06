@@ -73,6 +73,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
         <button class="tile" onclick="openView('elections')"><span class="icon">🗳️</span><strong>Выборы</strong><span>Голосование</span></button>
         <button class="tile" onclick="openView('news')"><span class="icon">📰</span><strong>Новости</strong><span>Последние публикации</span></button>
         <button class="tile" onclick="openView('social')"><span class="icon">💬</span><strong>Сообщество</strong><span>Публикации граждан</span></button>
+        <button class="tile" onclick="openView('family')"><span class="icon">💍</span><strong>Семья и суд</strong><span>Брак, заявления и дела</span></button>
         <button class="tile hidden" id="presidentTile" onclick="openView('president')"><span class="icon">🏅</span><strong>Президент</strong><span>Указы и управление</span></button>
         <button class="tile hidden" id="parliamentTile" onclick="openView('parliament')"><span class="icon">🏛️</span><strong>Государственная дума</strong><span>Парламент ДКД</span></button>
         <button class="tile hidden" id="adminTile" onclick="openView('admin')"><span class="icon">🛡️</span><strong>Администрация</strong><span>Управление системой</span></button>
@@ -105,6 +106,30 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
         <button class="tile" onclick="showDocTab('laws')"><span class="icon">⚖️</span><strong>Законы и указы</strong><span>Государственные документы</span></button>
       </div>
       <div id="docTabContent"></div>
+    </section>
+
+    <section id="familyView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button>
+      <div class="section-head"><h3>Семья и Суд ДКД</h3><button class="btn secondary" onclick="loadFamilyCourt()">Обновить</button></div>
+      <div class="card form">
+        <h3 style="margin:0">Предложение о браке</h3>
+        <p class="muted small">Введите Telegram ID гражданина. Брак регистрируется только после его добровольного согласия.</p>
+        <form class="row" onsubmit="proposeMarriage(event)"><input id="marriagePartnerId" type="number" min="1" placeholder="Telegram ID гражданина" required><button class="btn primary">Предложить</button></form>
+      </div>
+      <div class="section-head"><h3>Мои семейные документы</h3></div>
+      <div id="marriagesList" class="list"><div class="empty">Загрузка…</div></div>
+      <div class="section-head"><h3>Обратиться в Суд ДКД</h3></div>
+      <form class="card form" onsubmit="fileCourtCase(event)">
+        <p class="muted small">Укажите Telegram ID ответчика, название дела и обстоятельства спора. Ответчик сможет представить свою позицию. Судебное решение пока не выносится автоматически: система регистрирует дело и передаёт его на отдельный этап рассмотрения ИИ-судьёй.</p>
+        <div class="field"><label for="courtRespondent">Telegram ID ответчика</label><input id="courtRespondent" type="number" min="1" required></div>
+        <div class="field"><label for="courtTitle">Название дела</label><input id="courtTitle" minlength="4" maxlength="160" required></div>
+        <div class="field"><label for="courtClaim">Иск и обстоятельства</label><textarea id="courtClaim" minlength="20" maxlength="8000" rows="5" required></textarea></div>
+        <button class="btn primary">Подать иск</button>
+      </form>
+      <div class="section-head"><h3>Мои судебные дела</h3></div>
+      <div id="courtCasesList" class="list"><div class="empty">Загрузка…</div></div>
+      <div class="section-head"><h3>Открытый архив решений</h3></div>
+      <div id="courtArchive" class="list"><div class="empty">Загрузка…</div></div>
     </section>
 
     <section id="partiesView" class="view">
@@ -582,7 +607,7 @@ function openView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   const target=$(name+'View');if(target)target.classList.add('active');
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
-  if(name==='social')loadSocialFeed(true);if(name==='parliament')loadParliament();if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='admin')loadAdmin();if(name==='president'){checkPresident();loadPresidentLaws()};
+  if(name==='family')loadFamilyCourt();if(name==='social')loadSocialFeed(true);if(name==='parliament')loadParliament();if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='admin')loadAdmin();if(name==='president'){checkPresident();loadPresidentLaws()};
   window.scrollTo({top:0,behavior:'smooth'});
 }
 function statusPill(s){const val=String(s||'');let cls=/approved|active|citizen|опублик/i.test(val)?'good':/rejected|отклон|denied/i.test(val)?'bad':'';return `<span class="status ${cls}">${esc(val||'Не указан')}</span>`}
@@ -677,6 +702,42 @@ function showDocTab(tab){
 }
 function renderItems(items,titleKey,bodyKey){if(!items.length)return '<div class="empty">Пока ничего не опубликовано</div>';return `<div class="list">${items.map(x=>`<div class="card"><h4 class="item-title">${esc(x[titleKey]||'Документ')}</h4><p class="muted" style="white-space:pre-wrap">${esc(x[bodyKey]||x.text||'')}</p><small class="muted">${fmtDate(x.created_at||x.published_at)}</small></div>`).join('')}</div>`}
 async function submitApplication(e){e.preventDefault();try{await api('/api/applications',{method:'POST',body:{kind:$('appKind').value,full_name:$('appFullName').value.trim(),details:$('appDetails').value.trim()}});notify('Заявление отправлено');await loadDocuments();showDocTab('applications')}catch(err){notify(err.message,'error')}}
+function marriageStatusLabel(s){
+ const labels={proposed:'Ожидает согласия',active:'Брак зарегистрирован',rejected:'Предложение отклонено',divorce_pending:'Ожидает согласия на развод',divorced:'Брак расторгнут'};
+ return labels[s]||s||'Неизвестно';
+}
+async function loadFamilyCourt(){
+ const marriages=$('marriagesList'),cases=$('courtCasesList'),archive=$('courtArchive');
+ marriages.innerHTML=cases.innerHTML=archive.innerHTML='<div class="empty">Загрузка…</div>';
+ try{
+  const [f,c,a]=await Promise.all([api('/api/family'),api('/api/court/cases'),api('/api/court/archive')]);
+  const list=f.marriages||[];
+  marriages.innerHTML=list.length?list.map(m=>{
+   const partner=m.partner||{},status=marriageStatusLabel(m.status);
+   let actions='';
+   if(m.status==='proposed'&&!m.is_my_proposal)actions='<div class="row"><button class="btn primary" onclick="decideMarriage('+m.id+',true)">Согласиться</button><button class="btn secondary" onclick="decideMarriage('+m.id+',false)">Отказать</button></div>';
+   if(m.status==='active')actions='<button class="btn secondary" onclick="requestDivorce('+m.id+')">Подать заявление о разводе</button>';
+   if(m.status==='divorce_pending'&&!m.is_my_proposal)actions='<div class="row"><button class="btn primary" onclick="decideDivorce('+m.id+',true)">Согласиться на развод</button><button class="btn secondary" onclick="decideDivorce('+m.id+',false)">Отказать</button></div>';
+   return '<article class="card"><div class="row"><strong>💍 '+esc(partner.full_name||'Гражданин')+'</strong>'+statusPill(status)+'</div><p class="muted small">Запись №'+m.id+' · '+fmtDate(m.created_at)+'</p>'+actions+(m.status==='active'?'<p class="muted small">Свидетельство о браке №'+m.id+'</p>':'')+(m.status==='divorced'?'<p class="muted small">Запись о расторжении брака №'+m.id+'</p>':'')+'</article>';
+  }).join(''):'<div class="empty">Семейных документов пока нет.</div>';
+  const caseItems=c.cases||[];
+  cases.innerHTML=caseItems.length?caseItems.map(x=>{
+   let actions='';
+   if(x.my_role==='respondent'&&x.status==='awaiting_response')actions='<form class="form" onsubmit="respondCourtCase(event,'+x.id+')"><label>Ваш ответ (20–8000 символов)</label><textarea name="response_text" minlength="20" maxlength="8000" required></textarea><button class="btn primary">Представить ответ</button></form>';
+   if(x.status==='decided')actions='<form class="form" onsubmit="appealCourtCase(event,'+x.id+')"><label>Основания апелляции</label><textarea name="grounds" minlength="20" maxlength="5000" required></textarea><button class="btn secondary">Подать апелляцию</button></form>';
+   return '<article class="card"><div class="row"><strong>Дело №'+x.id+' · '+esc(x.title)+'</strong>'+statusPill(x.status)+'</div><p style="white-space:pre-wrap">'+esc(x.claim)+'</p>'+(x.response_text?'<h4>Ответ стороны</h4><p style="white-space:pre-wrap">'+esc(x.response_text)+'</p>':'')+(x.decision_text?'<h4>Решение</h4><p style="white-space:pre-wrap">'+esc(x.decision_text)+'</p>':'')+'<small class="muted">Истец: '+esc(x.plaintiff?.full_name||'—')+' · Ответчик: '+esc(x.respondent?.full_name||'—')+'</small>'+actions+'</article>';
+  }).join(''):'<div class="empty">Судебных дел пока нет.</div>';
+  const decisions=a.decisions||[];
+  archive.innerHTML=decisions.length?decisions.map(x=>'<article class="card"><strong>Дело №'+x.id+' · '+esc(x.title)+'</strong><p style="white-space:pre-wrap">'+esc(x.decision_text||'')+'</p><small class="muted">'+fmtDate(x.decided_at)+'</small></article>').join(''):'<div class="empty">Открытых решений пока нет.</div>';
+ }catch(e){showError(marriages,e);cases.innerHTML=archive.innerHTML='<div class="empty">Не удалось загрузить судебные данные.</div>'}
+}
+async function proposeMarriage(e){e.preventDefault();const id=Number($('marriagePartnerId').value);if(!Number.isSafeInteger(id)||id<1)return;try{await api('/api/family/proposals',{method:'POST',body:{partner_user_id:id}});$('marriagePartnerId').value='';notify('Предложение отправлено');await loadFamilyCourt()}catch(err){notify(err.message,'error')}}
+async function decideMarriage(id,accept){try{await api('/api/family/proposals/'+id+'/decision',{method:'POST',body:{accept}});notify(accept?'Брак зарегистрирован':'Предложение отклонено');await loadFamilyCourt()}catch(e){notify(e.message,'error')}}
+async function requestDivorce(id){if(!confirm('Подать заявление о расторжении брака? Второй супруг должен будет подтвердить его.'))return;try{await api('/api/family/'+id+'/divorce',{method:'POST'});notify('Заявление отправлено');await loadFamilyCourt()}catch(e){notify(e.message,'error')}}
+async function decideDivorce(id,accept){try{await api('/api/family/'+id+'/divorce/decision',{method:'POST',body:{accept}});notify(accept?'Брак расторгнут':'Заявление отклонено');await loadFamilyCourt()}catch(e){notify(e.message,'error')}}
+async function fileCourtCase(e){e.preventDefault();try{await api('/api/court/cases',{method:'POST',body:{respondent_user_id:Number($('courtRespondent').value),title:$('courtTitle').value.trim(),claim:$('courtClaim').value.trim()}});$('courtTitle').value=$('courtClaim').value='';notify('Иск зарегистрирован');await loadFamilyCourt()}catch(err){notify(err.message,'error')}}
+async function respondCourtCase(e,id){e.preventDefault();const response_text=new FormData(e.target).get('response_text');try{await api('/api/court/cases/'+id+'/response',{method:'POST',body:{response_text}});notify('Ответ принят');await loadFamilyCourt()}catch(err){notify(err.message,'error')}}
+async function appealCourtCase(e,id){e.preventDefault();const grounds=new FormData(e.target).get('grounds');try{await api('/api/court/cases/'+id+'/appeals',{method:'POST',body:{grounds}});notify('Апелляция зарегистрирована');await loadFamilyCourt()}catch(err){notify(err.message,'error')}}
 async function loadParties(){
   loadDumaPartyLists();
   const el=$('partiesContent');el.innerHTML='<div class="empty">Загрузка партий…</div>';
