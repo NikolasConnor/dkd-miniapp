@@ -47,11 +47,11 @@ import javax.crypto.spec.GCMParameterSpec
 
 private const val API_BASE_URL = "https://dkd-miniapp-1.onrender.com"
 private const val APP_HOST = "dkd-miniapp-1.onrender.com"
-private val Navy = Color(0xFF101827)
-private val Panel = Color(0xFF1A2638)
-private val Blue = Color(0xFF8DBBFA)
-private val Muted = Color(0xFFA8B5C7)
-private val White = Color(0xFFF4F7FC)
+private val Navy = Color(0xFF090A0D)
+private val Panel = Color(0xFF171A20)
+private val Blue = Color(0xFF9ABEFF)
+private val Muted = Color(0xFFAAB2C2)
+private val White = Color(0xFFF5F5F2)
 private val Green = Color(0xFF9BE2B5)
 private val Amber = Color(0xFFFFD28A)
 
@@ -407,6 +407,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
     var profileId by remember { mutableIntStateOf(0) }
     var postId by remember { mutableIntStateOf(0) }
     var chatId by remember { mutableIntStateOf(0) }
+    var detail by remember { mutableStateOf<String?>(null) }
     var notificationsOpen by remember { mutableStateOf(false) }
     var currentUserId by remember { mutableIntStateOf(0) }
     var unreadCount by remember { mutableIntStateOf(0) }
@@ -429,32 +430,41 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
             containerColor = Navy,
             topBar = {
                 Row(
-                    Modifier.fillMaxWidth().background(Panel).padding(horizontal = 16.dp, vertical = 10.dp),
+                    Modifier.fillMaxWidth().background(Color(0xFF0D111B))
+                        .padding(horizontal = 18.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    Box(
+                        Modifier.size(38.dp).background(Color(0xFF202B43), RoundedCornerShape(12.dp)),
+                        contentAlignment = Alignment.Center
+                    ) { Text("N", color = Blue, fontSize = 22.sp, fontWeight = FontWeight.Black) }
+                    Spacer(Modifier.width(11.dp))
                     Column(Modifier.weight(1f)) {
-                        Text("ДКД", color = White, fontWeight = FontWeight.Bold, fontSize = 21.sp)
-                        Text("Социальная сеть", color = Muted, fontSize = 11.sp)
+                        Text("ДКД", color = White, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                        Text("Виртуальное государство", color = Muted, fontSize = 10.sp)
                     }
                     TextButton(onClick = { notificationsOpen = true }) {
-                        Text("Уведомления" + if (unreadCount > 0) " · " + unreadCount else "", color = Blue)
+                        Text("♧" + if (unreadCount > 0) " $unreadCount" else "", color = Blue)
                     }
-                    TextButton(onClick = onLogout) { Text("Выйти", color = Amber) }
+                    TextButton(onClick = onLogout) { Text("Выйти", color = Muted) }
                 }
             },
             bottomBar = {
-                NavigationBar(containerColor = Panel, contentColor = White) {
-                    val labels = listOf("Лента", "Люди", "Чаты", "Профиль")
-                    val icons = listOf("◉", "◎", "✉", "◌")
+                NavigationBar(containerColor = Color(0xFF0D111B), contentColor = White) {
+                    val labels = listOf("Главная", "Лента", "Чаты", "Государство", "Профиль")
+                    val icons = listOf("⌂", "◉", "✉", "▥", "◌")
                     labels.forEachIndexed { index, label ->
                         NavigationBarItem(
-                            selected = tab == index,
-                            onClick = { tab = index; profileId = 0; postId = 0; chatId = 0 },
-                            icon = { Text(icons[index], fontSize = 20.sp) },
-                            label = { Text(label, fontSize = 10.sp) },
+                            selected = tab == index && detail == null && !notificationsOpen,
+                            onClick = {
+                                tab = index; detail = null; profileId = 0; postId = 0; chatId = 0
+                                notificationsOpen = false
+                            },
+                            icon = { Text(icons[index], fontSize = 21.sp) },
+                            label = { Text(label, fontSize = 9.sp, maxLines = 1) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = Blue, selectedTextColor = Blue,
-                                indicatorColor = Color(0xFF263B59),
+                                indicatorColor = Color(0xFF1C2D4B),
                                 unselectedIconColor = Muted, unselectedTextColor = Muted
                             )
                         )
@@ -474,6 +484,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                 when {
                     notificationsOpen -> NotificationsScreen(token, onBack = { notificationsOpen = false },
                         onUnreadChanged = { unreadCount = it }, onError = { toast = it })
+                    detail != null -> PortalDetailScreen(detail!!, onBack = { detail = null })
                     postId > 0 -> CommentsScreen(token, postId, currentUserId,
                         onBack = { postId = 0 }, onError = { toast = it })
                     profileId > 0 -> SocialProfileScreen(token, profileId, currentUserId,
@@ -483,19 +494,148 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         onError = { toast = it })
                     chatId > 0 -> ChatConversationScreen(token, chatId, currentUserId,
                         onBack = { chatId = 0 }, onError = { toast = it })
-                    tab == 0 -> SocialFeedScreen(token, currentUserId,
+                    tab == 0 -> PortalHomeScreen(
+                        onOpen = { detail = it },
+                        onFeed = { tab = 1 },
+                        onGovernment = { tab = 3 }
+                    )
+                    tab == 1 -> SocialFeedScreen(token, currentUserId,
                         onOpenProfile = { profileId = it },
                         onOpenComments = { postId = it },
-                        onError = { toast = it })
-                    tab == 1 -> PeopleScreen(token,
-                        onOpenProfile = { profileId = it },
-                        onOpenChat = { chatId = it },
                         onError = { toast = it })
                     tab == 2 -> ChatsScreen(token,
                         onOpenChat = { chatId = it },
                         onError = { toast = it })
+                    tab == 3 -> GovernmentScreen(onOpen = { detail = it })
                     else -> AccountScreen(token, currentUserId, onError = { toast = it })
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PortalHomeScreen(
+    onOpen: (String) -> Unit,
+    onFeed: () -> Unit,
+    onGovernment: () -> Unit
+) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
+        Spacer(Modifier.height(18.dp))
+        Text("ДОБРО ПОЖАЛОВАТЬ", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+        Text("Привет!", color = White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+        Text("Ваше цифровое пространство ДКД", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(18.dp))
+        Surface(
+            color = Color(0xFF17243B), shape = RoundedCornerShape(24.dp),
+            modifier = Modifier.fillMaxWidth().clickable { onOpen("Статус гражданина") }
+        ) {
+            Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("ВАШ СТАТУС", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                    Text("Гражданин ДКД", color = White, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Посмотреть профиль и документы", color = Muted, fontSize = 11.sp)
+                }
+                Text("→", color = Blue, fontSize = 30.sp)
+            }
+        }
+        Spacer(Modifier.height(24.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Государственные услуги", color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            TextButton(onClick = onGovernment) { Text("Все →", color = Blue) }
+        }
+        val services = listOf(
+            Triple("Выборы", "☑", "Выборы и голосования"),
+            Triple("Документы", "▤", "Цифровые документы"),
+            Triple("Государство", "▥", "Органы власти и должности"),
+            Triple("Партии", "♟", "Политические объединения"),
+            Triple("Обращения", "✉", "Заявления и обращения"),
+            Triple("Законы", "§", "Законодательство ДКД")
+        )
+        services.chunked(2).forEach { pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                pair.forEach { item ->
+                    Surface(
+                        color = Color(0xFF151C2A), shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.weight(1f).padding(bottom = 10.dp)
+                            .clickable { onOpen(item.first) }
+                    ) {
+                        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                            Text(item.second, color = Blue, fontSize = 27.sp)
+                            Text(item.first, color = White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                            Text(item.third, color = Muted, fontSize = 10.sp, minLines = 2)
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Surface(
+            color = Color(0xFF121A29), shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.fillMaxWidth().clickable { onFeed() }
+        ) {
+            Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Сообщество ДКД", color = White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text("Публикации, обсуждения и общение", color = Muted, fontSize = 11.sp)
+                }
+                Text("→", color = Blue, fontSize = 25.sp)
+            }
+        }
+        Spacer(Modifier.height(22.dp))
+        Text("NEXORA GROUP  ·  TECHNOLOGY. IDEAS. FUTURE.", color = Color(0xFF66758F), fontSize = 9.sp, letterSpacing = 1.sp)
+        Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun GovernmentScreen(onOpen: (String) -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
+        Text("ГОСУДАРСТВО ДКД", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+        Text("Государственные разделы", color = White, fontSize = 25.sp, fontWeight = FontWeight.Bold)
+        Text("Основные институты и сервисы виртуального государства", color = Muted, fontSize = 12.sp)
+        Spacer(Modifier.height(20.dp))
+        listOf(
+            Triple("Президент", "Глава государства, полномочия и указы", "Президент"),
+            Triple("Правительство", "Премьер-министр и министерства", "Правительство"),
+            Triple("Государственная Дума", "Депутаты, состав и заседания", "Государственная Дума"),
+            Triple("Выборы", "Избирательные кампании и результаты", "Выборы"),
+            Triple("Политические партии", "Партии, руководители и списки", "Партии"),
+            Triple("Документы", "Удостоверения, мандаты и указы", "Документы"),
+            Triple("Законы", "Законопроекты и принятые законы", "Законы"),
+            Triple("Новости", "Официальные события и публикации", "Новости")
+        ).forEach { item ->
+            Surface(
+                color = Color(0xFF151C2A), shape = RoundedCornerShape(17.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp).clickable { onOpen(item.third) }
+            ) {
+                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(item.first, color = White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                        Text(item.second, color = Muted, fontSize = 11.sp)
+                    }
+                    Text("›", color = Blue, fontSize = 28.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PortalDetailScreen(title: String, onBack: () -> Unit) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
+        TextButton(onClick = onBack) { Text("← Назад", color = Blue) }
+        Spacer(Modifier.height(12.dp))
+        Text("СЕРВИС ДКД", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+        Text(title, color = White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(16.dp))
+        Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(20.dp)) {
+            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Раздел подготовлен к интеграции", color = White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Это отдельный экран Android-приложения. Чтобы показывать здесь реальные сведения и выполнять действия, раздел необходимо подключить к соответствующим API ДКД. Сейчас данные и операции этого сервиса ещё не подключены в Android-клиенте.",
+                    color = Muted, fontSize = 12.sp
+                )
             }
         }
     }
