@@ -284,6 +284,8 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('query.not_.in_("author_user_id", sorted(hidden_ids))', core)
         self.assertIn('re.sub(r"[^\\\\w\\\\s@.\\\\-]", " ", search_value, flags=re.UNICODE)', core)
         self.assertIn('query.in_("author_user_id", followed_ids)', core)
+        self.assertIn('if not followed_ids:', core)
+        self.assertIn('if not safe:\\n            return []', core)
         self.assertIn('function setSocialFeedMode(following)', html)
         self.assertIn('function scheduleSocialFeedSearch()', html)
         self.assertIn('function searchSocialPeople()', html)
