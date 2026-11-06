@@ -602,16 +602,16 @@ async function searchGroupPeople(mode){
   }).join('')||'<div class="muted small">Граждане не найдены</div>';
  }catch(e){showError(results,e)}
 }
-function toggleGroupPerson(mode,id,name){
- const list=chatPeopleSelections[mode],idx=list.findIndex(x=>x.user_id===id);
- if(idx>=0)list.splice(idx,1);else if(list.length<20)list.push({user_id:id,name:name});else{notify('Можно выбрать не более 20 человек','error');return}
+function toggleGroupPerson(mode,id){
+ const list=chatPeopleSelections[mode],idx=list.indexOf(id);
+ if(idx>=0)list.splice(idx,1);else if(list.length<20)list.push(id);else{notify('Можно выбрать не более 20 человек','error');return}
  const target=$(mode==='create'?'chatGroupPeopleSelected':'chatAddPeopleSelected');
- target.textContent=list.length?'Выбраны: '+list.map(x=>x.name).join(', '):'Никого не выбрано';
+ target.textContent=list.length?'Выбрано граждан: '+list.length:'Никого не выбрано';
  searchGroupPeople(mode);
 }
 async function createChatGroup(e){
  e.preventDefault();
- const ids=chatPeopleSelections.create.map(x=>x.user_id);
+ const ids=chatPeopleSelections.create;
  try{
   const d=await api('/api/chats/groups',{method:'POST',body:{title:$('chatGroupTitle').value,member_ids:ids}});
   chatPeopleSelections.create=[];$('chatGroupPeopleSelected').textContent='';$('chatGroupPeopleResults').innerHTML='';$('chatGroupPeopleSearch').value='';
@@ -649,7 +649,7 @@ function renderChatMembers(){
  $('chatAddMemberIds').parentElement.classList.toggle('hidden',!(owner||admin));
 }
 async function addChatMembersUI(){
- const ids=chatPeopleSelections.add.map(x=>x.user_id);
+ const ids=chatPeopleSelections.add;
  if(!ids.length){notify('Сначала выберите граждан','error');return}
  try{
   await api('/api/chats/'+state.currentChatId+'/members',{method:'POST',body:{member_ids:ids}});
