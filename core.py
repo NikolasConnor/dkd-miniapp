@@ -3038,7 +3038,7 @@ def list_chat_messages(user: dict, conversation_id: int, before_id: int | None =
     cid = int(conversation_id)
     _chat_participant(cid, int(user["id"]))
     query = db().table("chat_messages").select(
-        "id,conversation_id,sender_user_id,body,created_at,updated_at"
+        "id,conversation_id,sender_user_id,body,created_at,updated_at,reply_to_message_id"
     ).eq("conversation_id", cid).is_("deleted_at", "null")
     if before_id is not None:
         query = query.lt("id", int(before_id))
@@ -3061,9 +3061,29 @@ def list_chat_messages(user: dict, conversation_id: int, before_id: int | None =
         authors = rows(db().table("subjects").select(
             "user_id,username,full_name,avatar_emoji").in_("user_id", ids))
         author_map = {int(x["user_id"]): x for x in authors}
+        reply_ids = sorted({int(x["reply_to_message_id"]) for x in messages
+                            if x.get("reply_to_message_id")})
+        reply_map = {}
+        if reply_ids:
+            replies = rows(db().table("chat_messages").select(
+                "id,conversation_id,sender_user_id,body,created_at,deleted_at"
+            ).eq("conversation_id", cid).in_("id", reply_ids),
+                "Не удалось загрузить ответы на сообщения.")
+            reply_author_ids = sorted({int(x["sender_user_id"]) for x in replies})
+            reply_authors = rows(db().table("subjects").select(
+                "user_id,username,full_name,avatar_emoji"
+            ).in_("user_id", reply_author_ids)) if reply_author_ids else []
+            reply_author_map = {int(x["user_id"]): x for x in reply_authors}
+            reply_map = {int(x["id"]): {
+                "id": int(x["id"]),
+                "body": "Сообщение удалено" if x.get("deleted_at") else x.get("body", ""),
+                "author": reply_author_map.get(int(x["sender_user_id"]), {}),
+            } for x in replies}
         messages = [{
             **x,
             "author": author_map.get(int(x["sender_user_id"]), {}),
+            "reply_to": reply_map.get(int(x["reply_to_message_id"]))
+                        if x.get("reply_to_message_id") else None,
             "can_edit": int(x["sender_user_id"]) == int(user["id"]),
             "can_delete": int(x["sender_user_id"]) == int(user["id"]),
         } for x in messages]
@@ -3118,13 +3138,22 @@ def delete_chat_message(user: dict, conversation_id: int, message_id: int) -> di
       .is_("deleted_at", "null"), "Не удалось удалить сообщение.")
     return {"ok": True, "message_id": int(message["id"]), "deleted_at": deleted_at}
 
-def send_chat_message(user: dict, conversation_id: int, body: str) -> dict:
+def send_chat_message(user: dict, conversation_id: int, body: str,
+                      reply_to_message_id: int | None = None) -> dict:
     _require_social_citizen(user)
     uid, cid = int(user["id"]), int(conversation_id)
     _chat_participant(cid, uid)
     value = str(body or "").strip()
     if not value or len(value) > CHAT_MESSAGE_MAX_LENGTH:
         raise DKDError(422, "Сообщение должно содержать от 1 до 4000 символов.")
+    reply_id = int(reply_to_message_id) if reply_to_message_id is not None else None
+    if reply_id is not None:
+        parent = one(db().table("chat_messages").select(
+            "id,conversation_id,deleted_at"
+        ).eq("id", reply_id).eq("conversation_id", cid).limit(1),
+            "Не удалось проверить исходное сообщение.")
+        if not parent or parent.get("deleted_at"):
+            raise DKDError(404, "Сообщение, на которое вы отвечаете, не найдено.")
     conv = one(db().table("chat_conversations").select("id,type,title").eq("id", cid).limit(1))
     if not conv:
         raise DKDError(404, "Чат не найден.")
@@ -3135,7 +3164,8 @@ def send_chat_message(user: dict, conversation_id: int, body: str) -> dict:
         raise DKDError(403, "Отправка сообщений недоступна из-за блокировки.")
     created = execute(db().table("chat_messages").insert({
         "conversation_id": cid, "sender_user_id": uid, "body": value,
-    }).select("id,conversation_id,sender_user_id,body,created_at"),
+        "reply_to_message_id": reply_id,
+    }).select("id,conversation_id,sender_user_id,body,created_at,reply_to_message_id"),
        "Не удалось отправить сообщение.")
     if not created:
         raise DKDError(502, "База данных не подтвердила отправку сообщения.")
