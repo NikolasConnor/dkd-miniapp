@@ -3390,6 +3390,27 @@ def _social_blocked_user_ids(user_id: int) -> set[int]:
             | {int(x["blocker_user_id"]) for x in incoming})
 
 
+def _social_can_view_profile(viewer: dict, target_user_id: int) -> bool:
+    viewer_id, target_id = int(viewer["id"]), int(target_user_id)
+    if viewer_id == target_id:
+        return True
+    profile = one(db().table("social_profiles").select("is_private").eq("user_id", target_id).limit(1))
+    if not profile or not profile.get("is_private"):
+        return True
+    return bool(one(db().table("social_follows").select("follower_user_id")
+                    .eq("follower_user_id", viewer_id).eq("followed_user_id", target_id).limit(1)))
+
+
+def _social_private_user_ids(user_ids: list[int]) -> set[int]:
+    ids = sorted({int(x) for x in user_ids if x})
+    if not ids:
+        return set()
+    profiles = rows(db().table("social_profiles").select("user_id")
+                    .eq("is_private", True).in_("user_id", ids),
+                    "Не удалось проверить приватность профилей.")
+    return {int(x["user_id"]) for x in profiles}
+
+
 def _social_visible_post(user: dict, post_id: int) -> dict:
     """Load a published post and enforce mutual block visibility."""
     _require_social_citizen(user)
@@ -3400,6 +3421,8 @@ def _social_visible_post(user: dict, post_id: int) -> dict:
         raise DKDError(404, "Публикация не найдена.")
     if int(post["author_user_id"]) != int(user["id"]):
         if int(post["author_user_id"]) in _social_blocked_user_ids(int(user["id"])):
+            raise DKDError(404, "Публикация не найдена.")
+        if not _social_can_view_profile(user, int(post["author_user_id"])):
             raise DKDError(404, "Публикация не найдена.")
     return post
 
@@ -3449,6 +3472,16 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
             return []
         query = query.in_("author_user_id", followed_ids)
     posts = rows(query.order("id", desc=True).limit(size), "Не удалось загрузить ленту.")
+    if posts:
+        private_ids = _social_private_user_ids(sorted({int(p["author_user_id"]) for p in posts}))
+        if private_ids:
+            accepted = rows(db().table("social_follows").select("followed_user_id")
+                            .eq("follower_user_id", int(user["id"])).in_("followed_user_id", sorted(private_ids)),
+                            "Не удалось проверить подписки на закрытые профили.")
+            allowed = {int(x["followed_user_id"]) for x in accepted}
+            posts = [p for p in posts if int(p["author_user_id"]) not in private_ids or int(p["author_user_id"]) in allowed]
+    if not posts:
+        return []
     if not posts:
         return []
     original_ids = sorted({int(p["repost_of_post_id"]) for p in posts if p.get("repost_of_post_id")})
@@ -3456,8 +3489,17 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
         "id,author_user_id,body,status,created_at,updated_at"
     ).in_("id", original_ids).eq("status", "published").is_("deleted_at", "null"),
        "Не удалось загрузить исходные публикации для репоста.") if original_ids else []
+    original_private_ids = _social_private_user_ids(sorted({int(p["author_user_id"]) for p in originals}))
+    if original_private_ids:
+        original_follows = rows(db().table("social_follows").select("followed_user_id")
+                                .eq("follower_user_id", int(user["id"])).in_("followed_user_id", sorted(original_private_ids)),
+                                "Не удалось проверить приватность исходных публикаций.")
+        original_allowed_private = {int(x["followed_user_id"]) for x in original_follows}
+    else:
+        original_allowed_private = set()
     original_map = {int(p["id"]): p for p in originals
-                    if int(p["author_user_id"]) not in hidden_ids}
+                    if int(p["author_user_id"]) not in hidden_ids
+                    and (int(p["author_user_id"]) not in original_private_ids or int(p["author_user_id"]) in original_allowed_private)}
     author_ids = sorted({int(p["author_user_id"]) for p in posts}
                         | {int(p["author_user_id"]) for p in original_map.values()})
     authors = rows(db().table("subjects").select(
@@ -3952,6 +3994,8 @@ def toggle_social_block(user: dict, target_user_id: int) -> dict:
     }), "Не удалось заблокировать пользователя.")
     execute(db().table("social_follows").delete()
             .or_(f"and(follower_user_id.eq.{int(user['id'])},followed_user_id.eq.{target_id}),and(follower_user_id.eq.{target_id},followed_user_id.eq.{int(user['id'])})"))
+    execute(db().table("social_follow_requests").delete()
+            .or_(f"and(requester_user_id.eq.{int(user['id'])},target_user_id.eq.{target_id}),and(requester_user_id.eq.{target_id},target_user_id.eq.{int(user['id'])})"))
     return {"blocked": True}
 
 
@@ -4006,7 +4050,7 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
     if target_id != int(user["id"]) and target_id in hidden_ids:
         raise DKDError(404, "Профиль гражданина не найден.")
     profile = one(db().table("social_profiles").select(
-        "user_id,bio,cover_storage_path,updated_at,show_connections"
+        "user_id,bio,cover_storage_path,updated_at,show_connections,is_private"
     ).eq("user_id", target_id).limit(1)) or {
         "user_id": target_id, "bio": "", "cover_storage_path": None,
     }
@@ -4017,6 +4061,10 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
     own_follow = one(db().table("social_follows").select("follower_user_id")
                      .eq("follower_user_id", int(user["id"]))
                      .eq("followed_user_id", target_id).limit(1))
+    pending_request = one(db().table("social_follow_requests").select("requester_user_id")
+                          .eq("requester_user_id", int(user["id"])).eq("target_user_id", target_id).limit(1))
+    is_private = bool(profile.get("is_private", False))
+    can_view_posts = target_id == int(user["id"]) or not is_private or bool(own_follow)
     follower_ids = sorted({int(x["follower_user_id"]) for x in followers
                           if int(x["follower_user_id"]) not in hidden_ids})
     following_ids = sorted({int(x["followed_user_id"]) for x in following
@@ -4033,7 +4081,7 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
         "id,author_user_id,body,status,created_at,updated_at,repost_of_post_id"
     ).eq("author_user_id", target_id).eq("status", "published")
       .is_("deleted_at", "null").order("id", desc=True).limit(30),
-      "Не удалось загрузить публикации профиля.")
+      "Не удалось загрузить публикации профиля.") if can_view_posts else []
     post_ids = [int(p["id"]) for p in posts]
     reaction_counts: dict[int, int] = {}
     comment_counts: dict[int, int] = {}
@@ -4116,10 +4164,14 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
         "avatar_emoji": target.get("avatar_emoji") or "👤",
         "bio": profile.get("bio") or "",
         "show_connections": bool(profile.get("show_connections", True)),
+        "is_private": is_private,
+        "posts_hidden": not can_view_posts,
+        "follow_requested": bool(pending_request),
+        "follow_status": "following" if own_follow else ("requested" if pending_request else "none"),
         "connections_hidden": not can_view_connections,
         "cover_storage_path": profile.get("cover_storage_path"),
-        "followers_count": len(follower_list),
-        "following_count": len(following_list),
+        "followers_count": len(follower_ids),
+        "following_count": len(following_ids),
         "followers": follower_list,
         "following": following_list,
         "posts_count": len(posts),
@@ -4129,7 +4181,8 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
     }
 
 
-def update_social_profile(user: dict, bio: str, show_connections: bool | None = None) -> dict:
+def update_social_profile(user: dict, bio: str, show_connections: bool | None = None,
+                         is_private: bool | None = None) -> dict:
     _require_social_citizen(user)
     text_value = str(bio or "").strip()
     if len(text_value) > 280:
@@ -4138,6 +4191,8 @@ def update_social_profile(user: dict, bio: str, show_connections: bool | None = 
                "updated_at": datetime.now(timezone.utc).isoformat()}
     if show_connections is not None:
         payload["show_connections"] = bool(show_connections)
+    if is_private is not None:
+        payload["is_private"] = bool(is_private)
     execute(db().table("social_profiles").upsert(payload, on_conflict="user_id"),
             "Не удалось сохранить настройки профиля.")
     return get_social_profile(user, int(user["id"]))
@@ -4145,38 +4200,90 @@ def update_social_profile(user: dict, bio: str, show_connections: bool | None = 
 
 def toggle_social_follow(user: dict, target_user_id: int) -> dict:
     _require_social_citizen(user)
-    target_id = int(target_user_id)
-    if target_id == int(user["id"]):
+    target_id, uid = int(target_user_id), int(user["id"])
+    if target_id == uid:
         raise DKDError(422, "Нельзя подписаться на собственный профиль.")
     target = get_subject(target_id)
     if not target or not target.get("is_citizen"):
         raise DKDError(404, "Профиль гражданина не найден.")
     blocked = one(db().table("social_user_blocks").select("blocker_user_id")
-                  .or_(f"and(blocker_user_id.eq.{int(user['id'])},blocked_user_id.eq.{target_id}),and(blocker_user_id.eq.{target_id},blocked_user_id.eq.{int(user['id'])})")
-                  .limit(1))
+                  .or_(f"and(blocker_user_id.eq.{uid},blocked_user_id.eq.{target_id}),and(blocker_user_id.eq.{target_id},blocked_user_id.eq.{uid})").limit(1))
     if blocked:
         raise DKDError(403, "Подписка недоступна.")
-    existing = one(db().table("social_follows").select("follower_user_id")
-                   .eq("follower_user_id", int(user["id"]))
-                   .eq("followed_user_id", target_id).limit(1))
-    if existing:
-        execute(db().table("social_follows").delete()
-                .eq("follower_user_id", int(user["id"]))
-                .eq("followed_user_id", target_id), "Не удалось отменить подписку.")
-        return {"following": False}
-    execute(db().table("social_follows").insert({
-        "follower_user_id": int(user["id"]), "followed_user_id": target_id,
-    }), "Не удалось подписаться.")
+    accepted = one(db().table("social_follows").select("follower_user_id")
+                   .eq("follower_user_id", uid).eq("followed_user_id", target_id).limit(1))
+    if accepted:
+        execute(db().table("social_follows").delete().eq("follower_user_id", uid).eq("followed_user_id", target_id),
+                "Не удалось отменить подписку.")
+        return {"following": False, "requested": False}
+    profile = one(db().table("social_profiles").select("is_private").eq("user_id", target_id).limit(1)) or {}
+    if profile.get("is_private"):
+        pending = one(db().table("social_follow_requests").select("requester_user_id")
+                      .eq("requester_user_id", uid).eq("target_user_id", target_id).limit(1))
+        if pending:
+            execute(db().table("social_follow_requests").delete().eq("requester_user_id", uid).eq("target_user_id", target_id),
+                    "Не удалось отменить запрос.")
+            return {"following": False, "requested": False}
+        execute(db().table("social_follow_requests").insert({"requester_user_id": uid, "target_user_id": target_id}),
+                "Не удалось отправить запрос на подписку.")
+        try:
+            actor = get_subject(uid) or user
+            name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+            create_notification(target_id, "Запрос на подписку", f"{name} хочет подписаться на ваш закрытый профиль.")
+        except Exception:
+            log.exception("Could not notify private profile owner")
+        return {"following": False, "requested": True}
+    execute(db().table("social_follows").insert({"follower_user_id": uid, "followed_user_id": target_id}),
+            "Не удалось подписаться.")
     try:
-        actor = get_subject(int(user["id"])) or user
-        actor_name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
-        create_notification(
-            target_id, "Новый подписчик",
-            f"{actor_name} подписался(ась) на ваш профиль."
-        )
+        actor = get_subject(uid) or user
+        name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+        create_notification(target_id, "Новый подписчик", f"{name} подписался(ась) на ваш профиль.")
     except Exception:
         log.exception("Could not create social follow notification")
-    return {"following": True}
+    return {"following": True, "requested": False}
+
+
+def list_social_follow_requests(user: dict) -> list[dict]:
+    _require_social_citizen(user)
+    requests = rows(db().table("social_follow_requests").select("requester_user_id,created_at")
+                    .eq("target_user_id", int(user["id"])).order("created_at", desc=True),
+                    "Не удалось загрузить запросы на подписку.")
+    ids = [int(x["requester_user_id"]) for x in requests]
+    if not ids:
+        return []
+    subjects = rows(db().table("subjects").select("user_id,username,full_name,avatar_emoji,is_citizen")
+                    .in_("user_id", ids), "Не удалось загрузить авторов запросов.")
+    mapping = {int(x["user_id"]): x for x in subjects if x.get("is_citizen")}
+    return [{**item, "requester": mapping[int(item["requester_user_id"])]}
+            for item in requests if int(item["requester_user_id"]) in mapping]
+
+
+def review_social_follow_request(user: dict, requester_user_id: int, approve: bool) -> dict:
+    _require_social_citizen(user)
+    uid, requester_id = int(user["id"]), int(requester_user_id)
+    request = one(db().table("social_follow_requests").select("requester_user_id")
+                  .eq("requester_user_id", requester_id).eq("target_user_id", uid).limit(1))
+    if not request:
+        raise DKDError(404, "Запрос на подписку не найден.")
+    blocked = one(db().table("social_user_blocks").select("blocker_user_id")
+                  .or_(f"and(blocker_user_id.eq.{uid},blocked_user_id.eq.{requester_id}),and(blocker_user_id.eq.{requester_id},blocked_user_id.eq.{uid})").limit(1))
+    if blocked:
+        execute(db().table("social_follow_requests").delete().eq("requester_user_id", requester_id).eq("target_user_id", uid))
+        raise DKDError(403, "Нельзя одобрить запрос пользователя, с которым есть блокировка.")
+    if approve:
+        execute(db().table("social_follows").upsert({"follower_user_id": requester_id, "followed_user_id": uid},
+                on_conflict="follower_user_id,followed_user_id"), "Не удалось одобрить запрос.")
+    execute(db().table("social_follow_requests").delete().eq("requester_user_id", requester_id).eq("target_user_id", uid),
+            "Не удалось закрыть запрос.")
+    if approve:
+        try:
+            actor = get_subject(uid) or user
+            name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+            create_notification(requester_id, "Запрос одобрен", f"{name} одобрил(а) ваш запрос на подписку.")
+        except Exception:
+            log.exception("Could not notify requester about approval")
+    return {"approved": bool(approve)}
 
 
 def set_social_cover(user: dict, data: bytes, filename: str) -> dict:
@@ -4231,6 +4338,8 @@ def get_social_cover(user: dict, target_user_id: int) -> tuple[bytes, str]:
     target = get_subject(target_id)
     if not target or not target.get("is_citizen"):
         raise DKDError(404, "Профиль гражданина не найден.")
+    if not _social_can_view_profile(user, target_id):
+        raise DKDError(404, "Обложка профиля не найдена.")
     profile = one(db().table("social_profiles").select("cover_storage_path")
                   .eq("user_id", target_id).limit(1))
     path = (profile or {}).get("cover_storage_path")
