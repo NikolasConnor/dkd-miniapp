@@ -9,7 +9,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, File, Header, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, Header, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
@@ -281,6 +281,29 @@ def social_feed(before_id: int | None = None, limit: int = 20,
 @app.post("/api/social/posts")
 def social_create_post(payload: SocialPostCreate, user: dict = Depends(auth_user)):
     return {"ok": True, "post": core.create_social_post(user, payload.body)}
+
+
+@app.post("/api/social/posts/media")
+async def social_create_post_with_media(
+    body: str = Form(default=""),
+    file: UploadFile = File(...),
+    user: dict = Depends(auth_user),
+):
+    data = await file.read(50 * 1024 * 1024 + 1)
+    if len(data) > 50 * 1024 * 1024:
+        raise DKDError(413, "Файл должен быть не больше 50 МБ.")
+    return {"ok": True, "post": core.create_social_post_with_media(
+        user, body, data, file.filename or "upload"
+    )}
+
+
+@app.get("/api/social/posts/{post_id}/media/{media_id}")
+def social_get_post_media(post_id: int, media_id: int, user: dict = Depends(auth_user)):
+    data, mime = core.get_social_post_media(user, post_id, media_id)
+    return Response(content=data, media_type=mime, headers={
+        "Cache-Control": "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+    })
 
 
 @app.post("/api/social/posts/{post_id}/comments")
