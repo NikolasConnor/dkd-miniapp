@@ -294,6 +294,25 @@ def social_toggle_reaction(post_id: int, user: dict = Depends(auth_user)):
     return core.toggle_social_reaction(user, post_id)
 
 
+class SocialProfileUpdate(BaseModel):
+    bio: str = Field(default="", max_length=280)
+
+
+@app.get("/api/social/profiles/{target_user_id}")
+def social_get_profile(target_user_id: int, user: dict = Depends(auth_user)):
+    return {"profile": core.get_social_profile(user, target_user_id)}
+
+
+@app.patch("/api/social/profile")
+def social_update_profile(payload: SocialProfileUpdate, user: dict = Depends(auth_user)):
+    return {"ok": True, "profile": core.update_social_profile(user, payload.bio)}
+
+
+@app.post("/api/social/profiles/{target_user_id}/follow")
+def social_toggle_follow(target_user_id: int, user: dict = Depends(auth_user)):
+    return core.toggle_social_follow(user, target_user_id)
+
+
 @app.get("/api/news")
 def get_news(user: dict = Depends(auth_user)):
     return {"news": core.list_news()}
