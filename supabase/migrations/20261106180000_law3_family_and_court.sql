@@ -66,3 +66,32 @@ alter table public.court_appeals enable row level security;
 revoke all on public.marriages from anon, authenticated;
 revoke all on public.court_cases from anon, authenticated;
 revoke all on public.court_appeals from anon, authenticated;
+
+-- Prevent concurrent or reversed proposals from creating two active marriages
+-- for the same citizen. The invariant is enforced by the database, not just UI.
+create or replace function public.dkd_guard_single_active_marriage()
+returns trigger
+language plpgsql
+as $$
+begin
+    if new.status in ('active','divorce_pending') and exists (
+        select 1
+        from public.marriages m
+        where m.status in ('active','divorce_pending')
+          and (new.id is null or m.id <> new.id)
+          and (
+              m.partner_one_user_id in (new.partner_one_user_id,new.partner_two_user_id)
+              or m.partner_two_user_id in (new.partner_one_user_id,new.partner_two_user_id)
+          )
+    ) then
+        raise exception 'A citizen may have only one active marriage';
+    end if;
+    return new;
+end;
+$$;
+
+drop trigger if exists dkd_single_active_marriage on public.marriages;
+create trigger dkd_single_active_marriage
+before insert or update of partner_one_user_id,partner_two_user_id,status
+on public.marriages
+for each row execute function public.dkd_guard_single_active_marriage();
