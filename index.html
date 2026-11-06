@@ -170,7 +170,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 <div class="card form"><h3>Новый личный чат</h3><input id="chatPeopleSearch" maxlength="80" placeholder="Поиск гражданина" oninput="searchChatPeople()"><div id="chatPeopleResults"></div></div>
 <form class="card form" onsubmit="createChatGroup(event)"><h3>Создать группу</h3><input id="chatGroupTitle" required minlength="2" maxlength="80" placeholder="Название группы"><input id="chatGroupMembers" placeholder="Telegram ID участников через запятую"><button class="btn primary">Создать группу</button></form>
 <div id="chatList" class="list"></div></div>
-<div id="chatRoomPane" class="hidden"><button class="btn secondary" onclick="closeChatRoom()">← К чатам</button><h3 id="chatRoomTitle">Чат</h3><div id="chatParticipants" class="muted small"></div><div id="chatMemberTools" class="card form hidden"><strong>Участники группы</strong><div id="chatMemberList" class="list"></div><input id="chatAddMemberIds" placeholder="ID граждан через запятую"><button class="btn secondary" onclick="addChatMembersUI()">Добавить участников</button></div><div id="chatMessages" class="list"></div><form class="row" onsubmit="sendChatMessage(event)"><input id="chatMessageBody" maxlength="4000" required placeholder="Сообщение"><button class="btn primary">Отправить</button></form><button id="chatLeaveButton" class="btn secondary hidden" onclick="leaveCurrentChat()">Покинуть группу</button></div>
+<div id="chatRoomPane" class="hidden"><button class="btn secondary" onclick="closeChatRoom()">← К чатам</button><h3 id="chatRoomTitle">Чат</h3><div id="chatParticipants" class="muted small"></div><div id="chatMemberTools" class="card form hidden"><strong>Участники группы</strong><div id="chatMemberList" class="list"></div><input id="chatAddMemberIds" placeholder="ID граждан через запятую"><button class="btn secondary" onclick="addChatMembersUI()">Добавить участников</button></div><div id="chatMessages" class="list"></div><form class="row" onsubmit="sendChatMessage(event)"><input id="chatMessageBody" maxlength="4000" placeholder="Сообщение"><button class="btn primary">Отправить</button></form><form class="row" onsubmit="sendChatAttachment(event)"><input id="chatAttachment" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" required><button class="btn secondary">Прикрепить</button></form><small class="muted">Фото или MP4-видео, до 25 МБ.</small><button id="chatLeaveButton" class="btn secondary hidden" onclick="leaveCurrentChat()">Покинуть группу</button></div>
 </section>
 <section id="socialProfileView" class="view">
       <button class="back" onclick="openView('social')">← К ленте</button>
@@ -639,7 +639,31 @@ async function transferChatOwner(id){
  try{await api('/api/chats/'+state.currentChatId+'/ownership',{method:'POST',body:{new_owner_user_id:id}});await openChat(state.currentChatId);notify('Владение передано')}
  catch(e){notify(e.message,'error')}
 }
-function renderChatMessages(items){$('chatMessages').innerHTML=items.map(m=>'<article class="card"><small>'+esc(m.author?.full_name||'Гражданин')+' · '+fmtDate(m.created_at)+'</small><p style="white-space:pre-wrap">'+esc(m.body)+'</p></article>').join('')||'<div class="empty">Сообщений пока нет.</div>'}
+function renderChatMessages(items){
+ $('chatMessages').innerHTML=items.map(m=>{
+  const media=(m.media||[]).map(x=>{
+   const url=esc(x.url||'');
+   if(x.media_type==='video')return '<video controls playsinline preload="metadata" style="width:100%;max-height:360px;border-radius:12px" src="'+url+'"></video>';
+   return '<a href="'+url+'" target="_blank" rel="noopener"><img loading="lazy" alt="Вложение" src="'+url+'" style="max-width:100%;max-height:360px;object-fit:contain;border-radius:12px"></a>';
+  }).join('');
+  return '<article class="card"><small>'+esc(m.author?.full_name||'Гражданин')+' · '+fmtDate(m.created_at)+'</small><p style="white-space:pre-wrap">'+esc(m.body)+'</p>'+media+'</article>';
+ }).join('')||'<div class="empty">Сообщений пока нет.</div>';
+}
+async function sendChatAttachment(e){
+ e.preventDefault();
+ const file=$('chatAttachment').files?.[0];
+ if(!file||!state.currentChatId)return;
+ if(file.size>25*1024*1024){notify('Файл больше 25 МБ','error');return}
+ const data=new FormData();data.append('file',file);data.append('body',$('chatMessageBody').value.trim());
+ const headers={};if(initData==='native-session'&&window.AndroidDKD?.hasSession?.())headers['X-Telegram-Init-Data']='native-session';else if(initData)headers['X-Telegram-Init-Data']=initData;
+ try{
+  const res=await fetch('/api/chats/'+state.currentChatId+'/media',{method:'POST',headers,body:data,cache:'no-store'});
+  let result={};try{result=await res.json()}catch{}
+  if(!res.ok)throw new Error(typeof result.detail==='string'?result.detail:'Не удалось отправить вложение');
+  $('chatAttachment').value='';$('chatMessageBody').value='';
+  const d=await api('/api/chats/'+state.currentChatId+'/messages');renderChatMessages(d.messages||[]);await loadChats();
+ }catch(err){notify(err.message,'error')}
+}
 async function sendChatMessage(e){e.preventDefault();const body=$('chatMessageBody').value.trim();if(!body||!state.currentChatId)return;try{await api('/api/chats/'+state.currentChatId+'/messages',{method:'POST',body:{body}});$('chatMessageBody').value='';const d=await api('/api/chats/'+state.currentChatId+'/messages');renderChatMessages(d.messages||[]);await loadChats()}catch(e){notify(e.message,'error')}}
 function closeChatRoom(){stopChatPolling();state.currentChatId=null;$('chatRoomPane').classList.add('hidden');$('chatListPane').classList.remove('hidden');loadChats()}
 async function leaveCurrentChat(){if(!state.currentChatId||!confirm('Покинуть группу?'))return;try{await api('/api/chats/'+state.currentChatId+'/leave',{method:'POST',body:{}});closeChatRoom()}catch(e){notify(e.message,'error')}}
