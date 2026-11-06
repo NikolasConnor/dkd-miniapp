@@ -4208,6 +4208,10 @@ def update_social_profile(user: dict, bio: str, show_connections: bool | None = 
         payload["is_private"] = bool(is_private)
     execute(db().table("social_profiles").upsert(payload, on_conflict="user_id"),
             "Не удалось сохранить настройки профиля.")
+    if is_private is False:
+        execute(db().table("social_follow_requests").delete()
+                .eq("target_user_id", int(user["id"])),
+                "Не удалось закрыть устаревшие запросы на подписку.")
     return get_social_profile(user, int(user["id"]))
 
 
@@ -4246,6 +4250,8 @@ def toggle_social_follow(user: dict, target_user_id: int) -> dict:
         except Exception:
             log.exception("Could not notify private profile owner")
         return {"following": False, "requested": True}
+    execute(db().table("social_follow_requests").delete()
+            .eq("requester_user_id", uid).eq("target_user_id", target_id))
     execute(db().table("social_follows").insert({"follower_user_id": uid, "followed_user_id": target_id}),
             "Не удалось подписаться.")
     try:
