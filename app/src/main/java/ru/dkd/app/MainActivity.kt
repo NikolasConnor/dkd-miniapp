@@ -157,19 +157,19 @@ private suspend fun redeemLoginCode(code: String): ApiResult = withContext(Dispa
     }
 }
 
-private suspend fun revokeSession(token: String) = withContext(Dispatchers.IO) {
+private suspend fun revokeSession(token: String): Boolean = withContext(Dispatchers.IO) {
     var connection: HttpURLConnection? = null
     try {
         connection = (URL("$API_BASE_URL/api/android/auth/logout").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
-            connectTimeout = 5_000
-            readTimeout = 5_000
+            connectTimeout = 8_000
+            readTimeout = 8_000
             setRequestProperty("Authorization", "Bearer $token")
             setRequestProperty("Accept", "application/json")
         }
-        connection.responseCode
+        connection.responseCode in 200..299
     } catch (_: Exception) {
-        // Локальная сессия всё равно очищается; серверная истечёт по TTL.
+        false
     } finally {
         connection?.disconnect()
     }
@@ -187,6 +187,7 @@ private fun DKDApp() {
     var code by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var logoutError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     MaterialTheme(
@@ -222,17 +223,22 @@ private fun DKDApp() {
         } else {
             AuthenticatedApp(
                 token = token!!,
+                logoutError = logoutError,
                 onLogout = {
                     val old = token!!
                     scope.launch {
-                        revokeSession(old)
-                        CookieManager.getInstance().setCookie(
-                            API_BASE_URL,
-                            "dkd_session=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax"
-                        ) {
-                            CookieManager.getInstance().flush()
-                            store.clear()
-                            token = null
+                        logoutError = null
+                        if (revokeSession(old)) {
+                            CookieManager.getInstance().setCookie(
+                                API_BASE_URL,
+                                "dkd_session=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax"
+                            ) {
+                                CookieManager.getInstance().flush()
+                                store.clear()
+                                token = null
+                            }
+                        } else {
+                            logoutError = "Не удалось связаться с сервером и отозвать сессию. Проверьте интернет и повторите выход."
                         }
                     }
                 }
@@ -308,7 +314,7 @@ private fun LoginScreen(
 }
 
 @Composable
-private fun AuthenticatedApp(token: String, onLogout: () -> Unit) {
+private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     var progress by remember { mutableIntStateOf(0) }
     var loadError by remember { mutableStateOf(false) }
@@ -321,6 +327,7 @@ private fun AuthenticatedApp(token: String, onLogout: () -> Unit) {
             settings.javaScriptCanOpenWindowsAutomatically = false
             settings.setSupportMultipleWindows(false)
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            settings.safeBrowsingEnabled = true
             addJavascriptInterface(AndroidSessionBridge { token }, "AndroidDKD")
             webChromeClient = object : WebChromeClient() {
                 override fun onProgressChanged(view: WebView?, newProgress: Int) {
@@ -332,12 +339,15 @@ private fun AuthenticatedApp(token: String, onLogout: () -> Unit) {
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                     val uri = request?.url ?: return true
                     if (uri.scheme == "https" && uri.host == APP_HOST) return false
-                    return try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                        true
-                    } catch (_: Exception) {
-                        true
+                    if (request.isForMainFrame && uri.scheme in listOf("https", "http", "mailto", "tel")) {
+                        return try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            true
+                        } catch (_: Exception) {
+                            true
+                        }
                     }
+                    return true
                 }
 
                 override fun onReceivedError(
@@ -345,9 +355,19 @@ private fun AuthenticatedApp(token: String, onLogout: () -> Unit) {
                 ) {
                     if (request?.isForMainFrame == true) loadError = true
                 }
+
+                override fun onReceivedSslError(
+                    view: WebView?,
+                    handler: android.webkit.SslErrorHandler?,
+                    error: android.net.http.SslError?
+                ) {
+                    handler?.cancel()
+                    loadError = true
+                }
             }
         }.also { view ->
             CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
             CookieManager.getInstance().setCookie(
                 API_BASE_URL,
                 "dkd_session=$token; Path=/; Secure; HttpOnly; SameSite=Lax"
@@ -378,6 +398,11 @@ private fun AuthenticatedApp(token: String, onLogout: () -> Unit) {
             color = Blue,
             trackColor = Panel
         )
+        if (logoutError != null) {
+            Surface(color = Color(0xFF4A2B35), modifier = Modifier.fillMaxWidth()) {
+                Text(logoutError, Modifier.padding(12.dp), color = White, fontSize = 12.sp)
+            }
+        }
         if (loadError) {
             Surface(color = Color(0xFF4A2B35), modifier = Modifier.fillMaxWidth()) {
                 Text(
