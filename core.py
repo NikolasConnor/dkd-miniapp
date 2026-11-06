@@ -247,6 +247,94 @@ def verify_init_data(raw: str, bot_token: str | None = None, max_age: int = 8640
     return user
 
 
+ANDROID_LOGIN_CODE_TTL_SECONDS = 15 * 60
+ANDROID_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+def _android_token_hash(token: str) -> str:
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+
+
+def create_android_login_code(actor_id: int, target_user_id: int) -> dict:
+    """Выпускает одноразовый код привязки только для существующего участника."""
+    require_admin({"id": int(actor_id)})
+    subject = get_subject(int(target_user_id))
+    if not subject:
+        raise DKDError(404, "Участник с таким Telegram ID не найден в ДКД.")
+    code = secrets.token_urlsafe(9)
+    expires = utcnow() + timedelta(seconds=ANDROID_LOGIN_CODE_TTL_SECONDS)
+    execute(db().table("android_login_codes").insert({
+        "user_id": int(target_user_id),
+        "token_hash": _android_token_hash(code),
+        "expires_at": expires.isoformat(),
+        "created_by": int(actor_id),
+    }), "Не удалось выпустить код входа в Android.")
+    audit(int(actor_id), "android_login_code_created", int(target_user_id), "Срок действия 15 минут")
+    return {"ok": True, "code": code, "expires_at": expires.isoformat(),
+            "message": "Передайте код участнику. Он одноразовый и действует 15 минут."}
+
+
+def redeem_android_login_code(code: str) -> dict:
+    """Однократно обменивает код на 30-дневную серверную сессию."""
+    value = str(code or "").strip()
+    if not 8 <= len(value) <= 64:
+        raise DKDError(401, "Неверный или просроченный код привязки.")
+    now = utcnow()
+    row = one(db().table("android_login_codes").select(
+        "id,user_id,expires_at,consumed_at"
+    ).eq("token_hash", _android_token_hash(value)).is_("consumed_at", "null")
+      .gt("expires_at", now.isoformat()).limit(1))
+    if not row:
+        raise DKDError(401, "Неверный, уже использованный или просроченный код.")
+    consumed = execute(db().table("android_login_codes").update({
+        "consumed_at": now.isoformat()
+    }).eq("id", int(row["id"])).is_("consumed_at", "null").select("id"),
+       "Не удалось подтвердить код привязки.")
+    if not consumed:
+        raise DKDError(409, "Этот код уже использован. Попросите администратора выпустить новый.")
+    subject = get_subject(int(row["user_id"]))
+    if not subject:
+        raise DKDError(403, "Аккаунт участника больше не найден.")
+    raw_session = secrets.token_urlsafe(32)
+    expires = now + timedelta(seconds=ANDROID_SESSION_TTL_SECONDS)
+    execute(db().table("android_sessions").insert({
+        "user_id": int(row["user_id"]),
+        "token_hash": _android_token_hash(raw_session),
+        "expires_at": expires.isoformat(),
+    }), "Не удалось создать сессию приложения.")
+    return {"ok": True, "session_token": raw_session, "expires_at": expires.isoformat(),
+            "profile": {"id": int(subject["user_id"]), "full_name": subject.get("full_name") or "",
+                        "username": subject.get("username") or "",
+                        "avatar_emoji": subject.get("avatar_emoji") or "👤"}}
+
+
+def verify_android_session(token: str) -> dict:
+    value = str(token or "").strip()
+    if not 20 <= len(value) <= 256:
+        raise DKDError(401, "Сессия приложения недействительна. Войдите заново.")
+    row = one(db().table("android_sessions").select(
+        "id,user_id,expires_at,revoked_at"
+    ).eq("token_hash", _android_token_hash(value)).is_("revoked_at", "null")
+      .gt("expires_at", utcnow().isoformat()).limit(1))
+    if not row:
+        raise DKDError(401, "Сессия приложения истекла или отозвана. Войдите заново.")
+    subject = get_subject(int(row["user_id"]))
+    if not subject:
+        raise DKDError(401, "Аккаунт участника не найден.")
+    return {"id": int(subject["user_id"]), "username": subject.get("username") or "",
+            "first_name": subject.get("full_name") or "", "last_name": ""}
+
+
+def revoke_android_session(token: str) -> dict:
+    value = str(token or "").strip()
+    if not value:
+        return {"ok": True}
+    execute(db().table("android_sessions").update({
+        "revoked_at": utcnow().isoformat()
+    }).eq("token_hash", _android_token_hash(value)).is_("revoked_at", "null"))
+    return {"ok": True}
+
+
 def tg_full_name(user: dict) -> str:
     return clean_name(" ".join(x for x in [user.get("first_name"), user.get("last_name")] if x)) or "Пользователь Telegram"
 
@@ -255,7 +343,7 @@ def tg_full_name(user: dict) -> str:
 # Пользователи (subjects)
 # ----------------------------------------------------------------------------
 
-SUBJECT_COLS = "id,user_id,username,full_name,is_citizen,reputation,created_at,citizenship_granted_at,avatar_emoji"
+SUBJECT_COLS = "id,user_id,username,full_name,is_citizen,reputation,created_at,citizenship_granted_at,avatar_emoji,gender"
 
 
 def get_subject(user_id: int) -> dict | None:
@@ -683,6 +771,16 @@ def update_profile_avatar(user: dict, avatar_emoji: str) -> dict:
     subject = ensure_subject(int(user["id"]), user.get("username"), tg_full_name(user))
     execute(db().table("subjects").update({"avatar_emoji": avatar}).eq("id", subject["id"]),
             "Не удалось сохранить аватарку.")
+    return build_profile(user)
+
+
+def update_profile_gender(user: dict, gender: str) -> dict:
+    value = str(gender or "").strip().lower()
+    if value not in ("male", "female", ""):
+        raise DKDError(422, "Выберите мужской или женский пол.")
+    subject = ensure_subject(int(user["id"]), user.get("username"), tg_full_name(user))
+    execute(db().table("subjects").update({"gender": value or None}).eq("id", subject["id"]),
+            "Не удалось сохранить пол в профиле.")
     return build_profile(user)
 
 
@@ -2409,6 +2507,215 @@ def _ensure_president_certificate() -> None:
             log.warning("President certificate notification failed for user %s: %s", uid, exc)
 
 
+# ----------------------------------------------------------------------------
+# Закон №3: браки и судебные дела
+# ----------------------------------------------------------------------------
+
+def _require_citizen(user: dict) -> dict:
+    subject = get_subject(int(user["id"]))
+    if not subject or not subject.get("is_citizen"):
+        raise DKDError(403, "Эта функция доступна только гражданам ДКД.")
+    return subject
+
+
+def _subject_public(user_id: int) -> dict:
+    item = get_subject(int(user_id))
+    if not item or not item.get("is_citizen"):
+        raise DKDError(404, "Гражданин не найден.")
+    return {"user_id": int(item["user_id"]), "full_name": item.get("full_name") or "Гражданин ДКД",
+            "username": item.get("username"), "avatar_emoji": item.get("avatar_emoji") or "👤"}
+
+
+def list_marriages(user: dict) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    records = rows(db().table("marriages").select(
+        "id,partner_one_user_id,partner_two_user_id,status,proposed_by,proposed_at,accepted_at,ended_at,created_at"
+    ).or_(f"partner_one_user_id.eq.{uid},partner_two_user_id.eq.{uid}")
+     .order("created_at", desc=True).limit(50), "Не удалось загрузить семейные документы.")
+    result = []
+    for item in records:
+        partner_id = int(item["partner_two_user_id"] if int(item["partner_one_user_id"]) == uid else item["partner_one_user_id"])
+        result.append({**item, "partner": _subject_public(partner_id),
+                       "is_my_proposal": int(item.get("proposed_by") or 0) == uid,
+                       "is_divorce_requester": int(item.get("divorce_requested_by") or 0) == uid})
+    return {"marriages": result}
+
+
+def propose_marriage(user: dict, partner_user_id: int) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    partner_id = int(partner_user_id)
+    if uid == partner_id:
+        raise DKDError(422, "Нельзя заключить брак с самим собой.")
+    partner = _subject_public(partner_id)
+    if one(db().table("marriages").select("id").eq("status", "active")
+           .or_(f"partner_one_user_id.eq.{uid},partner_two_user_id.eq.{uid}").limit(1)):
+        raise DKDError(409, "У вас уже есть действующий брак.")
+    if one(db().table("marriages").select("id").eq("status", "active")
+           .or_(f"partner_one_user_id.eq.{partner_id},partner_two_user_id.eq.{partner_id}").limit(1)):
+        raise DKDError(409, "У выбранного гражданина уже есть действующий брак.")
+    existing = one(db().table("marriages").select("id").eq("status", "proposed")
+                   .eq("proposed_by", uid).eq("partner_two_user_id", partner_id).limit(1))
+    if existing:
+        raise DKDError(409, "Предложение этому гражданину уже отправлено.")
+    created = execute(db().table("marriages").insert({
+        "partner_one_user_id": uid, "partner_two_user_id": partner_id,
+        "proposed_by": uid, "status": "proposed",
+    }), "Не удалось отправить предложение о браке.")
+    create_notification(partner_id, "Предложение о браке ДКД",
+                        f"{_subject_public(uid)['full_name']} предлагает заключить официальный брак. Откройте раздел «Государство → Семья».")
+    return {"ok": True, "marriage": created[0] if created else None, "partner": partner}
+
+
+def decide_marriage(user: dict, marriage_id: int, accept: bool) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    item = one(db().table("marriages").select("*").eq("id", int(marriage_id)).eq("status", "proposed").limit(1))
+    if not item or int(item["partner_two_user_id"]) != uid or int(item["proposed_by"]) == uid:
+        raise DKDError(404, "Ожидающее предложение о браке не найдено.")
+    status = "active" if accept else "rejected"
+    if accept:
+        for key in ("partner_one_user_id", "partner_two_user_id"):
+            partner_id = int(item[key])
+            active = one(db().table("marriages").select("id").eq("status", "active")
+                         .or_(f"partner_one_user_id.eq.{partner_id},partner_two_user_id.eq.{partner_id}").limit(1))
+            if active:
+                raise DKDError(409, "Один из граждан уже состоит в браке.")
+    updated = execute(db().table("marriages").update({
+        "status": status, "accepted_at": now_iso() if accept else None,
+    }).eq("id", int(marriage_id)).eq("status", "proposed"), "Не удалось обработать предложение.")
+    if not updated:
+        raise DKDError(409, "Предложение уже было обработано.")
+    other = int(item["partner_one_user_id"])
+    create_notification(other, "Ответ на предложение о браке",
+                        "Предложение принято. Брак зарегистрирован." if accept else "Предложение отклонено.")
+    return {"ok": True, "status": status}
+
+
+def request_divorce(user: dict, marriage_id: int) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    item = one(db().table("marriages").select("*").eq("id", int(marriage_id)).eq("status", "active").limit(1))
+    if not item or uid not in (int(item["partner_one_user_id"]), int(item["partner_two_user_id"])):
+        raise DKDError(404, "Действующий брак не найден.")
+    updated = execute(db().table("marriages").update({
+        "status": "divorce_pending", "divorce_requested_by": uid, "divorce_requested_at": now_iso(),
+    }).eq("id", int(marriage_id)).eq("status", "active"), "Не удалось подать заявление о расторжении брака.")
+    if not updated:
+        raise DKDError(409, "Статус брака уже изменился.")
+    other = int(item["partner_two_user_id"] if uid == int(item["partner_one_user_id"]) else item["partner_one_user_id"])
+    create_notification(other, "Заявление о расторжении брака",
+                        "Ваш супруг/супруга подал(а) заявление. Для расторжения требуется ваше подтверждение.")
+    return {"ok": True, "status": "divorce_pending"}
+
+
+def decide_divorce(user: dict, marriage_id: int, accept: bool) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    item = one(db().table("marriages").select("*").eq("id", int(marriage_id)).eq("status", "divorce_pending").limit(1))
+    if not item or uid not in (int(item["partner_one_user_id"]), int(item["partner_two_user_id"])) or int(item["divorce_requested_by"]) == uid:
+        raise DKDError(404, "Заявление, ожидающее вашего ответа, не найдено.")
+    status = "divorced" if accept else "active"
+    updated = execute(db().table("marriages").update({
+        "status": status, "ended_at": now_iso() if accept else None,
+        "divorce_requested_by": None, "divorce_requested_at": None,
+    }).eq("id", int(marriage_id)).eq("status", "divorce_pending"), "Не удалось обработать заявление.")
+    if not updated:
+        raise DKDError(409, "Заявление уже было обработано.")
+    other = int(item["partner_one_user_id"] if uid == int(item["partner_two_user_id"]) else item["partner_two_user_id"])
+    create_notification(other, "Расторжение брака",
+                        "Брак расторгнут. Документ доступен в разделе «Семья»." if accept else "В расторжении брака отказано.")
+    return {"ok": True, "status": status}
+
+
+def list_court_cases(user: dict) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    cases = rows(db().table("court_cases").select(
+        "id,plaintiff_user_id,respondent_user_id,title,claim,status,response_text,decision_text,decision_public,created_at,decided_at"
+    ).or_(f"plaintiff_user_id.eq.{uid},respondent_user_id.eq.{uid}")
+     .order("created_at", desc=True).limit(100), "Не удалось загрузить судебные дела.")
+    for item in cases:
+        item["plaintiff"] = _subject_public(int(item["plaintiff_user_id"]))
+        item["respondent"] = _subject_public(int(item["respondent_user_id"]))
+        item["my_role"] = "plaintiff" if int(item["plaintiff_user_id"]) == uid else "respondent"
+    return {"cases": cases}
+
+
+def file_court_case(user: dict, respondent_user_id: int, title: str, claim: str) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    respondent = int(respondent_user_id)
+    if respondent == uid:
+        raise DKDError(422, "Нельзя подать иск против самого себя.")
+    target = _subject_public(respondent)
+    title_value, claim_value = str(title or "").strip(), str(claim or "").strip()
+    if not 4 <= len(title_value) <= 160 or not 20 <= len(claim_value) <= 8000:
+        raise DKDError(422, "Укажите название (4–160 символов) и обстоятельства дела (20–8000 символов).")
+    created = execute(db().table("court_cases").insert({
+        "plaintiff_user_id": uid, "respondent_user_id": respondent,
+        "title": title_value, "claim": claim_value, "status": "awaiting_response",
+    }), "Не удалось зарегистрировать иск.")
+    if not created:
+        raise DKDError(502, "Суд не подтвердил регистрацию иска.")
+    case = created[0]
+    create_notification(respondent, "Вам направлен иск в Суд ДКД",
+                        f"Дело №{case['id']}: {title_value}. Вы можете представить ответ и доказательства.")
+    return {"ok": True, "case": case, "respondent": target}
+
+
+def respond_court_case(user: dict, case_id: int, response_text: str) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    item = one(db().table("court_cases").select("id,plaintiff_user_id,respondent_user_id,status")
+               .eq("id", int(case_id)).limit(1))
+    text_value = str(response_text or "").strip()
+    if not item or int(item["respondent_user_id"]) != uid or item["status"] != "awaiting_response":
+        raise DKDError(404, "Дело не найдено или ответ уже не принимается.")
+    if not 20 <= len(text_value) <= 8000:
+        raise DKDError(422, "Ответ должен содержать от 20 до 8000 символов.")
+    updated = execute(db().table("court_cases").update({
+        "response_text": text_value, "responded_at": now_iso(), "status": "awaiting_ai_judge",
+    }).eq("id", int(case_id)).eq("status", "awaiting_response"), "Не удалось сохранить ответ.")
+    if not updated:
+        raise DKDError(409, "Дело уже изменилось.")
+    create_notification(int(item["plaintiff_user_id"]), "Ответ по судебному делу",
+                        f"По делу №{case_id} ответчик представил позицию. Дело ожидает рассмотрения.")
+    return {"ok": True, "status": "awaiting_ai_judge"}
+
+
+def appeal_court_case(user: dict, case_id: int, grounds: str) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    item = one(db().table("court_cases").select("id,plaintiff_user_id,respondent_user_id,status,decided_at")
+               .eq("id", int(case_id)).limit(1))
+    grounds_value = str(grounds or "").strip()
+    if not item or uid not in (int(item["plaintiff_user_id"]), int(item["respondent_user_id"])):
+        raise DKDError(404, "Судебное дело не найдено.")
+    if item["status"] != "decided":
+        raise DKDError(409, "Апелляция возможна только после вынесения решения.")
+    if not 20 <= len(grounds_value) <= 5000:
+        raise DKDError(422, "Укажите основания апелляции (20–5000 символов).")
+    created = execute(db().table("court_appeals").insert({
+        "case_id": int(case_id), "appellant_user_id": uid, "grounds": grounds_value,
+        "status": "awaiting_ai_appeal_judge",
+    }), "Не удалось зарегистрировать апелляцию.")
+    execute(db().table("court_cases").update({"status": "appealed"}).eq("id", int(case_id)).eq("status", "decided"),
+            "Не удалось обновить статус дела.")
+    other = int(item["respondent_user_id"] if uid == int(item["plaintiff_user_id"]) else item["plaintiff_user_id"])
+    create_notification(other, "Подана апелляция", f"Решение по делу №{case_id} обжаловано.")
+    return {"ok": True, "appeal": created[0] if created else None}
+
+
+def list_public_court_decisions() -> dict:
+    cases = rows(db().table("court_cases").select(
+        "id,title,decision_text,decided_at"
+    ).eq("status", "decided").eq("decision_public", True)
+     .order("decided_at", desc=True).limit(100), "Не удалось загрузить судебный архив.")
+    return {"decisions": cases}
+
+
 def list_documents(user: dict, admin: bool) -> dict:
     uid = int(user["id"])
     # В публичном разделе документов показываем только законы, подписанные Президентом.
@@ -2464,8 +2771,10 @@ def list_documents(user: dict, admin: bool) -> dict:
         else:
             item.pop("secret_for_user_id", None)
             public_decrees.append(item)
+    subject_for_family = get_subject(uid) or {}
+    marriages = list_marriages(user).get("marriages", []) if subject_for_family.get("is_citizen") else []
     return {"laws": laws, "decrees": public_decrees, "mandates": mandates,
-            "president_certificate": president_certificate}
+            "president_certificate": president_certificate, "marriages": marriages}
 
 def _election_results_news(kind: str, election: dict, counts: dict[str, int], extra: str = "") -> str:
     title = clean_name(election.get("title")) or ("Выборы в Госдуму" if kind == "duma" else "Президентские выборы")
@@ -2567,6 +2876,1573 @@ def list_news() -> list:
 
 
 
+# ----------------------------------------------------------------------------
+# Социальная лента (первый серверный этап)
+# ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+# Direct and group chats
+# ----------------------------------------------------------------------------
+CHAT_MESSAGE_MAX_LENGTH = 4000
+CHAT_GROUP_MAX_MEMBERS = 50
+
+def _chat_participant(conversation_id: int, user_id: int) -> dict:
+    row = one(db().table("chat_participants").select(
+        "conversation_id,user_id,member_role,joined_at,left_at,last_read_at"
+    ).eq("conversation_id", int(conversation_id)).eq("user_id", int(user_id))
+      .is_("left_at", "null").limit(1), "Не удалось проверить доступ к чату.")
+    if not row:
+        raise DKDError(404, "Чат не найден.")
+    conv = one(db().table("chat_conversations").select(
+        "id,type"
+    ).eq("id", int(conversation_id)).limit(1), "Не удалось проверить тип чата.")
+    if not conv:
+        raise DKDError(404, "Чат не найден.")
+    if conv.get("type") == "direct":
+        others = rows(db().table("chat_participants").select("user_id")
+                      .eq("conversation_id", int(conversation_id))
+                      .is_("left_at", "null"))
+        blocked = _social_blocked_user_ids(int(user_id))
+        if any(int(x["user_id"]) in blocked for x in others
+               if int(x["user_id"]) != int(user_id)):
+            raise DKDError(403, "Доступ к личному чату недоступен из-за блокировки.")
+    return row
+
+def list_chat_people(user: dict, search: str = "") -> list[dict]:
+    _require_social_citizen(user)
+    uid = int(user["id"])
+    hidden = _social_blocked_user_ids(uid)
+    query = db().table("subjects").select("user_id,username,full_name,avatar_emoji").eq(
+        "is_citizen", True).neq("user_id", uid).order("full_name").limit(100)
+    value = str(search or "").strip()
+    if value:
+        if len(value) > 80:
+            raise DKDError(422, "Слишком длинный поисковый запрос.")
+        safe = re.sub(r"[^\w\s@.-]", " ", value, flags=re.UNICODE)
+        safe = " ".join(safe.split())
+        if not safe:
+            return []
+        query = query.or_(f"username.ilike.%{safe}%,full_name.ilike.%{safe}%")
+    if hidden:
+        query = query.not_.in_("user_id", sorted(hidden))
+    return rows(query, "Не удалось загрузить список граждан.")[:50]
+
+def create_direct_chat(user: dict, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, target_id = int(user["id"]), int(target_user_id)
+    if uid == target_id:
+        raise DKDError(422, "Нельзя создать чат с самим собой.")
+    target = get_subject(target_id)
+    if not target or not target.get("is_citizen"):
+        raise DKDError(404, "Гражданин не найден.")
+    if target_id in _social_blocked_user_ids(uid):
+        raise DKDError(403, "Личный чат недоступен из-за блокировки.")
+    key = ":".join(map(str, sorted((uid, target_id))))
+    conv = one(db().table("chat_conversations").select(
+        "id,type,title,created_by,created_at,last_message_at"
+    ).eq("direct_key", key).limit(1))
+    if not conv:
+        try:
+            created = execute(db().table("chat_conversations").insert({
+                "type": "direct", "direct_key": key, "created_by": uid,
+            }).select("id,type,title,created_by,created_at,last_message_at"),
+                "Не удалось создать личный чат.")
+            conv = created[0] if created else None
+        except DKDError:
+            conv = one(db().table("chat_conversations").select(
+                "id,type,title,created_by,created_at,last_message_at"
+            ).eq("direct_key", key).limit(1))
+            if not conv:
+                raise
+    if not conv:
+        raise DKDError(502, "База данных не подтвердила создание чата.")
+    cid = int(conv["id"])
+    current = rows(db().table("chat_participants").select("user_id")
+                   .eq("conversation_id", cid), "Не удалось проверить участников чата.")
+    present = {int(x["user_id"]) for x in current}
+    missing = [x for x in (uid, target_id) if x not in present]
+    if missing:
+        execute(db().table("chat_participants").insert([
+            {"conversation_id": cid, "user_id": x,
+             "member_role": "owner" if x == uid else "member"} for x in missing
+        ]), "Не удалось добавить участников личного чата.")
+    _chat_participant(cid, uid)
+    return {"ok": True, "conversation": conv}
+
+def create_group_chat(user: dict, title: str, member_ids: list[int]) -> dict:
+    _require_social_citizen(user)
+    uid = int(user["id"])
+    name = clean_name(title)
+    if not 2 <= len(name) <= 80:
+        raise DKDError(422, "Название группы должно содержать от 2 до 80 символов.")
+    ids = list(dict.fromkeys(int(x) for x in (member_ids or []) if int(x) > 0))
+    if uid not in ids:
+        ids.insert(0, uid)
+    if len(ids) < 3:
+        raise DKDError(422, "В группе должно быть не менее трёх участников вместе с вами.")
+    if len(ids) > CHAT_GROUP_MAX_MEMBERS:
+        raise DKDError(422, f"В группе может быть не более {CHAT_GROUP_MAX_MEMBERS} участников.")
+    hidden = _social_blocked_user_ids(uid)
+    if any(x in hidden for x in ids if x != uid):
+        raise DKDError(403, "Нельзя добавить в группу пользователя, с которым есть блокировка.")
+    subjects = rows(db().table("subjects").select("user_id,is_citizen").in_("user_id", ids))
+    citizens = {int(x["user_id"]) for x in subjects if x.get("is_citizen")}
+    if citizens != set(ids):
+        raise DKDError(422, "Все участники группы должны быть гражданами ДКД.")
+    created = execute(db().table("chat_conversations").insert({
+        "type": "group", "title": name, "created_by": uid,
+    }).select("id,type,title,created_by,created_at,last_message_at"),
+       "Не удалось создать группу.")
+    if not created:
+        raise DKDError(502, "База данных не подтвердила создание группы.")
+    cid = int(created[0]["id"])
+    execute(db().table("chat_participants").insert([
+        {"conversation_id": cid, "user_id": x,
+         "member_role": "owner" if x == uid else "member"} for x in ids
+    ]), "Не удалось добавить участников группы.")
+    audit(uid, "chat_group_created", None, f"conversation_id={cid};members={len(ids)}")
+    return {"ok": True, "conversation": created[0]}
+
+def list_chats(user: dict) -> list[dict]:
+    _require_social_citizen(user)
+    uid = int(user["id"])
+    memberships = rows(db().table("chat_participants").select(
+        "conversation_id,member_role,last_read_at"
+    ).eq("user_id", uid).is_("left_at", "null").order("joined_at", desc=True).limit(100))
+    ids = [int(x["conversation_id"]) for x in memberships]
+    if not ids:
+        return []
+    conversations = rows(db().table("chat_conversations").select(
+        "id,type,title,created_by,created_at,last_message_at"
+    ).in_("id", ids).order("last_message_at", desc=True).limit(100))
+    member_map = {int(x["conversation_id"]): x for x in memberships}
+    participants = rows(db().table("chat_participants").select(
+        "conversation_id,user_id,member_role"
+    ).in_("conversation_id", ids).is_("left_at", "null"))
+    subject_ids = sorted({int(x["user_id"]) for x in participants})
+    subjects = rows(db().table("subjects").select(
+        "user_id,username,full_name,avatar_emoji"
+    ).in_("user_id", subject_ids)) if subject_ids else []
+    subject_map = {int(x["user_id"]): x for x in subjects}
+    by_chat: dict[int, list[dict]] = {}
+    for p in participants:
+        by_chat.setdefault(int(p["conversation_id"]), []).append(
+            {**p, "profile": subject_map.get(int(p["user_id"]), {})})
+    result = []
+    blocked_ids = _social_blocked_user_ids(uid)
+    for conv in conversations:
+        cid = int(conv["id"])
+        if conv.get("type") == "direct" and any(
+            int(p["user_id"]) in blocked_ids for p in by_chat.get(cid, [])
+            if int(p["user_id"]) != uid
+        ):
+            continue
+        latest = one(db().table("chat_messages").select(
+            "id,sender_user_id,body,created_at"
+        ).eq("conversation_id", cid).is_("deleted_at", "null").order("id", desc=True).limit(1))
+        q = db().table("chat_messages").select("id", count="exact").eq(
+            "conversation_id", cid).neq("sender_user_id", uid).is_("deleted_at", "null")
+        read_at = member_map[cid].get("last_read_at")
+        if read_at:
+            q = q.gt("created_at", read_at)
+        unread = q.execute()
+        result.append({**conv, "my_role": member_map[cid]["member_role"],
+                       "participants": by_chat.get(cid, []), "last_message": latest,
+                       "unread_count": int(getattr(unread, "count", 0) or 0)})
+    return result
+
+def list_chat_messages(user: dict, conversation_id: int, before_id: int | None = None,
+                       limit: int = 50, search: str = "") -> list[dict]:
+    _require_social_citizen(user)
+    cid = int(conversation_id)
+    _chat_participant(cid, int(user["id"]))
+    query = db().table("chat_messages").select(
+        "id,conversation_id,sender_user_id,body,created_at,updated_at,reply_to_message_id"
+    ).eq("conversation_id", cid).is_("deleted_at", "null")
+    term = str(search or "").strip()
+    if len(term) > 80:
+        raise DKDError(422, "Поисковый запрос слишком длинный.")
+    if term:
+        safe_term = re.sub(r"[%_*]", " ", term)
+        safe_term = " ".join(safe_term.split())
+        if safe_term:
+            query = query.ilike("body", f"%{safe_term}%")
+    if before_id is not None:
+        query = query.lt("id", int(before_id))
+    messages = rows(query.order("id", desc=True).limit(max(1, min(int(limit), 100))))
+    if messages:
+        message_ids = [int(x["id"]) for x in messages]
+        attachments = rows(db().table("chat_message_media").select(
+            "id,message_id,media_type,mime_type,size_bytes"
+        ).in_("message_id", message_ids), "Не удалось загрузить вложения чата.")
+        media_map: dict[int, list[dict]] = {}
+        for media in attachments:
+            mid = int(media["message_id"])
+            media_map.setdefault(mid, []).append({
+                **media,
+                "url": f"/api/chats/{cid}/media/{int(media['id'])}",
+            })
+        messages = [{**item, "media": media_map.get(int(item["id"]), [])}
+                    for item in messages]
+        ids = sorted({int(x["sender_user_id"]) for x in messages})
+        authors = rows(db().table("subjects").select(
+            "user_id,username,full_name,avatar_emoji").in_("user_id", ids))
+        author_map = {int(x["user_id"]): x for x in authors}
+        reply_ids = sorted({int(x["reply_to_message_id"]) for x in messages
+                            if x.get("reply_to_message_id")})
+        reply_map = {}
+        if reply_ids:
+            replies = rows(db().table("chat_messages").select(
+                "id,conversation_id,sender_user_id,body,created_at,deleted_at"
+            ).eq("conversation_id", cid).in_("id", reply_ids),
+                "Не удалось загрузить ответы на сообщения.")
+            reply_author_ids = sorted({int(x["sender_user_id"]) for x in replies})
+            reply_authors = rows(db().table("subjects").select(
+                "user_id,username,full_name,avatar_emoji"
+            ).in_("user_id", reply_author_ids)) if reply_author_ids else []
+            reply_author_map = {int(x["user_id"]): x for x in reply_authors}
+            reply_map = {int(x["id"]): {
+                "id": int(x["id"]),
+                "body": "Сообщение удалено" if x.get("deleted_at") else x.get("body", ""),
+                "author": reply_author_map.get(int(x["sender_user_id"]), {}),
+            } for x in replies}
+        messages = [{
+            **x,
+            "author": author_map.get(int(x["sender_user_id"]), {}),
+            "reply_to": reply_map.get(int(x["reply_to_message_id"]))
+                        if x.get("reply_to_message_id") else None,
+            "can_edit": int(x["sender_user_id"]) == int(user["id"]),
+            "can_delete": int(x["sender_user_id"]) == int(user["id"]),
+        } for x in messages]
+    return list(reversed(messages))
+
+
+CHAT_MESSAGE_EDIT_WINDOW = 15 * 60
+
+def _owned_chat_message(user: dict, conversation_id: int, message_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, cid, mid = int(user["id"]), int(conversation_id), int(message_id)
+    _chat_participant(cid, uid)
+    message = one(db().table("chat_messages").select(
+        "id,conversation_id,sender_user_id,body,created_at,updated_at,deleted_at"
+    ).eq("id", mid).eq("conversation_id", cid).limit(1),
+       "Не удалось проверить сообщение.")
+    if not message or message.get("deleted_at"):
+        raise DKDError(404, "Сообщение не найдено.")
+    if int(message["sender_user_id"]) != uid:
+        raise DKDError(403, "Изменять или удалять можно только свои сообщения.")
+    try:
+        created_at = datetime.fromisoformat(str(message["created_at"]).replace("Z", "+00:00"))
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        raise DKDError(409, "Не удалось проверить время отправки сообщения.")
+    age = (datetime.now(timezone.utc) - created_at).total_seconds()
+    if age < 0 or age > CHAT_MESSAGE_EDIT_WINDOW:
+        raise DKDError(409, "Изменять или удалять сообщение можно в течение 15 минут после отправки.")
+    return message
+
+def edit_chat_message(user: dict, conversation_id: int, message_id: int, body: str) -> dict:
+    message = _owned_chat_message(user, conversation_id, message_id)
+    value = str(body or "").strip()
+    if not value or len(value) > CHAT_MESSAGE_MAX_LENGTH:
+        raise DKDError(422, "Сообщение должно содержать от 1 до 4000 символов.")
+    updated = execute(db().table("chat_messages").update({
+        "body": value, "updated_at": now_iso()
+    }).eq("id", int(message["id"])).eq("conversation_id", int(conversation_id))
+      .is_("deleted_at", "null").select("id,body,updated_at"),
+      "Не удалось изменить сообщение.")
+    if not updated:
+        raise DKDError(409, "Сообщение уже изменено или удалено.")
+    return {"ok": True, "message": updated[0]}
+
+def delete_chat_message(user: dict, conversation_id: int, message_id: int) -> dict:
+    message = _owned_chat_message(user, conversation_id, message_id)
+    deleted_at = now_iso()
+    execute(db().table("chat_messages").update({
+        "deleted_at": deleted_at, "updated_at": deleted_at, "body": "Сообщение удалено"
+    }).eq("id", int(message["id"])).eq("conversation_id", int(conversation_id))
+      .is_("deleted_at", "null"), "Не удалось удалить сообщение.")
+    return {"ok": True, "message_id": int(message["id"]), "deleted_at": deleted_at}
+
+def send_chat_message(user: dict, conversation_id: int, body: str,
+                      reply_to_message_id: int | None = None) -> dict:
+    _require_social_citizen(user)
+    uid, cid = int(user["id"]), int(conversation_id)
+    _chat_participant(cid, uid)
+    value = str(body or "").strip()
+    if not value or len(value) > CHAT_MESSAGE_MAX_LENGTH:
+        raise DKDError(422, "Сообщение должно содержать от 1 до 4000 символов.")
+    reply_id = int(reply_to_message_id) if reply_to_message_id is not None else None
+    if reply_id is not None:
+        parent = one(db().table("chat_messages").select(
+            "id,conversation_id,deleted_at"
+        ).eq("id", reply_id).eq("conversation_id", cid).limit(1),
+            "Не удалось проверить исходное сообщение.")
+        if not parent or parent.get("deleted_at"):
+            raise DKDError(404, "Сообщение, на которое вы отвечаете, не найдено.")
+    conv = one(db().table("chat_conversations").select("id,type,title").eq("id", cid).limit(1))
+    if not conv:
+        raise DKDError(404, "Чат не найден.")
+    members = rows(db().table("chat_participants").select("user_id")
+                   .eq("conversation_id", cid).is_("left_at", "null"))
+    recipients = [int(x["user_id"]) for x in members if int(x["user_id"]) != uid]
+    if conv["type"] == "direct" and any(x in _social_blocked_user_ids(uid) for x in recipients):
+        raise DKDError(403, "Отправка сообщений недоступна из-за блокировки.")
+    created = execute(db().table("chat_messages").insert({
+        "conversation_id": cid, "sender_user_id": uid, "body": value,
+        "reply_to_message_id": reply_id,
+    }).select("id,conversation_id,sender_user_id,body,created_at,reply_to_message_id"),
+       "Не удалось отправить сообщение.")
+    if not created:
+        raise DKDError(502, "База данных не подтвердила отправку сообщения.")
+    message = created[0]
+    execute(db().table("chat_conversations").update({
+        "last_message_at": message["created_at"]
+    }).eq("id", cid), "Не удалось обновить время последнего сообщения.")
+    for recipient in recipients:
+        try:
+            create_notification(recipient, "Новое сообщение",
+                                f"Вам написали в ДКД: {value[:180]}", send_telegram=False)
+        except Exception as exc:
+            log.warning("chat notification failed for %s: %s", recipient, exc)
+    return {"ok": True, "message": message}
+
+
+CHAT_MEDIA_MAX_BYTES = 25 * 1024 * 1024
+
+def create_chat_message_with_media(user: dict, conversation_id: int,
+                                   body: str, data: bytes, filename: str) -> dict:
+    _require_social_citizen(user)
+    uid, cid = int(user["id"]), int(conversation_id)
+    _chat_participant(cid, uid)
+    text_value = str(body or "").strip()
+    if len(text_value) > CHAT_MESSAGE_MAX_LENGTH:
+        raise DKDError(422, "Текст сообщения слишком длинный.")
+    if not data:
+        raise DKDError(422, "Файл пуст.")
+    if len(data) > CHAT_MEDIA_MAX_BYTES:
+        raise DKDError(413, "Вложение должно быть не больше 25 МБ.")
+    if data.startswith(bytes.fromhex("ffd8ff")):
+        mime, ext, kind = "image/jpeg", "jpg", "image"
+    elif data.startswith(bytes.fromhex("89504e470d0a1a0a")):
+        mime, ext, kind = "image/png", "png", "image"
+    elif len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        mime, ext, kind = "image/webp", "webp", "image"
+    elif len(data) >= 12 and data[4:8] == b"ftyp":
+        mime, ext, kind = "video/mp4", "mp4", "video"
+    else:
+        raise DKDError(415, "Поддерживаются JPEG, PNG, WebP и MP4.")
+    conv = one(db().table("chat_conversations").select("id,type")
+               .eq("id", cid).limit(1), "Не удалось проверить чат.")
+    if not conv:
+        raise DKDError(404, "Чат не найден.")
+    members = rows(db().table("chat_participants").select("user_id")
+                   .eq("conversation_id", cid).is_("left_at", "null"))
+    recipients = [int(x["user_id"]) for x in members if int(x["user_id"]) != uid]
+    if conv["type"] == "direct" and any(
+        x in _social_blocked_user_ids(uid) for x in recipients
+    ):
+        raise DKDError(403, "Отправка сообщений недоступна из-за блокировки.")
+    path = f"chat/{cid}/{uid}/{uuid.uuid4().hex}.{ext}"
+    try:
+        db().storage.from_("social-media").upload(
+            path=path, file=data,
+            file_options={"content-type": mime, "upsert": "false"}
+        )
+    except Exception as exc:
+        log.exception("Chat attachment upload failed")
+        raise db_error(exc, "Не удалось загрузить вложение.") from exc
+    message = None
+    try:
+        created = execute(db().table("chat_messages").insert({
+            "conversation_id": cid, "sender_user_id": uid,
+            "body": text_value or ("📷 Фото" if kind == "image" else "🎬 Видео"),
+        }).select("id,conversation_id,sender_user_id,body,created_at"),
+           "Не удалось отправить сообщение.")
+        if not created:
+            raise DKDError(502, "Сервер не подтвердил отправку сообщения.")
+        message = created[0]
+        attached = execute(db().table("chat_message_media").insert({
+            "message_id": int(message["id"]), "conversation_id": cid,
+            "owner_user_id": uid, "storage_path": path, "media_type": kind,
+            "mime_type": mime, "size_bytes": len(data),
+        }).select("id,message_id,media_type,mime_type,size_bytes,created_at"),
+           "Не удалось сохранить вложение.")
+        if not attached:
+            raise DKDError(502, "Сервер не подтвердил сохранение вложения.")
+        execute(db().table("chat_conversations").update({
+            "last_message_at": message["created_at"]
+        }).eq("id", cid), "Не удалось обновить чат.")
+    except Exception:
+        if message:
+            try:
+                db().table("chat_messages").delete().eq("id", int(message["id"])).execute()
+            except Exception:
+                log.exception("Could not roll back chat message")
+        try:
+            db().storage.from_("social-media").remove([path])
+        except Exception:
+            log.exception("Could not clean up chat attachment")
+        raise
+    for recipient in recipients:
+        try:
+            create_notification(recipient, "Новое сообщение",
+                               "Вам отправили сообщение с вложением в ДКД.",
+                               send_telegram=False)
+        except Exception as exc:
+            log.warning("chat attachment notification failed: %s", exc)
+    return {"ok": True, "message": {**message, "media": [{
+        **attached[0], "url": f"/api/chats/{cid}/media/{int(attached[0]['id'])}"
+    }]}}
+
+def get_chat_message_media(user: dict, conversation_id: int, media_id: int) -> tuple[bytes, str]:
+    _require_social_citizen(user)
+    cid = int(conversation_id)
+    _chat_participant(cid, int(user["id"]))
+    media = one(db().table("chat_message_media").select(
+        "id,conversation_id,message_id,storage_path,mime_type"
+    ).eq("id", int(media_id)).eq("conversation_id", cid).limit(1),
+       "Не удалось найти вложение.")
+    if not media:
+        raise DKDError(404, "Вложение не найдено.")
+    msg = one(db().table("chat_messages").select("id,deleted_at")
+              .eq("id", int(media["message_id"])).eq("conversation_id", cid).limit(1))
+    if not msg or msg.get("deleted_at"):
+        raise DKDError(404, "Вложение не найдено.")
+    try:
+        data = db().storage.from_("social-media").download(media["storage_path"])
+    except Exception as exc:
+        raise db_error(exc, "Не удалось получить вложение.") from exc
+    mime = str(media.get("mime_type") or "")
+    if mime not in ("image/jpeg", "image/png", "image/webp", "video/mp4"):
+        raise DKDError(415, "Формат вложения не поддерживается.")
+    return data, mime
+
+
+def mark_chat_read(user: dict, conversation_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, cid = int(user["id"]), int(conversation_id)
+    _chat_participant(cid, uid)
+    execute(db().table("chat_participants").update({"last_read_at": now_iso()})
+            .eq("conversation_id", cid).eq("user_id", uid).is_("left_at", "null"))
+    return {"ok": True}
+
+def leave_chat(user: dict, conversation_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, cid = int(user["id"]), int(conversation_id)
+    member = _chat_participant(cid, uid)
+    conv = one(db().table("chat_conversations").select("id,type")
+               .eq("id", cid).limit(1))
+    if not conv or conv["type"] != "group":
+        raise DKDError(422, "Личный чат нельзя покинуть.")
+    if member["member_role"] == "owner":
+        raise DKDError(422, "Владелец группы должен передать управление перед выходом.")
+    execute(db().table("chat_participants").update({"left_at": now_iso()})
+            .eq("conversation_id", cid).eq("user_id", uid).is_("left_at", "null"))
+    return {"ok": True}
+
+def add_chat_members(user: dict, conversation_id: int, member_ids: list[int]) -> dict:
+    _require_social_citizen(user)
+    uid, cid = int(user["id"]), int(conversation_id)
+    actor = _chat_participant(cid, uid)
+    if actor["member_role"] not in {"owner", "admin"}:
+        raise DKDError(403, "Добавлять участников могут только владелец и администраторы.")
+    conv = one(db().table("chat_conversations").select("id,type").eq("id", cid).limit(1))
+    if not conv or conv["type"] != "group":
+        raise DKDError(422, "Участников можно добавлять только в группу.")
+    ids = list(dict.fromkeys(int(x) for x in (member_ids or []) if int(x) > 0))
+    if not ids or len(ids) > 20:
+        raise DKDError(422, "Можно добавить от 1 до 20 граждан за раз.")
+    hidden = _social_blocked_user_ids(uid)
+    if any(x in hidden for x in ids):
+        raise DKDError(403, "Нельзя добавить пользователя, с которым есть блокировка.")
+    subjects = rows(db().table("subjects").select("user_id,is_citizen").in_("user_id", ids))
+    if {int(x["user_id"]) for x in subjects if x.get("is_citizen")} != set(ids):
+        raise DKDError(422, "Все новые участники должны быть гражданами ДКД.")
+    current = rows(db().table("chat_participants").select("user_id")
+                   .eq("conversation_id", cid).is_("left_at", "null"))
+    existing = {int(x["user_id"]) for x in current}
+    new_ids = [x for x in ids if x not in existing]
+    all_rows = rows(db().table("chat_participants").select("user_id,left_at")
+                    .eq("conversation_id", cid).in_("user_id", ids))
+    rejoin_ids = [int(x["user_id"]) for x in all_rows
+                  if x.get("left_at") is not None and int(x["user_id"]) not in existing]
+    new_ids = [x for x in new_ids if x not in rejoin_ids]
+    if len(existing) + len(new_ids) + len(rejoin_ids) > CHAT_GROUP_MAX_MEMBERS:
+        raise DKDError(422, "В группе может быть не более 50 участников.")
+    for member_id in rejoin_ids:
+        execute(db().table("chat_participants").update({
+            "left_at": None, "joined_at": now_iso(), "member_role": "member"
+        }).eq("conversation_id", cid).eq("user_id", member_id),
+        "Не удалось вернуть участника в группу.")
+    if new_ids:
+        execute(db().table("chat_participants").insert([
+            {"conversation_id": cid, "user_id": x, "member_role": "member"} for x in new_ids
+        ]), "Не удалось добавить участников.")
+    return {"ok": True, "added": len(new_ids) + len(rejoin_ids)}
+
+
+def set_chat_member_role(user: dict, conversation_id: int, target_user_id: int,
+                         role: str) -> dict:
+    _require_social_citizen(user)
+    uid, cid, target = int(user["id"]), int(conversation_id), int(target_user_id)
+    actor = _chat_participant(cid, uid)
+    if actor["member_role"] != "owner":
+        raise DKDError(403, "Назначать администраторов может только владелец группы.")
+    if target == uid:
+        raise DKDError(422, "Нельзя изменить собственную роль этим действием.")
+    if role not in {"admin", "member"}:
+        raise DKDError(422, "Допустимые роли: администратор или участник.")
+    target_member = _chat_participant(cid, target)
+    if target_member["member_role"] == "owner":
+        raise DKDError(422, "Сначала передайте владение другому участнику.")
+    execute(db().table("chat_participants").update({"member_role": role})
+            .eq("conversation_id", cid).eq("user_id", target).is_("left_at", "null"),
+            "Не удалось изменить роль участника.")
+    return {"ok": True, "user_id": target, "member_role": role}
+
+def remove_chat_member(user: dict, conversation_id: int, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, cid, target = int(user["id"]), int(conversation_id), int(target_user_id)
+    actor = _chat_participant(cid, uid)
+    if actor["member_role"] not in {"owner", "admin"}:
+        raise DKDError(403, "Удалять участников могут только владелец и администраторы.")
+    if target == uid:
+        raise DKDError(422, "Для выхода из группы используйте отдельную команду.")
+    target_member = _chat_participant(cid, target)
+    if target_member["member_role"] == "owner":
+        raise DKDError(422, "Владельца группы нельзя удалить.")
+    if actor["member_role"] == "admin" and target_member["member_role"] == "admin":
+        raise DKDError(403, "Администратор не может удалить другого администратора.")
+    execute(db().table("chat_participants").update({"left_at": now_iso()})
+            .eq("conversation_id", cid).eq("user_id", target).is_("left_at", "null"),
+            "Не удалось удалить участника.")
+    return {"ok": True}
+
+def transfer_chat_ownership(user: dict, conversation_id: int, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, cid, target = int(user["id"]), int(conversation_id), int(target_user_id)
+    if uid == target:
+        raise DKDError(422, "Вы уже являетесь владельцем группы.")
+    actor = _chat_participant(cid, uid)
+    if actor["member_role"] != "owner":
+        raise DKDError(403, "Передать владение может только владелец группы.")
+    _chat_participant(cid, target)
+    result = db().rpc("transfer_chat_ownership", {
+        "p_conversation_id": cid, "p_actor_user_id": uid, "p_new_owner_user_id": target,
+    }).execute()
+    if not result.data:
+        raise DKDError(409, "Не удалось передать владение. Обновите список участников.")
+    return {"ok": True, "owner_user_id": target}
+
+
+def _social_blocked_user_ids(user_id: int) -> set[int]:
+    """IDs hidden from this user because either side has blocked the other."""
+    uid = int(user_id)
+    outgoing = rows(db().table("social_user_blocks").select("blocked_user_id")
+                    .eq("blocker_user_id", uid), "Не удалось проверить блокировки.")
+    incoming = rows(db().table("social_user_blocks").select("blocker_user_id")
+                    .eq("blocked_user_id", uid), "Не удалось проверить блокировки.")
+    return ({int(x["blocked_user_id"]) for x in outgoing}
+            | {int(x["blocker_user_id"]) for x in incoming})
+
+
+def _social_can_view_profile(viewer: dict, target_user_id: int) -> bool:
+    viewer_id, target_id = int(viewer["id"]), int(target_user_id)
+    if viewer_id == target_id:
+        return True
+    profile = one(db().table("social_profiles").select("is_private").eq("user_id", target_id).limit(1))
+    if not profile or not profile.get("is_private"):
+        return True
+    return bool(one(db().table("social_follows").select("follower_user_id")
+                    .eq("follower_user_id", viewer_id).eq("followed_user_id", target_id).limit(1)))
+
+
+def _social_private_user_ids(user_ids: list[int]) -> set[int]:
+    ids = sorted({int(x) for x in user_ids if x})
+    if not ids:
+        return set()
+    profiles = rows(db().table("social_profiles").select("user_id")
+                    .eq("is_private", True).in_("user_id", ids),
+                    "Не удалось проверить приватность профилей.")
+    return {int(x["user_id"]) for x in profiles}
+
+
+def _social_visible_post(user: dict, post_id: int) -> dict:
+    """Load a published post and enforce mutual block visibility."""
+    _require_social_citizen(user)
+    post = one(db().table("social_posts").select(
+        "id,author_user_id,status,deleted_at,repost_of_post_id"
+    ).eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
+    if not post or post.get("status") != "published" or post.get("deleted_at"):
+        raise DKDError(404, "Публикация не найдена.")
+    if int(post["author_user_id"]) != int(user["id"]):
+        if int(post["author_user_id"]) in _social_blocked_user_ids(int(user["id"])):
+            raise DKDError(404, "Публикация не найдена.")
+        if not _social_can_view_profile(user, int(post["author_user_id"])):
+            raise DKDError(404, "Публикация не найдена.")
+    return post
+
+
+def _require_social_citizen(user: dict) -> dict:
+    subject = get_subject(int(user["id"]))
+    if not subject or not subject.get("is_citizen"):
+        raise DKDError(403, "Социальная сеть ДКД доступна только гражданам.")
+    return subject
+
+
+def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
+                     search: str = "", following_only: bool = False,
+                     saved_only: bool = False) -> list[dict]:
+    _require_social_citizen(user)
+    size = max(1, min(int(limit), 50))
+    hidden_ids = _social_blocked_user_ids(int(user["id"]))
+    query = db().table("social_posts").select(
+        "id,author_user_id,body,status,created_at,updated_at,repost_of_post_id"
+    ).eq("status", "published").is_("deleted_at", "null")
+    if before_id is not None:
+        query = query.lt("id", int(before_id))
+    search_value = str(search or "").strip()
+    if len(search_value) > 80:
+        raise DKDError(422, "Поисковый запрос не должен превышать 80 символов.")
+    if search_value:
+        safe_search = re.sub(r"[^\w\s@.-]", " ", search_value, flags=re.UNICODE)
+        safe_search = " ".join(safe_search.split())
+        if safe_search:
+            query = query.ilike("body", f"%{safe_search}%")
+    if hidden_ids:
+        query = query.not_.in_("author_user_id", sorted(hidden_ids))
+    if saved_only:
+        saved_rows = rows(db().table("social_saved_posts").select("post_id")
+                          .eq("user_id", int(user["id"])),
+                          "Не удалось загрузить сохранённые публикации.")
+        saved_ids = {int(item["post_id"]) for item in saved_rows}
+        if not saved_ids:
+            return []
+        query = query.in_("id", sorted(saved_ids))
+    if following_only:
+        followed = rows(db().table("social_follows").select("followed_user_id")
+                        .eq("follower_user_id", int(user["id"])),
+                        "Не удалось загрузить список подписок.")
+        followed_ids = [int(x["followed_user_id"]) for x in followed]
+        if not followed_ids:
+            return []
+        query = query.in_("author_user_id", followed_ids)
+    posts = rows(query.order("id", desc=True).limit(size), "Не удалось загрузить ленту.")
+    if posts:
+        private_ids = _social_private_user_ids(sorted({int(p["author_user_id"]) for p in posts}))
+        if private_ids:
+            accepted = rows(db().table("social_follows").select("followed_user_id")
+                            .eq("follower_user_id", int(user["id"])).in_("followed_user_id", sorted(private_ids)),
+                            "Не удалось проверить подписки на закрытые профили.")
+            allowed = {int(x["followed_user_id"]) for x in accepted}
+            posts = [p for p in posts if int(p["author_user_id"]) not in private_ids or int(p["author_user_id"]) in allowed]
+    if not posts:
+        return []
+    original_ids = sorted({int(p["repost_of_post_id"]) for p in posts if p.get("repost_of_post_id")})
+    originals = rows(db().table("social_posts").select(
+        "id,author_user_id,body,status,created_at,updated_at"
+    ).in_("id", original_ids).eq("status", "published").is_("deleted_at", "null"),
+       "Не удалось загрузить исходные публикации для репоста.") if original_ids else []
+    original_private_ids = _social_private_user_ids(sorted({int(p["author_user_id"]) for p in originals}))
+    if original_private_ids:
+        original_follows = rows(db().table("social_follows").select("followed_user_id")
+                                .eq("follower_user_id", int(user["id"])).in_("followed_user_id", sorted(original_private_ids)),
+                                "Не удалось проверить приватность исходных публикаций.")
+        original_allowed_private = {int(x["followed_user_id"]) for x in original_follows}
+    else:
+        original_allowed_private = set()
+    original_map = {int(p["id"]): p for p in originals
+                    if int(p["author_user_id"]) not in hidden_ids
+                    and (int(p["author_user_id"]) not in original_private_ids or int(p["author_user_id"]) in original_allowed_private)}
+    author_ids = sorted({int(p["author_user_id"]) for p in posts}
+                        | {int(p["author_user_id"]) for p in original_map.values()})
+    authors = rows(db().table("subjects").select(
+        "user_id,username,full_name,avatar_emoji"
+    ).in_("user_id", author_ids), "Не удалось загрузить авторов публикаций.")
+    author_map = {int(a["user_id"]): a for a in authors}
+    post_ids = [int(p["id"]) for p in posts]
+    all_media_post_ids = sorted(set(post_ids) | set(original_map))
+    reactions = rows(db().table("social_reactions").select(
+        "post_id,user_id,reaction"
+    ).in_("post_id", post_ids), "Не удалось загрузить реакции.")
+    comments = rows(db().table("social_comments").select(
+        "post_id"
+    ).in_("post_id", post_ids).eq("status", "published").is_("deleted_at", "null"),
+       "Не удалось загрузить комментарии.")
+    reaction_counts: dict[int, int] = {}
+    my_reactions: dict[int, str] = {}
+    for item in reactions:
+        pid = int(item["post_id"])
+        reaction_counts[pid] = reaction_counts.get(pid, 0) + 1
+        if int(item["user_id"]) == int(user["id"]):
+            my_reactions[pid] = str(item.get("reaction") or "like")
+    saved_rows = rows(db().table("social_saved_posts").select("post_id")
+                      .eq("user_id", int(user["id"])).in_("post_id", post_ids),
+                      "Не удалось проверить сохранённые публикации.")
+    saved_ids = {int(item["post_id"]) for item in saved_rows}
+    comment_counts: dict[int, int] = {}
+    for item in comments:
+        pid = int(item["post_id"])
+        comment_counts[pid] = comment_counts.get(pid, 0) + 1
+    media_rows = rows(db().table("social_post_media").select(
+        "id,post_id,media_type,mime_type,size_bytes"
+    ).in_("post_id", all_media_post_ids), "Не удалось загрузить вложения публикаций.") if all_media_post_ids else []
+    media_map: dict[int, list[dict]] = {}
+    for media in media_rows:
+        pid = int(media["post_id"])
+        media_map.setdefault(pid, []).append({
+            **media, "url": f"/api/social/posts/{pid}/media/{int(media['id'])}",
+        })
+    result = []
+    for post in posts:
+        pid = int(post["id"])
+        item = {
+            **post,
+            "author": author_map.get(int(post["author_user_id"]), {
+                "user_id": int(post["author_user_id"]), "full_name": "Пользователь ДКД",
+                "username": None, "avatar_emoji": "👤",
+            }),
+            "reaction_count": reaction_counts.get(pid, 0),
+            "comment_count": comment_counts.get(pid, 0),
+            "my_reaction": my_reactions.get(pid),
+            "is_saved": pid in saved_ids,
+            "media": media_map.get(pid, []),
+        }
+        original = original_map.get(int(post["repost_of_post_id"])) if post.get("repost_of_post_id") else None
+        if original:
+            oid = int(original["id"])
+            item["repost_of"] = {
+                **original,
+                "author": author_map.get(int(original["author_user_id"]), {
+                    "user_id": int(original["author_user_id"]), "full_name": "Пользователь ДКД",
+                    "username": None, "avatar_emoji": "👤",
+                }),
+                "media": media_map.get(oid, []),
+            }
+        elif post.get("repost_of_post_id"):
+            item["repost_unavailable"] = True
+        result.append(item)
+    return result
+
+
+def create_social_post(user: dict, body: str) -> dict:
+    _require_social_citizen(user)
+    text_value = str(body or "").strip()
+    if not text_value:
+        raise DKDError(422, "Напишите текст публикации.")
+    if len(text_value) > 5000:
+        raise DKDError(422, "Публикация не должна превышать 5000 символов.")
+    created = execute(db().table("social_posts").insert({
+        "author_user_id": int(user["id"]),
+        "body": text_value,
+        "status": "published",
+    }), "Не удалось опубликовать запись.")
+    if not created:
+        raise DKDError(502, "Сервер не подтвердил создание публикации.")
+    post = created[0]
+    subject = get_subject(int(user["id"])) or {}
+    return {
+        **post,
+        "author": {
+            "user_id": int(user["id"]),
+            "username": subject.get("username"),
+            "full_name": subject.get("full_name") or "Пользователь ДКД",
+            "avatar_emoji": subject.get("avatar_emoji") or "👤",
+        },
+        "reaction_count": 0,
+        "comment_count": 0,
+        "my_reaction": None,
+    }
+
+
+def create_social_repost(user: dict, post_id: int, caption: str = "") -> dict:
+    _require_social_citizen(user)
+    source = _social_visible_post(user, post_id)
+    original_id = int(source.get("repost_of_post_id") or source["id"])
+    _social_visible_post(user, original_id)
+    caption_value = str(caption or "").strip()
+    if len(caption_value) > 5000:
+        raise DKDError(422, "Подпись к репосту не должна превышать 5000 символов.")
+    duplicate = one(db().table("social_posts").select("id")
+        .eq("author_user_id", int(user["id"])).eq("repost_of_post_id", original_id)
+        .eq("status", "published").is_("deleted_at", "null").limit(1),
+        "Не удалось проверить повторную публикацию.")
+    if duplicate:
+        raise DKDError(409, "Вы уже делились этой публикацией.")
+    created = execute(db().table("social_posts").insert({
+        "author_user_id": int(user["id"]), "body": caption_value,
+        "repost_of_post_id": original_id, "status": "published",
+    }), "Не удалось сделать репост.")
+    if not created:
+        raise DKDError(502, "Сервер не подтвердил создание репоста.")
+    subject = get_subject(int(user["id"])) or {}
+    return {
+        **created[0],
+        "author": {"user_id": int(user["id"]), "username": subject.get("username"),
+                   "full_name": subject.get("full_name") or "Пользователь ДКД",
+                   "avatar_emoji": subject.get("avatar_emoji") or "👤"},
+        "reaction_count": 0, "comment_count": 0, "my_reaction": None,
+        "media": [], "repost_of_post_id": original_id,
+    }
+
+
+def create_social_post_with_media(user: dict, body: str, data: bytes, filename: str) -> dict:
+    _require_social_citizen(user)
+    text_value = str(body or "").strip()
+    if len(text_value) > 5000:
+        raise DKDError(422, "Публикация не должна превышать 5000 символов.")
+    if not data:
+        raise DKDError(422, "Файл публикации пуст.")
+    if len(data) > 50 * 1024 * 1024:
+        raise DKDError(413, "Файл должен быть не больше 50 МБ.")
+    if data.startswith(bytes.fromhex("ffd8ff")):
+        mime, ext, media_type = "image/jpeg", "jpg", "image"
+    elif data.startswith(bytes.fromhex("89504e470d0a1a0a")):
+        mime, ext, media_type = "image/png", "png", "image"
+    elif len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        mime, ext, media_type = "image/webp", "webp", "image"
+    elif len(data) >= 12 and data[4:8] == b"ftyp":
+        mime, ext, media_type = "video/mp4", "mp4", "video"
+    else:
+        raise DKDError(422, "Поддерживаются изображения JPEG, PNG, WebP и видео MP4.")
+    user_id = int(user["id"])
+    path = f"{user_id}/posts/{uuid.uuid4().hex}.{ext}"
+    try:
+        db().storage.from_("social-media").upload(
+            path=path, file=data,
+            file_options={"content-type": mime, "upsert": "false"}
+        )
+    except Exception as exc:
+        log.exception("Social post media upload failed")
+        raise db_error(exc, "Не удалось загрузить файл публикации.") from exc
+    post = None
+    try:
+        created = execute(db().table("social_posts").insert({
+            "author_user_id": user_id, "body": text_value, "status": "published",
+        }), "Не удалось создать публикацию.")
+        if not created:
+            raise DKDError(502, "Сервер не подтвердил создание публикации.")
+        post = created[0]
+        media_rows = execute(db().table("social_post_media").insert({
+            "post_id": int(post["id"]), "owner_user_id": user_id,
+            "storage_path": path, "media_type": media_type,
+            "mime_type": mime, "size_bytes": len(data),
+        }), "Не удалось сохранить вложение публикации.")
+        if not media_rows:
+            raise DKDError(502, "Сервер не подтвердил сохранение вложения.")
+    except Exception:
+        if post:
+            try:
+                db().table("social_posts").delete().eq("id", int(post["id"])).execute()
+            except Exception:
+                log.exception("Could not roll back social post %s", post.get("id"))
+        try:
+            db().storage.from_("social-media").remove([path])
+        except Exception:
+            log.exception("Could not clean up social upload %s", path)
+        raise
+    subject = get_subject(user_id) or {}
+    return {
+        **post,
+        "author": {
+            "user_id": user_id, "username": subject.get("username"),
+            "full_name": subject.get("full_name") or "Пользователь ДКД",
+            "avatar_emoji": subject.get("avatar_emoji") or "👤",
+        },
+        "reaction_count": 0, "comment_count": 0, "my_reaction": None,
+        "media": [{
+            "id": int(media_rows[0]["id"]), "post_id": int(post["id"]),
+            "media_type": media_type, "mime_type": mime, "size_bytes": len(data),
+            "url": f"/api/social/posts/{int(post['id'])}/media/{int(media_rows[0]['id'])}",
+        }],
+    }
+
+
+def get_social_post_media(user: dict, post_id: int, media_id: int) -> tuple[bytes, str]:
+    _require_social_citizen(user)
+    post = _social_visible_post(user, post_id)
+    media = one(db().table("social_post_media").select(
+        "id,post_id,storage_path,mime_type"
+    ).eq("id", int(media_id)).eq("post_id", int(post_id)).limit(1),
+       "Не удалось найти вложение.")
+    if not media:
+        raise DKDError(404, "Вложение не найдено.")
+    try:
+        data = db().storage.from_("social-media").download(media["storage_path"])
+    except Exception as exc:
+        raise db_error(exc, "Не удалось получить вложение.") from exc
+    mime = str(media.get("mime_type") or "")
+    if mime not in ("image/jpeg", "image/png", "image/webp", "video/mp4"):
+        raise DKDError(415, "Формат вложения не поддерживается.")
+    return data, mime
+
+
+def create_social_comment(user: dict, post_id: int, body: str,
+                         parent_comment_id: int | None = None) -> dict:
+    _require_social_citizen(user)
+    text_value = str(body or "").strip()
+    if not text_value or len(text_value) > 2000:
+        raise DKDError(422, "Комментарий должен содержать от 1 до 2000 символов.")
+    _social_visible_post(user, post_id)
+    parent_id = int(parent_comment_id) if parent_comment_id is not None else None
+    if parent_id is not None:
+        parent = one(db().table("social_comments").select(
+            "id,post_id,author_user_id,status,deleted_at"
+        ).eq("id", parent_id).limit(1), "Не удалось проверить комментарий, на который вы отвечаете.")
+        if (not parent or int(parent["post_id"]) != int(post_id)
+                or parent.get("status") != "published" or parent.get("deleted_at")):
+            raise DKDError(404, "Комментарий, на который вы отвечаете, не найден.")
+        if int(parent["author_user_id"]) in _social_blocked_user_ids(int(user["id"])):
+            raise DKDError(404, "Комментарий, на который вы отвечаете, не найден.")
+    created = execute(db().table("social_comments").insert({
+        "post_id": int(post_id), "author_user_id": int(user["id"]), "body": text_value,
+        "parent_comment_id": parent_id, "status": "published",
+    }), "Не удалось добавить комментарий.")
+    post_owner_id = int(_social_visible_post(user, post_id).get("author_user_id") or 0)
+    actor = get_subject(int(user["id"])) or user
+    actor_name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+    recipients = set()
+    if post_owner_id and post_owner_id != int(user["id"]):
+        recipients.add(post_owner_id)
+    if parent_id is not None:
+        parent_owner = int(parent.get("author_user_id") or 0)
+        if parent_owner and parent_owner != int(user["id"]):
+            recipients.add(parent_owner)
+    for recipient_id in recipients:
+        title = "Ответ на ваш комментарий" if parent_id is not None and recipient_id == int(parent.get("author_user_id") or 0) else "Новый комментарий"
+        try:
+            create_notification(recipient_id, title, f"{actor_name}: {text_value[:500]}")
+        except Exception:
+            log.exception("Could not create social comment notification")
+    return created[0]
+
+
+def list_social_comments(user: dict, post_id: int) -> list[dict]:
+    _require_social_citizen(user)
+    _social_visible_post(user, post_id)
+    comments = rows(db().table("social_comments").select(
+        "id,post_id,author_user_id,parent_comment_id,body,created_at"
+    ).eq("post_id", int(post_id)).eq("status", "published")
+      .is_("deleted_at", "null").order("created_at"),
+      "Не удалось загрузить комментарии.")
+    hidden_ids = _social_blocked_user_ids(int(user["id"]))
+    visible_ids = {int(x["id"]) for x in comments if int(x["author_user_id"]) not in hidden_ids}
+    comments = [x for x in comments if int(x["author_user_id"]) not in hidden_ids]
+    # Replies to a hidden/blocked parent remain visible as top-level comments;
+    # the hidden parent's text is never returned to this user.
+    for item in comments:
+        parent_id = item.get("parent_comment_id")
+        if parent_id is not None and int(parent_id) not in visible_ids:
+            item["parent_comment_id"] = None
+    author_ids = sorted({int(x["author_user_id"]) for x in comments})
+    authors = rows(db().table("subjects").select(
+        "user_id,full_name,username,avatar_emoji"
+    ).in_("user_id", author_ids), "Не удалось загрузить авторов комментариев.") if author_ids else []
+    author_map = {int(x["user_id"]): x for x in authors}
+    return [{**item, "author": author_map.get(int(item["author_user_id"]), {
+        "full_name": "Гражданин ДКД", "avatar_emoji": "👤"
+    })} for item in comments]
+
+
+SOCIAL_EDIT_WINDOW = 15 * 60
+
+def _owned_social_content(user: dict, table: str, content_id: int, select: str) -> dict:
+    _require_social_citizen(user)
+    item = one(db().table(table).select(select).eq("id", int(content_id)).limit(1),
+               "Не удалось проверить публикацию.")
+    if not item or int(item["author_user_id"]) != int(user["id"]):
+        raise DKDError(404, "Материал не найден.")
+    if item.get("deleted_at") or item.get("status") != "published":
+        raise DKDError(404, "Материал не найден.")
+    try:
+        created_at = datetime.fromisoformat(str(item["created_at"]).replace("Z", "+00:00"))
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        raise DKDError(409, "Не удалось проверить время публикации.")
+    age = (datetime.now(timezone.utc) - created_at).total_seconds()
+    if age < 0 or age > SOCIAL_EDIT_WINDOW:
+        raise DKDError(409, "Редактировать материал можно в течение 15 минут после публикации.")
+    return item
+
+
+def edit_own_social_post(user: dict, post_id: int, body: str) -> dict:
+    post = _owned_social_content(user, "social_posts", post_id,
+                                 "id,author_user_id,body,status,created_at,deleted_at")
+    value = str(body or "").strip()
+    if not value or len(value) > 5000:
+        raise DKDError(422, "Текст публикации должен содержать от 1 до 5000 символов.")
+    updated = execute(db().table("social_posts").update({
+        "body": value, "updated_at": now_iso()
+    }).eq("id", int(post["id"])).eq("author_user_id", int(user["id"]))
+      .eq("status", "published").is_("deleted_at", "null")
+      .select("id,body,updated_at"), "Не удалось изменить публикацию.")
+    if not updated:
+        raise DKDError(409, "Публикация уже изменена или удалена.")
+    audit(int(user["id"]), "social_post_edited", None, f"post_id={int(post_id)}")
+    return {"ok": True, "post": updated[0]}
+
+
+def edit_own_social_comment(user: dict, comment_id: int, body: str) -> dict:
+    comment = _owned_social_content(user, "social_comments", comment_id,
+                                    "id,author_user_id,body,status,created_at,deleted_at")
+    value = str(body or "").strip()
+    if not value or len(value) > 2000:
+        raise DKDError(422, "Комментарий должен содержать от 1 до 2000 символов.")
+    updated = execute(db().table("social_comments").update({
+        "body": value, "updated_at": now_iso()
+    }).eq("id", int(comment["id"])).eq("author_user_id", int(user["id"]))
+      .eq("status", "published").is_("deleted_at", "null")
+      .select("id,body,updated_at"), "Не удалось изменить комментарий.")
+    if not updated:
+        raise DKDError(409, "Комментарий уже изменён или удалён.")
+    audit(int(user["id"]), "social_comment_edited", None, f"comment_id={int(comment_id)}")
+    return {"ok": True, "comment": updated[0]}
+
+
+def report_social_post(user: dict, post_id: int, reason: str, details: str = "") -> dict:
+    _require_social_citizen(user)
+    post = _social_visible_post(user, post_id)
+    allowed = {"spam", "harassment", "violence", "sexual_content", "illegal_content", "other"}
+    reason_value = str(reason or "other").strip()
+    details_value = str(details or "").strip()
+    if reason_value not in allowed or len(details_value) > 2000:
+        raise DKDError(422, "Проверьте причину и описание жалобы.")
+    created = execute(db().table("social_reports").insert({
+        "reporter_user_id": int(user["id"]), "post_id": int(post_id),
+        "reason": reason_value, "details": details_value,
+    }), "Не удалось отправить жалобу.")
+    return {"ok": True, "report_id": int(created[0]["id"]) if created else None}
+
+
+
+def report_social_comment(user: dict, comment_id: int, reason: str, details: str = "") -> dict:
+    _require_social_citizen(user)
+    comment = one(db().table("social_comments").select(
+        "id,post_id,author_user_id,status,deleted_at"
+    ).eq("id", int(comment_id)).limit(1), "Не удалось проверить комментарий.")
+    if not comment or comment.get("status") != "published" or comment.get("deleted_at"):
+        raise DKDError(404, "Комментарий не найден.")
+    _social_visible_post(user, int(comment["post_id"]))
+    if int(comment["author_user_id"]) in _social_blocked_user_ids(int(user["id"])):
+        raise DKDError(404, "Комментарий не найден.")
+    allowed = {"spam", "harassment", "violence", "sexual_content", "illegal_content", "other"}
+    reason_value, details_value = str(reason or "other").strip(), str(details or "").strip()
+    if reason_value not in allowed or len(details_value) > 2000:
+        raise DKDError(422, "Проверьте причину и описание жалобы.")
+    created = execute(db().table("social_reports").insert({
+        "reporter_user_id": int(user["id"]), "comment_id": int(comment_id),
+        "reason": reason_value, "details": details_value,
+    }), "Не удалось отправить жалобу.")
+    return {"ok": True, "report_id": int(created[0]["id"]) if created else None}
+
+
+def delete_own_social_post(user: dict, post_id: int) -> dict:
+    _require_social_citizen(user)
+    post = one(db().table("social_posts").select("id,author_user_id,status,deleted_at")
+               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
+    if not post or int(post["author_user_id"]) != int(user["id"]):
+        raise DKDError(404, "Публикация не найдена.")
+    if post.get("deleted_at"):
+        return {"ok": True}
+    execute(db().table("social_posts").update({
+        "status": "removed", "deleted_at": now_iso(), "updated_at": now_iso()
+    }).eq("id", int(post_id)), "Не удалось удалить публикацию.")
+    audit(int(user["id"]), "social_post_deleted", None, f"post_id={int(post_id)}")
+    return {"ok": True}
+
+
+def delete_own_social_comment(user: dict, comment_id: int) -> dict:
+    _require_social_citizen(user)
+    comment = one(db().table("social_comments").select("id,author_user_id,deleted_at")
+                  .eq("id", int(comment_id)).limit(1), "Не удалось проверить комментарий.")
+    if not comment or int(comment["author_user_id"]) != int(user["id"]):
+        raise DKDError(404, "Комментарий не найден.")
+    if not comment.get("deleted_at"):
+        execute(db().table("social_comments").update({
+            "status": "removed", "deleted_at": now_iso(), "updated_at": now_iso()
+        }).eq("id", int(comment_id)), "Не удалось удалить комментарий.")
+    return {"ok": True}
+
+
+def admin_list_social_reports(user: dict, status: str = "open") -> list[dict]:
+    require_admin(user)
+    allowed = {"open", "reviewing", "resolved", "dismissed", "all"}
+    status_value = str(status or "open")
+    if status_value not in allowed:
+        raise DKDError(422, "Неизвестный статус жалоб.")
+    query = db().table("social_reports").select(
+        "id,reporter_user_id,post_id,comment_id,reason,details,status,reviewed_by,reviewed_at,created_at"
+    ).order("created_at", desc=True).limit(100)
+    if status_value != "all":
+        query = query.eq("status", status_value)
+    reports = rows(query, "Не удалось загрузить очередь жалоб.")
+    user_ids = sorted({int(x["reporter_user_id"]) for x in reports})
+    subjects = rows(db().table("subjects").select(
+        "user_id,full_name,username"
+    ).in_("user_id", user_ids), "Не удалось загрузить авторов жалоб.") if user_ids else []
+    subject_map = {int(x["user_id"]): x for x in subjects}
+    post_ids = sorted({int(x["post_id"]) for x in reports if x.get("post_id")})
+    comment_ids = sorted({int(x["comment_id"]) for x in reports if x.get("comment_id")})
+    posts = rows(db().table("social_posts").select("id,author_user_id,body,status,deleted_at")
+                 .in_("id", post_ids), "Не удалось загрузить публикации по жалобам.") if post_ids else []
+    comments = rows(db().table("social_comments").select(
+        "id,post_id,author_user_id,body,status,deleted_at"
+    ).in_("id", comment_ids), "Не удалось загрузить комментарии по жалобам.") if comment_ids else []
+    targets = {("post", int(x["id"])): x for x in posts}
+    targets.update({("comment", int(x["id"])): x for x in comments})
+    return [{**item,
+             "reporter": subject_map.get(int(item["reporter_user_id"]), {"full_name": "Гражданин ДКД"}),
+             "target": targets.get(("post", int(item["post_id"]))) if item.get("post_id")
+                       else targets.get(("comment", int(item["comment_id"])))}
+            for item in reports]
+
+
+def admin_review_social_report(user: dict, report_id: int, status: str,
+                               action: str = "none") -> dict:
+    require_admin(user)
+    if status not in {"reviewing", "resolved", "dismissed"}:
+        raise DKDError(422, "Недопустимый статус рассмотрения жалобы.")
+    if action not in {"none", "hide"}:
+        raise DKDError(422, "Недопустимое действие модерации.")
+    report = one(db().table("social_reports").select(
+        "id,post_id,comment_id,status"
+    ).eq("id", int(report_id)).limit(1), "Не удалось проверить жалобу.")
+    if not report:
+        raise DKDError(404, "Жалоба не найдена.")
+    if action == "hide":
+        if report.get("post_id"):
+            execute(db().table("social_posts").update({
+                "status": "hidden", "updated_at": now_iso()
+            }).eq("id", int(report["post_id"])), "Не удалось скрыть публикацию.")
+        elif report.get("comment_id"):
+            execute(db().table("social_comments").update({
+                "status": "hidden", "updated_at": now_iso()
+            }).eq("id", int(report["comment_id"])), "Не удалось скрыть комментарий.")
+    execute(db().table("social_reports").update({
+        "status": status, "reviewed_by": int(user["id"]),
+        "reviewed_at": now_iso(),
+    }).eq("id", int(report_id)), "Не удалось сохранить решение модератора.")
+    audit(int(user["id"]), "social_report_reviewed", None,
+          f"report_id={int(report_id)};status={status};action={action}")
+    return {"ok": True, "status": status, "action": action}
+
+def toggle_social_block(user: dict, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    target_id = int(target_user_id)
+    if target_id == int(user["id"]):
+        raise DKDError(422, "Нельзя заблокировать собственный профиль.")
+    target = get_subject(target_id)
+    if not target or not target.get("is_citizen"):
+        raise DKDError(404, "Профиль гражданина не найден.")
+    existing = one(db().table("social_user_blocks").select("blocker_user_id")
+                   .eq("blocker_user_id", int(user["id"]))
+                   .eq("blocked_user_id", target_id).limit(1))
+    if existing:
+        execute(db().table("social_user_blocks").delete()
+                .eq("blocker_user_id", int(user["id"]))
+                .eq("blocked_user_id", target_id), "Не удалось снять блокировку.")
+        return {"blocked": False}
+    execute(db().table("social_user_blocks").insert({
+        "blocker_user_id": int(user["id"]), "blocked_user_id": target_id,
+    }), "Не удалось заблокировать пользователя.")
+    execute(db().table("social_follows").delete()
+            .or_(f"and(follower_user_id.eq.{int(user['id'])},followed_user_id.eq.{target_id}),and(follower_user_id.eq.{target_id},followed_user_id.eq.{int(user['id'])})"))
+    execute(db().table("social_follow_requests").delete()
+            .or_(f"and(requester_user_id.eq.{int(user['id'])},target_user_id.eq.{target_id}),and(requester_user_id.eq.{target_id},target_user_id.eq.{int(user['id'])})"))
+    return {"blocked": True}
+
+
+def toggle_social_reaction(user: dict, post_id: int) -> dict:
+    _require_social_citizen(user)
+    post = _social_visible_post(user, post_id)
+    existing = one(db().table("social_reactions").select("id")
+                   .eq("post_id", int(post_id)).eq("user_id", int(user["id"])).limit(1))
+    if existing:
+        execute(db().table("social_reactions").delete().eq("id", int(existing["id"])),
+                "Не удалось убрать реакцию.")
+        return {"reacted": False}
+    execute(db().table("social_reactions").insert({
+        "post_id": int(post_id), "user_id": int(user["id"]), "reaction": "like",
+    }), "Не удалось поставить реакцию.")
+    owner_id = int(post.get("author_user_id") or 0)
+    if owner_id and owner_id != int(user["id"]):
+        try:
+            actor = get_subject(int(user["id"])) or user
+            actor_name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+            create_notification(owner_id, "Новая отметка «Нравится»",
+                                f"{actor_name} отметил(а) вашу публикацию.")
+        except Exception:
+            log.exception("Could not create social like notification")
+    return {"reacted": True}
+
+
+def toggle_social_save(user: dict, post_id: int) -> dict:
+    _require_social_citizen(user)
+    _social_visible_post(user, post_id)
+    uid = int(user["id"])
+    existing = one(db().table("social_saved_posts").select("post_id")
+                   .eq("user_id", uid).eq("post_id", int(post_id)).limit(1))
+    if existing:
+        execute(db().table("social_saved_posts").delete()
+                .eq("user_id", uid).eq("post_id", int(post_id)),
+                "Не удалось убрать публикацию из сохранённого.")
+        return {"saved": False}
+    execute(db().table("social_saved_posts").insert({
+        "user_id": uid, "post_id": int(post_id),
+    }), "Не удалось сохранить публикацию.")
+    return {"saved": True}
+
+
+def get_social_profile(user: dict, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    target_id = int(target_user_id)
+    target = get_subject(target_id)
+    if not target or not target.get("is_citizen"):
+        raise DKDError(404, "Профиль гражданина не найден.")
+    hidden_ids = _social_blocked_user_ids(int(user["id"]))
+    if target_id != int(user["id"]) and target_id in hidden_ids:
+        raise DKDError(404, "Профиль гражданина не найден.")
+    profile = one(db().table("social_profiles").select(
+        "user_id,bio,cover_storage_path,updated_at,show_connections,is_private"
+    ).eq("user_id", target_id).limit(1)) or {
+        "user_id": target_id, "bio": "", "cover_storage_path": None,
+    }
+    followers = rows(db().table("social_follows").select("follower_user_id")
+                     .eq("followed_user_id", target_id), "Не удалось загрузить подписчиков.")
+    following = rows(db().table("social_follows").select("followed_user_id")
+                     .eq("follower_user_id", target_id), "Не удалось загрузить подписки.")
+    own_follow = one(db().table("social_follows").select("follower_user_id")
+                     .eq("follower_user_id", int(user["id"]))
+                     .eq("followed_user_id", target_id).limit(1))
+    pending_request = one(db().table("social_follow_requests").select("requester_user_id")
+                          .eq("requester_user_id", int(user["id"])).eq("target_user_id", target_id).limit(1))
+    is_private = bool(profile.get("is_private", False))
+    can_view_posts = target_id == int(user["id"]) or not is_private or bool(own_follow)
+    follower_ids = sorted({int(x["follower_user_id"]) for x in followers
+                          if int(x["follower_user_id"]) not in hidden_ids})
+    following_ids = sorted({int(x["followed_user_id"]) for x in following
+                           if int(x["followed_user_id"]) not in hidden_ids})
+    connection_ids = sorted(set(follower_ids + following_ids + [target_id]))
+    connection_subjects = rows(db().table("subjects").select(
+        "user_id,username,full_name,avatar_emoji,is_citizen"
+    ).in_("user_id", connection_ids), "Не удалось загрузить список подписок.")
+    connection_map = {int(x["user_id"]): x for x in connection_subjects if x.get("is_citizen")}
+    can_view_connections = target_id == int(user["id"]) or bool(profile.get("show_connections", True))
+    follower_list = [connection_map[x] for x in follower_ids if x in connection_map] if can_view_connections else []
+    following_list = [connection_map[x] for x in following_ids if x in connection_map] if can_view_connections else []
+    posts = rows(db().table("social_posts").select(
+        "id,author_user_id,body,status,created_at,updated_at,repost_of_post_id"
+    ).eq("author_user_id", target_id).eq("status", "published")
+      .is_("deleted_at", "null").order("id", desc=True).limit(30),
+      "Не удалось загрузить публикации профиля.") if can_view_posts else []
+    post_ids = [int(p["id"]) for p in posts]
+    reaction_counts: dict[int, int] = {}
+    comment_counts: dict[int, int] = {}
+    if post_ids:
+        reactions = rows(db().table("social_reactions").select("post_id")
+                         .in_("post_id", post_ids), "Не удалось загрузить реакции.")
+        comments = rows(db().table("social_comments").select("post_id")
+                        .in_("post_id", post_ids).eq("status", "published")
+                        .is_("deleted_at", "null"), "Не удалось загрузить комментарии.")
+        for item in reactions:
+            pid = int(item["post_id"])
+            reaction_counts[pid] = reaction_counts.get(pid, 0) + 1
+        for item in comments:
+            pid = int(item["post_id"])
+            comment_counts[pid] = comment_counts.get(pid, 0) + 1
+    profile_media = rows(db().table("social_post_media").select(
+        "id,post_id,media_type,mime_type,size_bytes"
+    ).in_("post_id", post_ids), "Не удалось загрузить вложения профиля.") if post_ids else []
+    profile_media_map: dict[int, list[dict]] = {}
+    for media in profile_media:
+        pid = int(media["post_id"])
+        profile_media_map.setdefault(pid, []).append({
+            **media, "url": f"/api/social/posts/{pid}/media/{int(media['id'])}",
+        })
+    repost_ids = sorted({int(p["repost_of_post_id"]) for p in posts if p.get("repost_of_post_id")})
+    repost_originals = rows(db().table("social_posts").select(
+        "id,author_user_id,body,status,created_at,updated_at"
+    ).in_("id", repost_ids).eq("status", "published").is_("deleted_at", "null"),
+       "Не удалось загрузить исходные публикации профиля.") if repost_ids else []
+    profile_repost_private_ids = _social_private_user_ids(
+        sorted({int(p["author_user_id"]) for p in repost_originals})
+    )
+    if profile_repost_private_ids:
+        profile_repost_follows = rows(db().table("social_follows").select("followed_user_id")
+                                      .eq("follower_user_id", int(user["id"]))
+                                      .in_("followed_user_id", sorted(profile_repost_private_ids)),
+                                      "Не удалось проверить приватность исходных публикаций профиля.")
+        profile_repost_allowed = {int(x["followed_user_id"]) for x in profile_repost_follows}
+    else:
+        profile_repost_allowed = set()
+    repost_original_map = {int(p["id"]): p for p in repost_originals
+                           if int(p["author_user_id"]) not in hidden_ids
+                           and (int(p["author_user_id"]) not in profile_repost_private_ids
+                                or int(p["author_user_id"]) in profile_repost_allowed)}
+    repost_author_ids = sorted({int(p["author_user_id"]) for p in repost_original_map.values()})
+    repost_authors = rows(db().table("subjects").select(
+        "user_id,username,full_name,avatar_emoji"
+    ).in_("user_id", repost_author_ids), "Не удалось загрузить авторов репостов.") if repost_author_ids else []
+    repost_author_map = {int(a["user_id"]): a for a in repost_authors}
+    repost_media = rows(db().table("social_post_media").select(
+        "id,post_id,media_type,mime_type,size_bytes"
+    ).in_("post_id", list(repost_original_map)), "Не удалось загрузить вложения исходных публикаций.") if repost_original_map else []
+    repost_media_map: dict[int, list[dict]] = {}
+    for media in repost_media:
+        oid = int(media["post_id"])
+        repost_media_map.setdefault(oid, []).append({
+            **media, "url": f"/api/social/posts/{oid}/media/{int(media['id'])}",
+        })
+    post_items = []
+    for post in posts:
+        pid = int(post["id"])
+        item = {
+            **post,
+            "author": {
+                "user_id": target_id,
+                "username": target.get("username"),
+                "full_name": target.get("full_name") or "Гражданин ДКД",
+                "avatar_emoji": target.get("avatar_emoji") or "👤",
+            },
+            "reaction_count": reaction_counts.get(pid, 0),
+            "comment_count": comment_counts.get(pid, 0),
+            "media": profile_media_map.get(pid, []),
+            "my_reaction": None,
+        }
+        original = repost_original_map.get(int(post["repost_of_post_id"])) if post.get("repost_of_post_id") else None
+        if original:
+            oid = int(original["id"])
+            item["repost_of"] = {
+                **original,
+                "author": repost_author_map.get(int(original["author_user_id"]), {
+                    "user_id": int(original["author_user_id"]),
+                    "full_name": "Пользователь ДКД", "username": None, "avatar_emoji": "👤",
+                }),
+                "media": repost_media_map.get(oid, []),
+            }
+        elif post.get("repost_of_post_id"):
+            item["repost_unavailable"] = True
+        post_items.append(item)
+    return {
+        "user_id": target_id,
+        "username": target.get("username"),
+        "full_name": target.get("full_name") or "Гражданин ДКД",
+        "avatar_emoji": target.get("avatar_emoji") or "👤",
+        "bio": profile.get("bio") or "",
+        "show_connections": bool(profile.get("show_connections", True)),
+        "is_private": is_private,
+        "posts_hidden": not can_view_posts,
+        "follow_requested": bool(pending_request),
+        "follow_status": "following" if own_follow else ("requested" if pending_request else "none"),
+        "connections_hidden": not can_view_connections,
+        "cover_storage_path": profile.get("cover_storage_path"),
+        "followers_count": len(follower_ids),
+        "following_count": len(following_ids),
+        "followers": follower_list,
+        "following": following_list,
+        "posts_count": len(posts),
+        "is_me": target_id == int(user["id"]),
+        "is_following": bool(own_follow),
+        "posts": post_items,
+    }
+
+
+def update_social_profile(user: dict, bio: str, show_connections: bool | None = None,
+                         is_private: bool | None = None) -> dict:
+    _require_social_citizen(user)
+    text_value = str(bio or "").strip()
+    if len(text_value) > 280:
+        raise DKDError(422, "Описание профиля не должно превышать 280 символов.")
+    payload = {"user_id": int(user["id"]), "bio": text_value,
+               "updated_at": datetime.now(timezone.utc).isoformat()}
+    if show_connections is not None:
+        payload["show_connections"] = bool(show_connections)
+    if is_private is not None:
+        payload["is_private"] = bool(is_private)
+    execute(db().table("social_profiles").upsert(payload, on_conflict="user_id"),
+            "Не удалось сохранить настройки профиля.")
+    if is_private is False:
+        execute(db().table("social_follow_requests").delete()
+                .eq("target_user_id", int(user["id"])),
+                "Не удалось закрыть устаревшие запросы на подписку.")
+    return get_social_profile(user, int(user["id"]))
+
+
+def toggle_social_follow(user: dict, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    target_id, uid = int(target_user_id), int(user["id"])
+    if target_id == uid:
+        raise DKDError(422, "Нельзя подписаться на собственный профиль.")
+    target = get_subject(target_id)
+    if not target or not target.get("is_citizen"):
+        raise DKDError(404, "Профиль гражданина не найден.")
+    blocked = one(db().table("social_user_blocks").select("blocker_user_id")
+                  .or_(f"and(blocker_user_id.eq.{uid},blocked_user_id.eq.{target_id}),and(blocker_user_id.eq.{target_id},blocked_user_id.eq.{uid})").limit(1))
+    if blocked:
+        raise DKDError(403, "Подписка недоступна.")
+    accepted = one(db().table("social_follows").select("follower_user_id")
+                   .eq("follower_user_id", uid).eq("followed_user_id", target_id).limit(1))
+    if accepted:
+        execute(db().table("social_follows").delete().eq("follower_user_id", uid).eq("followed_user_id", target_id),
+                "Не удалось отменить подписку.")
+        return {"following": False, "requested": False}
+    profile = one(db().table("social_profiles").select("is_private").eq("user_id", target_id).limit(1)) or {}
+    if profile.get("is_private"):
+        pending = one(db().table("social_follow_requests").select("requester_user_id")
+                      .eq("requester_user_id", uid).eq("target_user_id", target_id).limit(1))
+        if pending:
+            execute(db().table("social_follow_requests").delete().eq("requester_user_id", uid).eq("target_user_id", target_id),
+                    "Не удалось отменить запрос.")
+            return {"following": False, "requested": False}
+        execute(db().table("social_follow_requests").insert({"requester_user_id": uid, "target_user_id": target_id}),
+                "Не удалось отправить запрос на подписку.")
+        try:
+            actor = get_subject(uid) or user
+            name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+            create_notification(target_id, "Запрос на подписку", f"{name} хочет подписаться на ваш закрытый профиль.")
+        except Exception:
+            log.exception("Could not notify private profile owner")
+        return {"following": False, "requested": True}
+    execute(db().table("social_follow_requests").delete()
+            .eq("requester_user_id", uid).eq("target_user_id", target_id))
+    execute(db().table("social_follows").insert({"follower_user_id": uid, "followed_user_id": target_id}),
+            "Не удалось подписаться.")
+    try:
+        actor = get_subject(uid) or user
+        name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+        create_notification(target_id, "Новый подписчик", f"{name} подписался(ась) на ваш профиль.")
+    except Exception:
+        log.exception("Could not create social follow notification")
+    return {"following": True, "requested": False}
+
+
+def list_social_follow_requests(user: dict) -> list[dict]:
+    _require_social_citizen(user)
+    requests = rows(db().table("social_follow_requests").select("requester_user_id,created_at")
+                    .eq("target_user_id", int(user["id"])).order("created_at", desc=True),
+                    "Не удалось загрузить запросы на подписку.")
+    ids = [int(x["requester_user_id"]) for x in requests]
+    if not ids:
+        return []
+    subjects = rows(db().table("subjects").select("user_id,username,full_name,avatar_emoji,is_citizen")
+                    .in_("user_id", ids), "Не удалось загрузить авторов запросов.")
+    mapping = {int(x["user_id"]): x for x in subjects if x.get("is_citizen")}
+    return [{**item, "requester": mapping[int(item["requester_user_id"])]}
+            for item in requests if int(item["requester_user_id"]) in mapping]
+
+
+def review_social_follow_request(user: dict, requester_user_id: int, approve: bool) -> dict:
+    _require_social_citizen(user)
+    uid, requester_id = int(user["id"]), int(requester_user_id)
+    request = one(db().table("social_follow_requests").select("requester_user_id")
+                  .eq("requester_user_id", requester_id).eq("target_user_id", uid).limit(1))
+    if not request:
+        raise DKDError(404, "Запрос на подписку не найден.")
+    blocked = one(db().table("social_user_blocks").select("blocker_user_id")
+                  .or_(f"and(blocker_user_id.eq.{uid},blocked_user_id.eq.{requester_id}),and(blocker_user_id.eq.{requester_id},blocked_user_id.eq.{uid})").limit(1))
+    if blocked:
+        execute(db().table("social_follow_requests").delete().eq("requester_user_id", requester_id).eq("target_user_id", uid))
+        raise DKDError(403, "Нельзя одобрить запрос пользователя, с которым есть блокировка.")
+    if approve:
+        execute(db().table("social_follows").upsert({"follower_user_id": requester_id, "followed_user_id": uid},
+                on_conflict="follower_user_id,followed_user_id"), "Не удалось одобрить запрос.")
+    execute(db().table("social_follow_requests").delete().eq("requester_user_id", requester_id).eq("target_user_id", uid),
+            "Не удалось закрыть запрос.")
+    if approve:
+        try:
+            actor = get_subject(uid) or user
+            name = clean_name(actor.get("full_name") or actor.get("username") or "Гражданин ДКД")
+            create_notification(requester_id, "Запрос одобрен", f"{name} одобрил(а) ваш запрос на подписку.")
+        except Exception:
+            log.exception("Could not notify requester about approval")
+    return {"approved": bool(approve)}
+
+
+def set_social_cover(user: dict, data: bytes, filename: str) -> dict:
+    _require_social_citizen(user)
+    if not data:
+        raise DKDError(422, "Выберите изображение обложки.")
+    if len(data) > 8 * 1024 * 1024:
+        raise DKDError(413, "Обложка должна быть не больше 8 МБ.")
+    if data.startswith(bytes.fromhex("ffd8ff")):
+        mime, ext = "image/jpeg", "jpg"
+    elif data.startswith(bytes.fromhex("89504e470d0a1a0a")):
+        mime, ext = "image/png", "png"
+    elif len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        mime, ext = "image/webp", "webp"
+    else:
+        raise DKDError(422, "Обложка должна быть изображением JPEG, PNG или WebP.")
+    user_id = int(user["id"])
+    previous = one(db().table("social_profiles").select("cover_storage_path")
+                   .eq("user_id", user_id).limit(1))
+    path = f"{user_id}/cover/{uuid.uuid4().hex}.{ext}"
+    try:
+        db().storage.from_("social-media").upload(
+            path=path, file=data,
+            file_options={"content-type": mime, "upsert": "false"}
+        )
+    except Exception as exc:
+        log.exception("Social profile cover upload failed")
+        raise db_error(exc, "Не удалось загрузить обложку профиля.") from exc
+    try:
+        execute(db().table("social_profiles").upsert({
+            "user_id": user_id, "cover_storage_path": path,
+            "updated_at": utcnow().isoformat(),
+        }, on_conflict="user_id"), "Не удалось сохранить обложку профиля.")
+    except Exception:
+        try:
+            db().storage.from_("social-media").remove([path])
+        except Exception:
+            log.warning("Could not clean up failed profile cover upload %s", path)
+        raise
+    old_path = (previous or {}).get("cover_storage_path")
+    if old_path and old_path != path:
+        try:
+            db().storage.from_("social-media").remove([old_path])
+        except Exception as exc:
+            log.warning("Old social profile cover cleanup failed: %s", exc)
+    return {"ok": True, "cover_url": f"/api/social/profiles/{user_id}/cover"}
+
+
+def get_social_cover(user: dict, target_user_id: int) -> tuple[bytes, str]:
+    _require_social_citizen(user)
+    target_id = int(target_user_id)
+    target = get_subject(target_id)
+    if not target or not target.get("is_citizen"):
+        raise DKDError(404, "Профиль гражданина не найден.")
+    if not _social_can_view_profile(user, target_id):
+        raise DKDError(404, "Обложка профиля не найдена.")
+    profile = one(db().table("social_profiles").select("cover_storage_path")
+                  .eq("user_id", target_id).limit(1))
+    path = (profile or {}).get("cover_storage_path")
+    if not path:
+        raise DKDError(404, "Обложка профиля не установлена.")
+    try:
+        data = db().storage.from_("social-media").download(path)
+    except Exception as exc:
+        raise db_error(exc, "Не удалось загрузить обложку профиля.") from exc
+    suffix = str(path).rsplit(".", 1)[-1].lower()
+    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg",
+            "png": "image/png", "webp": "image/webp"}.get(suffix)
+    if not mime:
+        raise DKDError(415, "Формат обложки не поддерживается.")
+    return data, mime
+
+
+def _news_photo_mime(data: bytes, media_type: str | None) -> str:
+    """Определяет поддерживаемый формат фото по бинарной сигнатуре."""
+    if media_type != "photo":
+        return "application/octet-stream"
+    if data.startswith(bytes.fromhex("ffd8ff")):
+        return "image/jpeg"
+    if data.startswith(bytes.fromhex("89504e470d0a1a0a")):
+        return "image/png"
+    raise DKDError(422, "Фото должно быть в формате JPEG или PNG.")
+
+
 def get_news_media(news_id: int) -> tuple[bytes, str] | None:
     """Получает медиафайл из Telegram по сохранённому file_id для показа в Mini App."""
     item = one(db().table("news").select("id,text").eq("id", int(news_id)).limit(1))
@@ -2587,7 +4463,7 @@ def get_news_media(news_id: int) -> tuple[bytes, str] | None:
             content = response.read(50 * 1024 * 1024 + 1)
         if len(content) > 50 * 1024 * 1024:
             raise DKDError(413, "Медиафайл слишком большой.")
-        mime = "image/jpeg" if media_type == "photo" else "video/mp4"
+        mime = _news_photo_mime(content, media_type) if media_type == "photo" else "video/mp4"
         return content, mime
     except DKDError:
         raise
@@ -2686,7 +4562,7 @@ def _send_group_news(title: str, category: str, text: str, importance: str,
     if media_bytes and media_type in ("photo", "video"):
         method, field = ("sendPhoto", "photo") if media_type == "photo" else ("sendVideo", "video")
         boundary = "----DKDNews" + secrets.token_hex(12)
-        mime = "image/jpeg" if media_type == "photo" else "video/mp4"
+        mime = _news_photo_mime(media_bytes, media_type) if media_type == "photo" else "video/mp4"
         safe_name = str(media_name or "news-media").replace('"', "")[:120]
         parts = [
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat_id}\r\n".encode(),
@@ -2778,8 +4654,17 @@ def schedule_news(actor_id: int, text: str, title: str, category: str, importanc
         raise DKDError(422, "Время отложенной публикации должно быть хотя бы на минуту позже текущего.")
     if media_type and media_type not in ("photo", "video"):
         raise DKDError(422, "Поддерживаются только фото и видео.")
-    if media_bytes and len(media_bytes) > 45 * 1024 * 1024:
-        raise DKDError(413, "Файл слишком большой (максимум 45 МБ).")
+    if media_bytes and media_type not in ("photo", "video"):
+        raise DKDError(422, "Для прикреплённого файла укажите тип: фото или видео.")
+    if media_bytes and media_type == "photo":
+        if len(media_bytes) > 10 * 1024 * 1024:
+            raise DKDError(413, "Фото должно быть не больше 10 МБ: это ограничение Telegram для публикации фотографий.")
+        _news_photo_mime(media_bytes, media_type)
+    if media_bytes and media_type == "video":
+        if not str(media_name or "").lower().endswith(".mp4"):
+            raise DKDError(422, "Видео должно быть в формате MP4. Файлы MOV/QuickTime пока не поддерживаются.")
+        if len(media_bytes) > 45 * 1024 * 1024:
+            raise DKDError(413, "Видео слишком большое (максимум 45 МБ).")
     title = str(title or "").strip()[:180] or (text.splitlines()[0][:120] if text else "Новость ДКД")
     category = category if category in {"politics", "elections", "government", "documents", "events", "other"} else "other"
     importance = importance if importance in {"normal", "important", "urgent"} else "normal"
@@ -2899,8 +4784,17 @@ def publish_news(actor_id: int, text: str, title: str = "", category: str = "oth
         raise DKDError(422, "Текст новости: от 1 до 10000 символов.")
     if media_type and media_type not in ("photo", "video"):
         raise DKDError(422, "Поддерживаются только фото и видео.")
-    if media_bytes and len(media_bytes) > 45 * 1024 * 1024:
-        raise DKDError(413, "Файл слишком большой (максимум 45 МБ).")
+    if media_bytes and media_type not in ("photo", "video"):
+        raise DKDError(422, "Для прикреплённого файла укажите тип: фото или видео.")
+    if media_bytes and media_type == "photo":
+        if len(media_bytes) > 10 * 1024 * 1024:
+            raise DKDError(413, "Фото должно быть не больше 10 МБ: это ограничение Telegram для публикации фотографий.")
+        _news_photo_mime(media_bytes, media_type)
+    if media_bytes and media_type == "video":
+        if not str(media_name or "").lower().endswith(".mp4"):
+            raise DKDError(422, "Видео должно быть в формате MP4. Файлы MOV/QuickTime пока не поддерживаются.")
+        if len(media_bytes) > 45 * 1024 * 1024:
+            raise DKDError(413, "Видео слишком большое (максимум 45 МБ).")
     media_file_id = _send_group_news(title, category, text, importance, media_type, media_bytes, media_name)
     meta = {"title": title, "category": category, "importance": importance,
             "media_type": media_type, "media_file_id": media_file_id}
