@@ -494,6 +494,31 @@ def chats_leave(conversation_id: int, user: dict = Depends(auth_user)):
 def chats_add_members(conversation_id: int, payload: ChatMembersAdd,
                       user: dict = Depends(auth_user)):
     return core.add_chat_members(user, conversation_id, payload.member_ids)
+class ChatMemberRoleChange(BaseModel):
+    user_id: int = Field(gt=0)
+    role: str = Field(pattern="^(admin|member)$")
+
+class ChatMemberRemove(BaseModel):
+    user_id: int = Field(gt=0)
+
+class ChatOwnershipTransfer(BaseModel):
+    new_owner_user_id: int = Field(gt=0)
+
+@app.patch("/api/chats/{conversation_id}/members/role")
+def chats_change_member_role(conversation_id: int, payload: ChatMemberRoleChange,
+                             user: dict = Depends(auth_user)):
+    return core.set_chat_member_role(user, conversation_id, payload.user_id, payload.role)
+
+@app.delete("/api/chats/{conversation_id}/members")
+def chats_remove_member(conversation_id: int, payload: ChatMemberRemove,
+                        user: dict = Depends(auth_user)):
+    return core.remove_chat_member(user, conversation_id, payload.user_id)
+
+@app.post("/api/chats/{conversation_id}/ownership")
+def chats_transfer_ownership(conversation_id: int, payload: ChatOwnershipTransfer,
+                             user: dict = Depends(auth_user)):
+    return core.transfer_chat_ownership(user, conversation_id, payload.new_owner_user_id)
+
 
 
 # Закон №3: регистрация брака, развод и Суд ДКД
