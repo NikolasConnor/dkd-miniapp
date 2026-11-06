@@ -2866,8 +2866,15 @@ def schedule_news(actor_id: int, text: str, title: str, category: str, importanc
         raise DKDError(422, "Время отложенной публикации должно быть хотя бы на минуту позже текущего.")
     if media_type and media_type not in ("photo", "video"):
         raise DKDError(422, "Поддерживаются только фото и видео.")
-    if media_bytes and len(media_bytes) > 45 * 1024 * 1024:
-        raise DKDError(413, "Файл слишком большой (максимум 45 МБ).")
+    if media_bytes and media_type not in ("photo", "video"):
+        raise DKDError(422, "Для прикреплённого файла укажите тип: фото или видео.")
+    if media_bytes and media_type == "photo" and len(media_bytes) > 10 * 1024 * 1024:
+        raise DKDError(413, "Фото должно быть не больше 10 МБ: это ограничение Telegram для публикации фотографий.")
+    if media_bytes and media_type == "video":
+        if not str(media_name or "").lower().endswith(".mp4"):
+            raise DKDError(422, "Видео должно быть в формате MP4. Файлы MOV/QuickTime пока не поддерживаются.")
+        if len(media_bytes) > 45 * 1024 * 1024:
+            raise DKDError(413, "Видео слишком большое (максимум 45 МБ).")
     title = str(title or "").strip()[:180] or (text.splitlines()[0][:120] if text else "Новость ДКД")
     category = category if category in {"politics", "elections", "government", "documents", "events", "other"} else "other"
     importance = importance if importance in {"normal", "important", "urgent"} else "normal"
@@ -2987,8 +2994,15 @@ def publish_news(actor_id: int, text: str, title: str = "", category: str = "oth
         raise DKDError(422, "Текст новости: от 1 до 10000 символов.")
     if media_type and media_type not in ("photo", "video"):
         raise DKDError(422, "Поддерживаются только фото и видео.")
-    if media_bytes and len(media_bytes) > 45 * 1024 * 1024:
-        raise DKDError(413, "Файл слишком большой (максимум 45 МБ).")
+    if media_bytes and media_type not in ("photo", "video"):
+        raise DKDError(422, "Для прикреплённого файла укажите тип: фото или видео.")
+    if media_bytes and media_type == "photo" and len(media_bytes) > 10 * 1024 * 1024:
+        raise DKDError(413, "Фото должно быть не больше 10 МБ: это ограничение Telegram для публикации фотографий.")
+    if media_bytes and media_type == "video":
+        if not str(media_name or "").lower().endswith(".mp4"):
+            raise DKDError(422, "Видео должно быть в формате MP4. Файлы MOV/QuickTime пока не поддерживаются.")
+        if len(media_bytes) > 45 * 1024 * 1024:
+            raise DKDError(413, "Видео слишком большое (максимум 45 МБ).")
     media_file_id = _send_group_news(title, category, text, importance, media_type, media_bytes, media_name)
     meta = {"title": title, "category": category, "importance": importance,
             "media_type": media_type, "media_file_id": media_file_id}
