@@ -2655,6 +2655,17 @@ def list_news() -> list:
 
 
 
+def _news_photo_mime(data: bytes, media_type: str | None) -> str:
+    """Определяет поддерживаемый формат фото по сигнатуре, а не по имени файла."""
+    if media_type != "photo":
+        return "application/octet-stream"
+    if data.startswith(b"\\xff\\xd8\\xff"):
+        return "image/jpeg"
+    if data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+        return "image/png"
+    raise DKDError(422, "Фото должно быть в формате JPEG или PNG.")
+
+
 def get_news_media(news_id: int) -> tuple[bytes, str] | None:
     """Получает медиафайл из Telegram по сохранённому file_id для показа в Mini App."""
     item = one(db().table("news").select("id,text").eq("id", int(news_id)).limit(1))
@@ -2675,7 +2686,7 @@ def get_news_media(news_id: int) -> tuple[bytes, str] | None:
             content = response.read(50 * 1024 * 1024 + 1)
         if len(content) > 50 * 1024 * 1024:
             raise DKDError(413, "Медиафайл слишком большой.")
-        mime = "image/jpeg" if media_type == "photo" else "video/mp4"
+        mime = _news_photo_mime(content, media_type) if media_type == "photo" else "video/mp4"
         return content, mime
     except DKDError:
         raise
@@ -2774,7 +2785,7 @@ def _send_group_news(title: str, category: str, text: str, importance: str,
     if media_bytes and media_type in ("photo", "video"):
         method, field = ("sendPhoto", "photo") if media_type == "photo" else ("sendVideo", "video")
         boundary = "----DKDNews" + secrets.token_hex(12)
-        mime = "image/jpeg" if media_type == "photo" else "video/mp4"
+        mime = _news_photo_mime(media_bytes, media_type) if media_type == "photo" else "video/mp4"
         safe_name = str(media_name or "news-media").replace('"', "")[:120]
         parts = [
             f"--{boundary}\r\nContent-Disposition: form-data; name=\"chat_id\"\r\n\r\n{chat_id}\r\n".encode(),
@@ -2868,8 +2879,10 @@ def schedule_news(actor_id: int, text: str, title: str, category: str, importanc
         raise DKDError(422, "Поддерживаются только фото и видео.")
     if media_bytes and media_type not in ("photo", "video"):
         raise DKDError(422, "Для прикреплённого файла укажите тип: фото или видео.")
-    if media_bytes and media_type == "photo" and len(media_bytes) > 10 * 1024 * 1024:
-        raise DKDError(413, "Фото должно быть не больше 10 МБ: это ограничение Telegram для публикации фотографий.")
+    if media_bytes and media_type == "photo":
+        if len(media_bytes) > 10 * 1024 * 1024:
+            raise DKDError(413, "Фото должно быть не больше 10 МБ: это ограничение Telegram для публикации фотографий.")
+        _news_photo_mime(media_bytes, media_type)
     if media_bytes and media_type == "video":
         if not str(media_name or "").lower().endswith(".mp4"):
             raise DKDError(422, "Видео должно быть в формате MP4. Файлы MOV/QuickTime пока не поддерживаются.")
@@ -2996,8 +3009,10 @@ def publish_news(actor_id: int, text: str, title: str = "", category: str = "oth
         raise DKDError(422, "Поддерживаются только фото и видео.")
     if media_bytes and media_type not in ("photo", "video"):
         raise DKDError(422, "Для прикреплённого файла укажите тип: фото или видео.")
-    if media_bytes and media_type == "photo" and len(media_bytes) > 10 * 1024 * 1024:
-        raise DKDError(413, "Фото должно быть не больше 10 МБ: это ограничение Telegram для публикации фотографий.")
+    if media_bytes and media_type == "photo":
+        if len(media_bytes) > 10 * 1024 * 1024:
+            raise DKDError(413, "Фото должно быть не больше 10 МБ: это ограничение Telegram для публикации фотографий.")
+        _news_photo_mime(media_bytes, media_type)
     if media_bytes and media_type == "video":
         if not str(media_name or "").lower().endswith(".mp4"):
             raise DKDError(422, "Видео должно быть в формате MP4. Файлы MOV/QuickTime пока не поддерживаются.")
