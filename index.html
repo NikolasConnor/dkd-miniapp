@@ -612,7 +612,8 @@ function renderChatMembers(){
  list.innerHTML=(chat.participants||[]).map(p=>{
   const id=Number(p.user_id),role=p.member_role||'member',profile=p.profile||{};
   let actions='';
-  if(owner&&role!=='owner')actions='<button class="btn secondary" onclick="changeChatRole('+id+',&#39;admin&#39;)">Сделать админом</button><button class="btn secondary" onclick="changeChatRole('+id+',&#39;member&#39;)">Снять админа</button><button class="btn secondary" onclick="transferChatOwner('+id+')">Передать владение</button>';
+  if(owner&&role==='member')actions='<button class="btn secondary" onclick="changeChatRole('+id+',&#39;admin&#39;)">Сделать админом</button><button class="btn secondary" onclick="transferChatOwner('+id+')">Передать владение</button>';
+  if(owner&&role==='admin')actions='<button class="btn secondary" onclick="changeChatRole('+id+',&#39;member&#39;)">Снять админа</button><button class="btn secondary" onclick="transferChatOwner('+id+')">Передать владение</button>';
   if((owner||admin)&&role!=='owner'&&(owner||role==='member'))actions+='<button class="btn secondary" onclick="removeChatMemberUI('+id+')">Удалить</button>';
   return '<div class="card"><strong>'+esc(profile.avatar_emoji||'👤')+' '+esc(profile.full_name||profile.username||'Гражданин')+'</strong><small class="muted" style="display:block">'+(role==='owner'?'Владелец':role==='admin'?'Администратор':'Участник')+'</small><div class="row wrap">'+actions+'</div></div>';
  }).join('');
