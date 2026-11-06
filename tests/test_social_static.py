@@ -96,6 +96,27 @@ class SocialApiStaticTests(unittest.TestCase):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
         self.assertIn("async function toggleSocialBlock(id){", html)
 
+    def test_social_moderation_and_ownership_routes_are_authenticated(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        for marker in (
+            'def social_report_comment(', 'def social_delete_post(',
+            'def social_delete_comment(', 'def admin_social_reports(',
+            'def admin_review_social_report(',
+        ):
+            self.assertIn(marker, app)
+        for marker in (
+            'def report_social_comment(', 'def delete_own_social_post(',
+            'def delete_own_social_comment(', 'def admin_list_social_reports(',
+            'def admin_review_social_report(',
+        ):
+            self.assertIn(marker, core)
+        self.assertIn('require_admin(user)', core[core.index('def admin_list_social_reports'):])
+        self.assertIn('Depends(admin_user)', app[app.index('def admin_social_reports'):])
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="adminSocialModeration"', html)
+        self.assertIn('function loadSocialModeration()', html)
+
     def test_social_write_limits_are_enforced(self):
         source = (ROOT / "core.py").read_text(encoding="utf-8")
         self.assertIn('len(text_value) > 5000', source)
