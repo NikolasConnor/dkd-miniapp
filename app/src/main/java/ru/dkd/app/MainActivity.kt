@@ -163,10 +163,9 @@ private fun LoginScreen(
     }
 }
 
-private class AndroidBridge(private val context: Context) {
+private class AndroidBridge(private val activeSession: Boolean) {
     @JavascriptInterface
-    fun hasSession(): Boolean = context.getSharedPreferences("dkd", Context.MODE_PRIVATE)
-        .getString("session_token", null).isNullOrBlank().not()
+    fun hasSession(): Boolean = activeSession
 }
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -195,7 +194,7 @@ private fun ConnectedApp(token: String, onLogout: () -> Unit) {
                     settings.allowContentAccess = false
                     webChromeClient = WebChromeClient()
                     webViewClient = WebViewClient()
-                    addJavascriptInterface(AndroidBridge(ctx), "AndroidDKD")
+                    addJavascriptInterface(AndroidBridge(token.isNotBlank()), "AndroidDKD")
                     val cookies = CookieManager.getInstance()
                     cookies.setAcceptCookie(true)
                     cookies.setCookie(baseUrl, "dkd_session=$token; Path=/; Secure; HttpOnly; SameSite=Lax") {
