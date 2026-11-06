@@ -18,7 +18,9 @@ class SocialApiStaticTests(unittest.TestCase):
             self.assertIn(name, source)
         block = source.split('# Социальная сеть: лента, публикации, комментарии и реакции', 1)[1]
         block = block.split('@app.get("/api/news")', 1)[0]
-        self.assertEqual(block.count('user: dict = Depends(auth_user)'), 4)
+        self.assertGreaterEqual(block.count('user: dict = Depends(auth_user)'), 9)
+        for name in ('def social_get_profile(', 'def social_update_profile(', 'def social_toggle_follow(', 'def social_upload_cover(', 'def social_get_cover('):
+            self.assertIn(name, block)
 
     def test_social_database_tables_enable_rls_and_revoke_client_access(self):
         migrations = ROOT / "supabase/migrations/20261106130000_social_feed_foundation.sql"
