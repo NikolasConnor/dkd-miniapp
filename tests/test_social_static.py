@@ -126,6 +126,32 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('id="adminSocialModeration"', html)
         self.assertIn('function loadSocialModeration()', html)
 
+    def test_chat_api_routes_require_authenticated_users(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        for marker in (
+            'def chats_people(', 'def chats_list(', 'def chats_create_direct(',
+            'def chats_create_group(', 'def chats_messages(', 'def chats_send_message(',
+            'def chats_mark_read(', 'def chats_leave(', 'def chats_add_members(',
+        ):
+            self.assertIn(marker, app)
+        chat_block = app[app.index('# Direct and group chats'):app.index('# Закон №3')]
+        self.assertGreaterEqual(chat_block.count('Depends(auth_user)'), 9)
+        for marker in (
+            'def list_chat_people(', 'def create_direct_chat(', 'def create_group_chat(',
+            'def list_chats(', 'def list_chat_messages(', 'def send_chat_message(',
+            'def mark_chat_read(', 'def leave_chat(', 'def add_chat_members(',
+        ):
+            self.assertIn(marker, core)
+
+    def test_chat_migration_is_private_and_indexed(self):
+        sql = (ROOT / "supabase/migrations/20261106200000_chat_foundation.sql").read_text(encoding="utf-8").lower()
+        for table in ('chat_conversations','chat_participants','chat_messages'):
+            self.assertIn(f'alter table public.{table} enable row level security', sql)
+            self.assertIn(f'revoke all on public.{table} from anon, authenticated', sql)
+        self.assertIn("direct_key text unique", sql)
+        self.assertIn("char_length(btrim(body)) between 1 and 4000", sql)
+
     def test_social_write_limits_are_enforced(self):
         source = (ROOT / "core.py").read_text(encoding="utf-8")
         self.assertIn('len(text_value) > 5000', source)
