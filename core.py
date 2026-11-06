@@ -2801,6 +2801,15 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
     own_follow = one(db().table("social_follows").select("follower_user_id")
                      .eq("follower_user_id", int(user["id"]))
                      .eq("followed_user_id", target_id).limit(1))
+    follower_ids = sorted({int(x["follower_user_id"]) for x in followers})
+    following_ids = sorted({int(x["followed_user_id"]) for x in following})
+    connection_ids = sorted(set(follower_ids + following_ids + [target_id]))
+    connection_subjects = rows(db().table("subjects").select(
+        "user_id,username,full_name,avatar_emoji,is_citizen"
+    ).in_("user_id", connection_ids), "Не удалось загрузить список подписок.")
+    connection_map = {int(x["user_id"]): x for x in connection_subjects if x.get("is_citizen")}
+    follower_list = [connection_map[x] for x in follower_ids if x in connection_map]
+    following_list = [connection_map[x] for x in following_ids if x in connection_map]
     posts = rows(db().table("social_posts").select(
         "id,author_user_id,body,status,created_at,updated_at"
     ).eq("author_user_id", target_id).eq("status", "published")
@@ -2838,6 +2847,8 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
         "cover_storage_path": profile.get("cover_storage_path"),
         "followers_count": len(followers),
         "following_count": len(following),
+        "followers": follower_list,
+        "following": following_list,
         "posts_count": len(posts),
         "is_me": target_id == int(user["id"]),
         "is_following": bool(own_follow),
