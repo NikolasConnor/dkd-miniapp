@@ -3954,7 +3954,7 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
     follower_list = [connection_map[x] for x in follower_ids if x in connection_map]
     following_list = [connection_map[x] for x in following_ids if x in connection_map]
     posts = rows(db().table("social_posts").select(
-        "id,author_user_id,body,status,created_at,updated_at"
+        "id,author_user_id,body,status,created_at,updated_at,repost_of_post_id"
     ).eq("author_user_id", target_id).eq("status", "published")
       .is_("deleted_at", "null").order("id", desc=True).limit(30),
       "Не удалось загрузить публикации профиля.")
@@ -3982,16 +3982,51 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
         profile_media_map.setdefault(pid, []).append({
             **media, "url": f"/api/social/posts/{pid}/media/{int(media['id'])}",
         })
+    repost_ids = sorted({int(p["repost_of_post_id"]) for p in posts if p.get("repost_of_post_id")})
+    repost_originals = rows(db().table("social_posts").select(
+        "id,author_user_id,body,status,created_at,updated_at"
+    ).in_("id", repost_ids).eq("status", "published").is_("deleted_at", "null"),
+       "Не удалось загрузить исходные публикации профиля.") if repost_ids else []
+    repost_original_map = {int(p["id"]): p for p in repost_originals
+                           if int(p["author_user_id"]) not in hidden_ids}
+    repost_author_ids = sorted({int(p["author_user_id"]) for p in repost_original_map.values()})
+    repost_authors = rows(db().table("subjects").select(
+        "user_id,username,full_name,avatar_emoji"
+    ).in_("user_id", repost_author_ids), "Не удалось загрузить авторов репостов.") if repost_author_ids else []
+    repost_author_map = {int(a["user_id"]): a for a in repost_authors}
+    repost_media = rows(db().table("social_post_media").select(
+        "id,post_id,media_type,mime_type,size_bytes"
+    ).in_("post_id", list(repost_original_map)), "Не удалось загрузить вложения исходных публикаций.") if repost_original_map else []
+    repost_media_map: dict[int, list[dict]] = {}
+    for media in repost_media:
+        oid = int(media["post_id"])
+        repost_media_map.setdefault(oid, []).append({
+            **media, "url": f"/api/social/posts/{oid}/media/{int(media['id'])}",
+        })
     post_items = []
     for post in posts:
         pid = int(post["id"])
-        post_items.append({
+        item = {
             **post,
             "reaction_count": reaction_counts.get(pid, 0),
             "comment_count": comment_counts.get(pid, 0),
             "media": profile_media_map.get(pid, []),
             "my_reaction": None,
-        })
+        }
+        original = repost_original_map.get(int(post["repost_of_post_id"])) if post.get("repost_of_post_id") else None
+        if original:
+            oid = int(original["id"])
+            item["repost_of"] = {
+                **original,
+                "author": repost_author_map.get(int(original["author_user_id"]), {
+                    "user_id": int(original["author_user_id"]),
+                    "full_name": "Пользователь ДКД", "username": None, "avatar_emoji": "👤",
+                }),
+                "media": repost_media_map.get(oid, []),
+            }
+        elif post.get("repost_of_post_id"):
+            item["repost_unavailable"] = True
+        post_items.append(item)
     return {
         "user_id": target_id,
         "username": target.get("username"),
