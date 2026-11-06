@@ -313,8 +313,10 @@ class SocialRepostCreate(BaseModel):
 
 @app.get("/api/social/feed")
 def social_feed(before_id: int | None = None, limit: int = 20,
+                search: str = "", following_only: bool = False,
                 user: dict = Depends(auth_user)):
-    return {"posts": core.list_social_feed(user, before_id=before_id, limit=limit)}
+    return {"posts": core.list_social_feed(user, before_id=before_id, limit=limit,
+                                           search=search, following_only=following_only)}
 
 
 @app.post("/api/social/posts")
