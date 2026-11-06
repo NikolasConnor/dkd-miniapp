@@ -288,7 +288,7 @@ def redeem_android_login_code(code: str) -> dict:
         raise DKDError(401, "Неверный, уже использованный или просроченный код.")
     consumed = execute(db().table("android_login_codes").update({
         "consumed_at": now.isoformat()
-    }).eq("id", int(row["id"])).is_("consumed_at", "null"), 
+    }).eq("id", int(row["id"])).is_("consumed_at", "null").select("id"),
        "Не удалось подтвердить код привязки.")
     if not consumed:
         raise DKDError(409, "Этот код уже использован. Попросите администратора выпустить новый.")
