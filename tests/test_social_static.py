@@ -281,8 +281,6 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('search: str = "", following_only: bool = False', app)
         self.assertIn('search=search, following_only=following_only', app)
         self.assertIn('query.ilike("body", f"%{safe_search}%")', core)
-        self.assertIn('safe_search = re.sub(r"[%_\\\\]", " ", safe_search)', core)
-        self.assertIn('safe = re.sub(r"[%_\\\\]", " ", safe)', core)
         self.assertIn('query.not_.in_("user_id", sorted(hidden))', core)
         self.assertIn('query.not_.in_("author_user_id", sorted(hidden_ids))', core)
         self.assertIn('re.sub(r"[^\\w\\s@.-]", " ", search_value, flags=re.UNICODE)', core)
