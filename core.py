@@ -2905,8 +2905,10 @@ def list_chat_people(user: dict, search: str = "") -> list[dict]:
     if value:
         if len(value) > 80:
             raise DKDError(422, "Слишком длинный поисковый запрос.")
-        safe = value.replace("%", "").replace("*", "")
-        query = query.or_(f"username.ilike.%{safe}%,full_name.ilike.%{safe}%")
+        safe = re.sub(r"[^\\w\\s@.\\-]", " ", value, flags=re.UNICODE)
+        safe = " ".join(safe.split())
+        if safe:
+            query = query.or_(f"username.ilike.%{safe}%,full_name.ilike.%{safe}%")
     return [p for p in rows(query, "Не удалось загрузить список граждан.")
             if int(p["user_id"]) not in hidden][:50]
 
@@ -3412,6 +3414,7 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
                      search: str = "", following_only: bool = False) -> list[dict]:
     _require_social_citizen(user)
     size = max(1, min(int(limit), 50))
+    hidden_ids = _social_blocked_user_ids(int(user["id"]))
     query = db().table("social_posts").select(
         "id,author_user_id,body,status,created_at,updated_at,repost_of_post_id"
     ).eq("status", "published").is_("deleted_at", "null")
@@ -3421,9 +3424,12 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
     if len(search_value) > 80:
         raise DKDError(422, "Поисковый запрос не должен превышать 80 символов.")
     if search_value:
-        safe_search = search_value.replace("%", "").replace("*", "").replace(",", " ").strip()
+        safe_search = re.sub(r"[^\\w\\s@.\\-]", " ", search_value, flags=re.UNICODE)
+        safe_search = " ".join(safe_search.split())
         if safe_search:
             query = query.ilike("body", f"%{safe_search}%")
+    if hidden_ids:
+        query = query.not_.in_("author_user_id", sorted(hidden_ids))
     if following_only:
         followed = rows(db().table("social_follows").select("followed_user_id")
                         .eq("follower_user_id", int(user["id"])),
@@ -3434,8 +3440,6 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
     posts = rows(query.order("id", desc=True).limit(size), "Не удалось загрузить ленту.")
     if not posts:
         return []
-    hidden_ids = _social_blocked_user_ids(int(user["id"]))
-    posts = [p for p in posts if int(p["author_user_id"]) not in hidden_ids]
     if not posts:
         return []
     original_ids = sorted({int(p["repost_of_post_id"]) for p in posts if p.get("repost_of_post_id")})
