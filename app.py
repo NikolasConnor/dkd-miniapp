@@ -530,8 +530,10 @@ def chats_create_group(payload: ChatGroupCreate, user: dict = Depends(auth_user)
 
 @app.get("/api/chats/{conversation_id}/messages")
 def chats_messages(conversation_id: int, before_id: int | None = None,
-                   limit: int = 50, user: dict = Depends(auth_user)):
-    return {"messages": core.list_chat_messages(user, conversation_id, before_id, limit)}
+                   limit: int = 50, search: str = "", user: dict = Depends(auth_user)):
+    return {"messages": core.list_chat_messages(
+        user, conversation_id, before_id, limit, search
+    )}
 
 @app.post("/api/chats/{conversation_id}/messages")
 def chats_send_message(conversation_id: int, payload: ChatMessageCreate,
