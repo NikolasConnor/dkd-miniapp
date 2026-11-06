@@ -309,6 +309,7 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn("function setSocialSavedMode()", html)
         self.assertIn("params.set('saved_only','true')", html)
         self.assertIn('async function toggleSocialSave(id)', html)
+        self.assertIn('async function toggleSocialReaction(id)', html)
         self.assertIn('id="socialFeedSaved"', html)
 
 
