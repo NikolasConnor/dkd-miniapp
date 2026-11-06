@@ -314,9 +314,10 @@ class SocialRepostCreate(BaseModel):
 @app.get("/api/social/feed")
 def social_feed(before_id: int | None = None, limit: int = 20,
                 search: str = "", following_only: bool = False,
-                user: dict = Depends(auth_user)):
+                saved_only: bool = False, user: dict = Depends(auth_user)):
     return {"posts": core.list_social_feed(user, before_id=before_id, limit=limit,
-                                           search=search, following_only=following_only)}
+                                           search=search, following_only=following_only,
+                                           saved_only=saved_only)}
 
 
 @app.post("/api/social/posts")
@@ -434,6 +435,11 @@ def social_toggle_block(target_user_id: int, user: dict = Depends(auth_user)):
 @app.post("/api/social/posts/{post_id}/reaction")
 def social_toggle_reaction(post_id: int, user: dict = Depends(auth_user)):
     return core.toggle_social_reaction(user, post_id)
+
+
+@app.post("/api/social/posts/{post_id}/save")
+def social_toggle_save(post_id: int, user: dict = Depends(auth_user)):
+    return core.toggle_social_save(user, post_id)
 
 
 class SocialProfileUpdate(BaseModel):
