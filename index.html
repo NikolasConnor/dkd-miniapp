@@ -598,7 +598,7 @@ async function searchGroupPeople(mode){
   const d=await api('/api/chats/people?search='+encodeURIComponent(q));
   results.innerHTML=(d.people||[]).map(p=>{
    const id=Number(p.user_id),selected=chatPeopleSelections[mode].includes(id);
-   return '<button type="button" class="card row" onclick="toggleGroupPerson(\''+mode+'\','+id+',\''+esc(p.full_name||p.username||'Гражданин').replace(/'/g,'&#39;')+'\')">'+(selected?'✓ ':'＋ ')+esc(p.avatar_emoji||'👤')+' '+esc(p.full_name||'Гражданин')+(p.username?' · @'+esc(p.username):'')+'</button>';
+   return '<button type="button" class="card row" onclick="toggleGroupPerson(\\''+mode+'\\','+id+')">'+(selected?'✓ ':'＋ ')+esc(p.avatar_emoji||'👤')+' '+esc(p.full_name||'Гражданин')+(p.username?' · @'+esc(p.username):'')+'</button>';
   }).join('')||'<div class="muted small">Граждане не найдены</div>';
  }catch(e){showError(results,e)}
 }
