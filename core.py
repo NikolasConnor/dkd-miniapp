@@ -3133,6 +3133,60 @@ def add_chat_members(user: dict, conversation_id: int, member_ids: list[int]) ->
     return {"ok": True, "added": len(new_ids)}
 
 
+def set_chat_member_role(user: dict, conversation_id: int, target_user_id: int,
+                         role: str) -> dict:
+    _require_social_citizen(user)
+    uid, cid, target = int(user["id"]), int(conversation_id), int(target_user_id)
+    actor = _chat_participant(cid, uid)
+    if actor["member_role"] != "owner":
+        raise DKDError(403, "Назначать администраторов может только владелец группы.")
+    if target == uid:
+        raise DKDError(422, "Нельзя изменить собственную роль этим действием.")
+    if role not in {"admin", "member"}:
+        raise DKDError(422, "Допустимые роли: администратор или участник.")
+    target_member = _chat_participant(cid, target)
+    if target_member["member_role"] == "owner":
+        raise DKDError(422, "Сначала передайте владение другому участнику.")
+    execute(db().table("chat_participants").update({"member_role": role})
+            .eq("conversation_id", cid).eq("user_id", target).is_("left_at", "null"),
+            "Не удалось изменить роль участника.")
+    return {"ok": True, "user_id": target, "member_role": role}
+
+def remove_chat_member(user: dict, conversation_id: int, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, cid, target = int(user["id"]), int(conversation_id), int(target_user_id)
+    actor = _chat_participant(cid, uid)
+    if actor["member_role"] not in {"owner", "admin"}:
+        raise DKDError(403, "Удалять участников могут только владелец и администраторы.")
+    if target == uid:
+        raise DKDError(422, "Для выхода из группы используйте отдельную команду.")
+    target_member = _chat_participant(cid, target)
+    if target_member["member_role"] == "owner":
+        raise DKDError(422, "Владельца группы нельзя удалить.")
+    if actor["member_role"] == "admin" and target_member["member_role"] == "admin":
+        raise DKDError(403, "Администратор не может удалить другого администратора.")
+    execute(db().table("chat_participants").update({"left_at": now_iso()})
+            .eq("conversation_id", cid).eq("user_id", target).is_("left_at", "null"),
+            "Не удалось удалить участника.")
+    return {"ok": True}
+
+def transfer_chat_ownership(user: dict, conversation_id: int, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, cid, target = int(user["id"]), int(conversation_id), int(target_user_id)
+    if uid == target:
+        raise DKDError(422, "Вы уже являетесь владельцем группы.")
+    actor = _chat_participant(cid, uid)
+    if actor["member_role"] != "owner":
+        raise DKDError(403, "Передать владение может только владелец группы.")
+    _chat_participant(cid, target)
+    result = db().rpc("transfer_chat_ownership", {
+        "p_conversation_id": cid, "p_actor_user_id": uid, "p_new_owner_user_id": target,
+    }).execute()
+    if not result.data:
+        raise DKDError(409, "Не удалось передать владение. Обновите список участников.")
+    return {"ok": True, "owner_user_id": target}
+
+
 def _social_blocked_user_ids(user_id: int) -> set[int]:
     """IDs hidden from this user because either side has blocked the other."""
     uid = int(user_id)
