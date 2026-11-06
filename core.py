@@ -247,6 +247,94 @@ def verify_init_data(raw: str, bot_token: str | None = None, max_age: int = 8640
     return user
 
 
+ANDROID_LOGIN_CODE_TTL_SECONDS = 15 * 60
+ANDROID_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
+
+
+def _android_token_hash(token: str) -> str:
+    return hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+
+
+def create_android_login_code(actor_id: int, target_user_id: int) -> dict:
+    """Выпускает одноразовый код привязки только для существующего участника."""
+    require_admin({"id": int(actor_id)})
+    subject = get_subject(int(target_user_id))
+    if not subject:
+        raise DKDError(404, "Участник с таким Telegram ID не найден в ДКД.")
+    code = secrets.token_urlsafe(9)
+    expires = utcnow() + timedelta(seconds=ANDROID_LOGIN_CODE_TTL_SECONDS)
+    execute(db().table("android_login_codes").insert({
+        "user_id": int(target_user_id),
+        "token_hash": _android_token_hash(code),
+        "expires_at": expires.isoformat(),
+        "created_by": int(actor_id),
+    }), "Не удалось выпустить код входа в Android.")
+    audit(int(actor_id), "android_login_code_created", int(target_user_id), "Срок действия 15 минут")
+    return {"ok": True, "code": code, "expires_at": expires.isoformat(),
+            "message": "Передайте код участнику. Он одноразовый и действует 15 минут."}
+
+
+def redeem_android_login_code(code: str) -> dict:
+    """Однократно обменивает код на 30-дневную серверную сессию."""
+    value = str(code or "").strip()
+    if not 8 <= len(value) <= 64:
+        raise DKDError(401, "Неверный или просроченный код привязки.")
+    now = utcnow()
+    row = one(db().table("android_login_codes").select(
+        "id,user_id,expires_at,consumed_at"
+    ).eq("token_hash", _android_token_hash(value)).is_("consumed_at", "null")
+      .gt("expires_at", now.isoformat()).limit(1))
+    if not row:
+        raise DKDError(401, "Неверный, уже использованный или просроченный код.")
+    consumed = execute(db().table("android_login_codes").update({
+        "consumed_at": now.isoformat()
+    }).eq("id", int(row["id"])).is_("consumed_at", "null"), 
+       "Не удалось подтвердить код привязки.")
+    if not consumed:
+        raise DKDError(409, "Этот код уже использован. Попросите администратора выпустить новый.")
+    subject = get_subject(int(row["user_id"]))
+    if not subject:
+        raise DKDError(403, "Аккаунт участника больше не найден.")
+    raw_session = secrets.token_urlsafe(32)
+    expires = now + timedelta(seconds=ANDROID_SESSION_TTL_SECONDS)
+    execute(db().table("android_sessions").insert({
+        "user_id": int(row["user_id"]),
+        "token_hash": _android_token_hash(raw_session),
+        "expires_at": expires.isoformat(),
+    }), "Не удалось создать сессию приложения.")
+    return {"ok": True, "session_token": raw_session, "expires_at": expires.isoformat(),
+            "profile": {"id": int(subject["user_id"]), "full_name": subject.get("full_name") or "",
+                        "username": subject.get("username") or "",
+                        "avatar_emoji": subject.get("avatar_emoji") or "👤"}}
+
+
+def verify_android_session(token: str) -> dict:
+    value = str(token or "").strip()
+    if not 20 <= len(value) <= 256:
+        raise DKDError(401, "Сессия приложения недействительна. Войдите заново.")
+    row = one(db().table("android_sessions").select(
+        "id,user_id,expires_at,revoked_at"
+    ).eq("token_hash", _android_token_hash(value)).is_("revoked_at", "null")
+      .gt("expires_at", utcnow().isoformat()).limit(1))
+    if not row:
+        raise DKDError(401, "Сессия приложения истекла или отозвана. Войдите заново.")
+    subject = get_subject(int(row["user_id"]))
+    if not subject:
+        raise DKDError(401, "Аккаунт участника не найден.")
+    return {"id": int(subject["user_id"]), "username": subject.get("username") or "",
+            "first_name": subject.get("full_name") or "", "last_name": ""}
+
+
+def revoke_android_session(token: str) -> dict:
+    value = str(token or "").strip()
+    if not value:
+        return {"ok": True}
+    execute(db().table("android_sessions").update({
+        "revoked_at": utcnow().isoformat()
+    }).eq("token_hash", _android_token_hash(value)).is_("revoked_at", "null"))
+    return {"ok": True}
+
+
 def tg_full_name(user: dict) -> str:
     return clean_name(" ".join(x for x in [user.get("first_name"), user.get("last_name")] if x)) or "Пользователь Telegram"
 
