@@ -548,11 +548,14 @@ function renderSocialPost(post){
  socialContentCache['post:'+Number(post.id)]=String(post.body||'');
  const author=post.author||{},name=author.full_name||author.username||'Гражданин ДКД';
  const avatar=author.avatar_emoji||'👤',reacted=!!post.my_reaction;
- return '<article class="card" style="padding:15px">'+
+ const repostLabel=post.repost_of?'<div class="muted small" style="margin:0 0 9px">↻ '+esc(name)+' поделился публикацией</div>':'';
+ const original=post.repost_of?'<div class="card" style="padding:12px;margin:10px 0;border:1px solid var(--line)"><div class="row"><span style="font-size:22px">'+esc(post.repost_of.author?.avatar_emoji||'👤')+'</span><strong>'+esc(post.repost_of.author?.full_name||'Гражданин ДКД')+'</strong><span class="spacer"></span><span class="muted small">'+fmtDate(post.repost_of.created_at)+'</span></div><p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0">'+esc(post.repost_of.body||'')+'</p>'+(post.repost_of.media||[]).map(m=>m.media_type==='video'?'<video controls playsinline preload="metadata" style="width:100%;max-height:360px;background:#080b18;border-radius:12px;margin:6px 0" src="'+esc(m.url)+'"></video>':'<img loading="lazy" alt="Вложение исходной публикации" style="width:100%;max-height:360px;object-fit:contain;border-radius:12px;margin:6px 0" src="'+esc(m.url)+'">').join('')+'</div>':(post.repost_unavailable?'<div class="muted small">Исходная публикация больше недоступна.</div>':'');
+ const own=Number(author.user_id||post.author_user_id)===Number(state.profile?.user_id||state.profile?.telegram_id);
+ return '<article class="card" style="padding:15px">'+repostLabel+
   '<div class="row" style="align-items:center"><button type="button" onclick="openSocialProfile('+Number(author.user_id||post.author_user_id)+')" style="font-size:28px;border:0;background:none;padding:0">'+esc(avatar)+'</button><div style="flex:1;min-width:0"><button type="button" onclick="openSocialProfile('+Number(author.user_id||post.author_user_id)+')" style="border:0;background:none;padding:0;font-weight:700">'+esc(name)+'</button><div class="muted small">'+(author.username?'@'+esc(author.username)+' · ':'')+fmtDate(post.created_at)+'</div></div></div>'+
-  '<p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:13px 0">'+esc(post.body||'')+'</p>'+
+  (post.body?'<p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:13px 0">'+esc(post.body)+'</p>':'')+original+
   (post.media||[]).map(m=>m.media_type==='video'?'<video controls playsinline preload="metadata" style="width:100%;max-height:420px;background:#080b18;border-radius:12px;margin:8px 0" src="'+esc(m.url)+'"></video>':'<img loading="lazy" alt="Вложение публикации" style="width:100%;max-height:420px;object-fit:contain;border-radius:12px;margin:8px 0" src="'+esc(m.url)+'">').join('')+
-  '<div class="row"><button class="btn '+(reacted?'primary':'secondary')+'" type="button" onclick="toggleSocialReaction('+Number(post.id)+')">'+(reacted?'♥':'♡')+' '+Number(post.reaction_count||0)+'</button><button class="btn secondary" type="button" onclick="toggleSocialComments('+Number(post.id)+')">Комментарии · '+Number(post.comment_count||0)+'</button><button class="btn secondary" type="button" onclick="reportSocialPost('+Number(post.id)+')">Пожаловаться</button>'+(Number(author.user_id||post.author_user_id)===Number(state.profile?.telegram_id)?'<button class="btn secondary" type="button" onclick="editSocialPost('+Number(post.id)+')">Изменить</button><button class="btn danger" type="button" onclick="deleteSocialPost('+Number(post.id)+')">Удалить</button>':'')+'</div>'+
+  '<div class="row"><button class="btn '+(reacted?'primary':'secondary')+'" type="button" onclick="toggleSocialReaction('+Number(post.id)+')">'+(reacted?'♥':'♡')+' '+Number(post.reaction_count||0)+'</button><button class="btn secondary" type="button" onclick="toggleSocialComments('+Number(post.id)+')">Комментарии · '+Number(post.comment_count||0)+'</button><button class="btn secondary" type="button" onclick="repostSocialPost('+Number(post.id)+')">↻ Репост</button><button class="btn secondary" type="button" onclick="reportSocialPost('+Number(post.id)+')">Пожаловаться</button>'+(own?'<button class="btn secondary" type="button" onclick="editSocialPost('+Number(post.id)+')">Изменить</button><button class="btn danger" type="button" onclick="deleteSocialPost('+Number(post.id)+')">Удалить</button>':'')+'</div>'+
   '<div id="socialComments'+Number(post.id)+'" class="hidden" style="margin-top:12px"></div>'+
  '</article>';
 }
@@ -753,14 +756,40 @@ async function submitSocialPost(e){
   field.value='';$('socialPostFile').value='';notify('Публикация добавлена');await loadSocialFeed(true)
  }catch(err){notify(err.message,'error')}
 }
+function renderSocialCommentTree(comments,postId,parentId=null,depth=0){
+ const children=comments.filter(x=>(x.parent_comment_id==null?null:Number(x.parent_comment_id))===parentId);
+ if(!children.length||depth>12)return '';
+ return children.map(x=>{
+  socialContentCache['comment:'+Number(x.id)]=String(x.body||'');
+  const own=Number(x.author_user_id)===Number(state.profile?.user_id||state.profile?.telegram_id);
+  const indent=Math.min(depth,5)*14;
+  return '<div class="card" style="padding:10px;margin:8px 0 8px '+indent+'px"><div class="row"><strong>'+esc(x.author?.full_name||'Гражданин ДКД')+'</strong><span class="spacer"></span><button class="btn secondary" type="button" onclick="setSocialReply('+postId+','+Number(x.id)+')">Ответить</button><button class="btn secondary" type="button" onclick="reportSocialComment('+Number(x.id)+')">Жалоба</button>'+(own?'<button class="btn secondary" type="button" onclick="editSocialComment('+Number(x.id)+','+postId+')">Изменить</button><button class="btn danger" type="button" onclick="deleteSocialComment('+Number(x.id)+','+postId+')">Удалить</button>':'')+'</div><p style="white-space:pre-wrap;margin:6px 0">'+esc(x.body)+'</p>'+renderSocialCommentTree(comments,postId,Number(x.id),depth+1)+'</div>';
+ }).join('');
+}
+function setSocialReply(postId,commentId){
+ const box=$('socialComments'+postId),form=box?.querySelector('form');
+ if(!form)return;
+ form.querySelector('[name="parent_comment_id"]').value=commentId;
+ form.querySelector('.social-reply-label').textContent='Вы отвечаете на комментарий';
+ form.querySelector('.social-reply-cancel').classList.remove('hidden');
+ const input=form.querySelector('[name="body"]');input.placeholder='Написать ответ…';input.focus();
+}
+function clearSocialReply(form){
+ form.querySelector('[name="parent_comment_id"]').value='';
+ form.querySelector('.social-reply-label').textContent='';
+ form.querySelector('.social-reply-cancel').classList.add('hidden');
+ form.querySelector('[name="body"]').placeholder='Написать комментарий…';
+}
 async function toggleSocialComments(id){
  const box=$('socialComments'+id);if(!box)return;
  if(!box.classList.contains('hidden')){box.classList.add('hidden');return}
  box.classList.remove('hidden');box.innerHTML='<div class="empty">Загрузка комментариев…</div>';
- try{const d=await api('/api/social/posts/'+id+'/comments');const list=d.comments||[];box.innerHTML='<div class="list">'+(list.length?list.map(x=>{socialContentCache['comment:'+Number(x.id)]=String(x.body||'');return '<div class="card" style="padding:10px"><div class="row"><strong>'+esc(x.author?.full_name||'Гражданин ДКД')+'</strong><span class="spacer"></span><button class="btn secondary" type="button" onclick="reportSocialComment('+Number(x.id)+')">Жалоба</button>'+(Number(x.author_user_id)===Number(state.profile?.telegram_id)?'<button class="btn secondary" type="button" onclick="editSocialComment('+Number(x.id)+','+id+')">Изменить</button><button class="btn danger" type="button" onclick="deleteSocialComment('+Number(x.id)+','+id+')">Удалить</button>':'')+'</div><p style="white-space:pre-wrap;margin:6px 0">'+esc(x.body)+'</p></div>'}).join(''):'<div class="empty">Комментариев пока нет.</div>')+'</div><form class="row" onsubmit="submitSocialComment(event,'+id+')" style="margin-top:10px"><input name="body" maxlength="2000" placeholder="Написать комментарий…" required><button class="btn primary">Отправить</button></form>'}
- catch(e){showError(box,e)}
+ try{
+  const d=await api('/api/social/posts/'+id+'/comments'),list=d.comments||[];
+  box.innerHTML='<div class="list">'+(list.length?renderSocialCommentTree(list,id):'<div class="empty">Комментариев пока нет.</div>')+'</div><form class="row" onsubmit="submitSocialComment(event,'+id+')" style="margin-top:10px;flex-wrap:wrap"><input type="hidden" name="parent_comment_id" value=""><div class="muted small social-reply-label" style="width:100%"></div><input name="body" maxlength="2000" placeholder="Написать комментарий…" required style="flex:1;min-width:140px"><button class="btn primary">Отправить</button><button class="btn secondary social-reply-cancel hidden" type="button" onclick="clearSocialReply(this.form)">Отмена</button></form>';
+ }catch(e){showError(box,e)}
 }
-async function submitSocialComment(e,id){e.preventDefault();const body=new FormData(e.target).get('body');try{await api('/api/social/posts/'+id+'/comments',{method:'POST',body:{body}});await toggleSocialComments(id);await toggleSocialComments(id);notify('Комментарий добавлен');await loadSocialFeed(true)}catch(err){notify(err.message,'error')}}
+async function submitSocialComment(e,id){e.preventDefault();const form=e.target;try{await api('/api/social/posts/'+id+'/comments',{method:'POST',body:{body:new FormData(form).get('body'),parent_comment_id:form.querySelector('[name="parent_comment_id"]').value||null}});notify('Комментарий добавлен');form.reset();clearSocialReply(form);const box=$('socialComments'+id);box.classList.add('hidden');await toggleSocialComments(id);await loadSocialFeed()}catch(err){notify(err.message,'error')}}
 async function editSocialPost(id){
  const next=prompt('Изменить публикацию',socialContentCache['post:'+Number(id)]||'');if(next===null)return;
  if(!next.trim()){notify('Текст публикации не может быть пустым','error');return}
@@ -790,6 +819,12 @@ async function reportSocialComment(id){
 }
 async function reportSocialPost(id){const details=prompt('Опишите причину жалобы (до 2000 символов):');if(details===null)return;try{await api('/api/social/posts/'+id+'/report',{method:'POST',body:{reason:'other',details}});notify('Жалоба отправлена модераторам')}catch(e){notify(e.message,'error')}}
 
+async function repostSocialPost(id){
+ const caption=prompt('Добавить подпись к репосту (необязательно):','');
+ if(caption===null)return;
+ try{await api('/api/social/posts/'+id+'/repost',{method:'POST',body:{caption}});notify('Публикация добавлена в вашу ленту');await loadSocialFeed(true)}
+ catch(e){notify(e.message,'error')}
+}
 async function toggleSocialReaction(id){
  try{await api('/api/social/posts/'+id+'/reaction',{method:'POST'});await loadSocialFeed(true)}
  catch(e){notify(e.message,'error')}
