@@ -301,6 +301,15 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('"Новый подписчик"', core)
         self.assertIn('"Новая отметка «Нравится»"', core)
         self.assertIn('"Новый комментарий"', core)
+        self.assertIn('def toggle_social_save(', core)
+        self.assertIn('social_saved_posts', core)
+        self.assertIn('saved_only: bool = False', core)
+        self.assertIn('@app.post("/api/social/posts/{post_id}/save")', app)
+        self.assertIn('saved_only: bool = False', app)
+        self.assertIn("function setSocialSavedMode()", html)
+        self.assertIn("params.set('saved_only','true')", html)
+        self.assertIn('async function toggleSocialSave(id)', html)
+        self.assertIn('id="socialFeedSaved"', html)
 
 
 if __name__ == "__main__":
