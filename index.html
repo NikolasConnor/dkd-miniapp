@@ -332,7 +332,7 @@
 <script>
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0d1024'); tg.setBackgroundColor('#0d1024'); } catch(e) {} }
-const initData = tg?.initData || '';
+const initData = tg?.initData || (window.AndroidDKD?.hasSession?.() ? 'native-session' : '');
 const state = {profile:null, isAdmin:false, isPresident:false, isDeputy:false, docs:null, apps:[], avatarCategory:'Все', pendingAvatar:'👤'};
 const AVATAR_GROUPS = {'Все':'👤 👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️ 👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬 😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽 🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄 🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹 💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩 🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬'.split(' '), 'Государство':'👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️', 'Профессии':'👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬', 'Настроение':'😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽', 'Животные':'🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄', 'Фэнтези':'🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹', 'Стиль':'💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩', 'Космос':'🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬 👾 👽'};
 function renderAvatarPicker(){const cats=Object.keys(AVATAR_GROUPS);$('avatarCategories').innerHTML=cats.map(c=>`<button type="button" class="${state.avatarCategory===c?'active':''}" onclick="setAvatarCategory('${esc(c)}')">${esc(c)}</button>`).join('');const list=AVATAR_GROUPS[state.avatarCategory]||AVATAR_GROUPS['Все'];$('avatarGrid').innerHTML=[...new Set(list)].map(e=>`<button type="button" aria-label="Выбрать ${e}" class="avatar-option ${state.pendingAvatar===e?'selected':''}" onclick="pickAvatar('${e}')">${e}</button>`).join('');$('avatarCurrent').textContent=state.pendingAvatar;}
