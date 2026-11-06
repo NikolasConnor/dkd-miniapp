@@ -92,6 +92,10 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn("target_id in hidden_ids", source)
         self.assertGreaterEqual(source.count("post = _social_visible_post(user, post_id)"), 5)
 
+    def test_social_block_ui_uses_async_handler(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn("async function toggleSocialBlock(id){", html)
+
     def test_social_write_limits_are_enforced(self):
         source = (ROOT / "core.py").read_text(encoding="utf-8")
         self.assertIn('len(text_value) > 5000', source)
