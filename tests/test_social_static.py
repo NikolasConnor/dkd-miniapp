@@ -92,6 +92,15 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn("target_id in hidden_ids", source)
         self.assertGreaterEqual(source.count("post = _social_visible_post(user, post_id)"), 5)
 
+    def test_social_blocked_comments_and_own_content_controls(self):
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('comments = [x for x in comments if int(x["author_user_id"]) not in hidden_ids]', core)
+        self.assertIn('"followers_count": len(follower_list)', core)
+        self.assertIn('async function deleteSocialPost(id)', html)
+        self.assertIn('async function deleteSocialComment(id,postId)', html)
+        self.assertIn('async function reportSocialComment(id)', html)
+
     def test_social_block_ui_uses_async_handler(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
         self.assertIn("async function toggleSocialBlock(id){", html)
