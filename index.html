@@ -579,7 +579,7 @@ async function loadSocialCover(userId){
  try{const response=await fetch('/api/social/profiles/'+Number(userId)+'/cover',{headers,cache:'no-store'});if(!response.ok)return;const blob=await response.blob(),url=URL.createObjectURL(blob),el=$('socialCover');if(el){if(el.dataset.objectUrl)URL.revokeObjectURL(el.dataset.objectUrl);el.style.backgroundImage='url("'+url+'")';el.dataset.objectUrl=url}}catch(e){console.warn('Social cover unavailable',e)}
 }
 async function saveSocialBio(e){e.preventDefault();try{await api('/api/social/profile',{method:'PATCH',body:{bio:$('socialBio').value}});notify('Описание профиля сохранено');await openSocialProfile(state.socialProfileId)}catch(err){notify(err.message,'error')}}
-async async function toggleSocialBlock(id){
+async function toggleSocialBlock(id){
  if(!confirm('Заблокировать пользователя? Вы перестанете видеть его публикации и сможете снять блокировку позже.'))return;
  try{const d=await api('/api/social/profiles/'+id+'/block',{method:'POST'});notify(d.blocked?'Пользователь заблокирован':'Блокировка снята');await loadSocialFeed(true);openView('social')}catch(e){notify(e.message,'error')}
 }
