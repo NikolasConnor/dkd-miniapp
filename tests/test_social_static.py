@@ -294,6 +294,13 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn("el.querySelector('#socialConnectionsPanel')?.remove()", html)
         self.assertIn('id="socialPeopleSearch"', html)
         self.assertIn("params.set('following_only','true')", html)
+        self.assertIn('let socialFeedRequestId=0;', html)
+        self.assertIn('if(requestId!==socialFeedRequestId)return;', html)
+        self.assertIn("if($('socialView')?.classList.contains('active'))", html)
+        self.assertIn('def create_notification(', core)
+        self.assertIn('"Новый подписчик"', core)
+        self.assertIn('"Новая отметка «Нравится»"', core)
+        self.assertIn('"Новый комментарий"', core)
 
 
 if __name__ == "__main__":
