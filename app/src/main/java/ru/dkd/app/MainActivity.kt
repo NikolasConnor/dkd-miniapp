@@ -313,109 +313,210 @@ private fun LoginScreen(
     }
 }
 
-@Composable
-private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var progress by remember { mutableIntStateOf(0) }
-    var loadError by remember { mutableStateOf(false) }
-    val webView = remember(token) {
-        WebView(context).apply {
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            settings.javaScriptCanOpenWindowsAutomatically = false
-            settings.setSupportMultipleWindows(false)
-            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            settings.safeBrowsingEnabled = true
-            settings.mediaPlaybackRequiresUserGesture = true
-            addJavascriptInterface(AndroidSessionBridge { token }, "AndroidDKD")
-            webChromeClient = object : WebChromeClient() {
-                override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                    progress = newProgress
-                    if (newProgress >= 100) loadError = false
-                }
+
+private data class NativeSection(val title: String, val subtitle: String, val endpoint: String, val icon: String)
+private val NativeSections = listOf(
+    NativeSection("Главная", "Обзор вашего государства", "/api/profile", "⌂"),
+    NativeSection("Лента", "Публикации и обсуждения", "/api/social/feed?limit=30", "◉"),
+    NativeSection("Чаты", "Личные и групповые переписки", "/api/chats", "✉"),
+    NativeSection("Государство", "Новости, партии и парламент", "/api/news", "⌘"),
+    NativeSection("Профиль", "Ваш аккаунт и документы", "/api/profile", "◌")
+)
+private data class NativeCard(val title: String, val detail: String)
+
+private suspend fun loadNativeSection(token: String, endpoint: String): Pair<List<NativeCard>, String?> =
+    withContext(Dispatchers.IO) {
+        var connection: HttpURLConnection? = null
+        try {
+            connection = (URL("\${API_BASE_URL}\${endpoint}").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 12_000
+                readTimeout = 20_000
+                setRequestProperty("Authorization", "Bearer $token")
+                setRequestProperty("Accept", "application/json")
             }
-            webViewClient = object : WebViewClient() {
-                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                    val uri = request?.url ?: return true
-                    if (uri.scheme == "https" && uri.host == APP_HOST) return false
-                    if (request.isForMainFrame && uri.scheme in listOf("https", "http", "mailto", "tel")) {
-                        return try {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
-                            true
-                        } catch (_: Exception) {
-                            true
+            val status = connection.responseCode
+            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (status !in 200..299) {
+                val message = runCatching { JSONObject(body).optString("detail") }.getOrNull()
+                return@withContext Pair(emptyList(), message?.takeIf { it.isNotBlank() }
+                    ?: "Сервер вернул ошибку HTTP $status.")
+            }
+            val json = JSONObject(body)
+            val cards = mutableListOf<NativeCard>()
+            fun addObject(obj: JSONObject, fallback: String) {
+                val title = sequenceOf("title", "full_name", "name", "body", "text", "username")
+                    .map { obj.optString(it).trim() }.firstOrNull { it.isNotBlank() && it != "null" }
+                    ?: fallback
+                val detail = sequenceOf("description", "subtitle", "position", "status", "created_at")
+                    .map { obj.optString(it).trim() }.firstOrNull { it.isNotBlank() && it != "null" }
+                    ?: sequenceOf("body", "text", "content")
+                        .map { obj.optString(it).trim() }.firstOrNull { it.isNotBlank() && it != title }
+                    ?: "Откройте раздел, чтобы посмотреть подробности."
+                cards += NativeCard(title.take(100), detail.take(220))
+            }
+            for (key in listOf("posts", "chats", "news", "parties", "members", "items", "notifications")) {
+                val array = json.optJSONArray(key) ?: continue
+                for (i in 0 until minOf(array.length(), 30)) {
+                    array.optJSONObject(i)?.let { addObject(it, "$key · \${i + 1}") }
+                }
+                if (cards.isNotEmpty()) break
+            }
+            if (cards.isEmpty()) {
+                var nested = false
+                for (key in listOf("profile", "user", "parliament", "data")) {
+                    val obj = json.optJSONObject(key) ?: continue
+                    nested = true
+                    addObject(obj, "Данные аккаунта")
+                }
+                if (!nested && json.length() > 0) {
+                    val labels = mapOf(
+                        "full_name" to "ФИО", "username" to "Имя пользователя",
+                        "position" to "Должность", "reputation" to "Репутация",
+                        "is_citizen" to "Гражданство", "unread_count" to "Непрочитано"
+                    )
+                    val keys = json.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        val value = json.opt(key)
+                        if (value !is JSONObject && value !is org.json.JSONArray && value != JSONObject.NULL) {
+                            cards += NativeCard(labels[key] ?: key.replace('_', ' '), value.toString())
                         }
                     }
-                    return true
-                }
-
-                override fun onReceivedError(
-                    view: WebView?, request: WebResourceRequest?, error: WebResourceError?
-                ) {
-                    if (request?.isForMainFrame == true) loadError = true
-                }
-
-                override fun onReceivedSslError(
-                    view: WebView?,
-                    handler: android.webkit.SslErrorHandler?,
-                    error: android.net.http.SslError?
-                ) {
-                    handler?.cancel()
-                    loadError = true
                 }
             }
-        }.also { view ->
-            CookieManager.getInstance().setAcceptCookie(true)
-            CookieManager.getInstance().setAcceptThirdPartyCookies(view, false)
-            CookieManager.getInstance().setCookie(
-                API_BASE_URL,
-                "dkd_session=$token; Path=/; Secure; HttpOnly; SameSite=Lax"
-            ) {
-                CookieManager.getInstance().flush()
-                view.post { view.loadUrl(API_BASE_URL) }
+            Pair(cards, null)
+        } catch (e: Exception) {
+            Pair(emptyList(), when (e) {
+                is java.net.UnknownHostException -> "Нет соединения с сервером ДКД."
+                is java.net.SocketTimeoutException -> "Сервер долго не отвечает. Попробуйте ещё раз."
+                else -> "Не удалось загрузить раздел. Проверьте интернет."
+            })
+        } finally { connection?.disconnect() }
+    }
+
+@Composable
+private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -> Unit) {
+    var selected by remember { mutableIntStateOf(0) }
+    var cards by remember { mutableStateOf<List<NativeCard>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var refreshedAt by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    val section = NativeSections[selected]
+    fun refresh() {
+        scope.launch {
+            loading = true
+            error = null
+            val result = loadNativeSection(token, section.endpoint)
+            cards = result.first
+            error = result.second
+            refreshedAt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
+            loading = false
+        }
+    }
+    LaunchedEffect(selected, token) { refresh() }
+    MaterialTheme(colorScheme = darkColorScheme(
+        primary = Blue, onPrimary = Navy, background = Navy,
+        surface = Panel, onSurface = White, secondary = Muted
+    )) {
+        Scaffold(
+            containerColor = Navy,
+            topBar = {
+                Row(Modifier.fillMaxWidth().background(Panel).padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("ДКД", color = White, fontWeight = FontWeight.Bold, fontSize = 21.sp)
+                        Text("Цифровое государство", color = Muted, fontSize = 11.sp)
+                    }
+                    TextButton(onClick = { refresh() }, enabled = !loading) {
+                        Text(if (loading) "Загрузка…" else "Обновить", color = Blue)
+                    }
+                    TextButton(onClick = onLogout) { Text("Выйти", color = Amber) }
+                }
+            },
+            bottomBar = {
+                NavigationBar(containerColor = Panel, contentColor = White) {
+                    NativeSections.forEachIndexed { index, item ->
+                        NavigationBarItem(
+                            selected = selected == index, onClick = { selected = index },
+                            icon = { Text(item.icon, fontSize = 20.sp) },
+                            label = { Text(item.title, fontSize = 10.sp) },
+                            colors = NavigationBarItemDefaults.colors(
+                                selectedIconColor = Blue, selectedTextColor = Blue,
+                                indicatorColor = Color(0xFF263B59),
+                                unselectedIconColor = Muted, unselectedTextColor = Muted
+                            )
+                        )
+                    }
+                }
+            }
+        ) { padding ->
+            Column(Modifier.fillMaxSize().padding(padding).background(Navy)
+                .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Surface(color = Color(0xFF17243A), shape = RoundedCornerShape(22.dp),
+                    modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(section.title.uppercase(), color = Blue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(section.subtitle, color = White, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Отдельное приложение ДКД · Android", color = Muted, fontSize = 12.sp)
+                    }
+                }
+                if (selected == 0) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        listOf("Социальная сеть", "Государство").forEachIndexed { index, label ->
+                            Surface(color = Panel, shape = RoundedCornerShape(15.dp), modifier = Modifier.weight(1f)) {
+                                Column(Modifier.padding(14.dp)) {
+                                    Text(if (index == 0) "◉" else "⌘", color = Blue, fontSize = 23.sp)
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(label, color = White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Text("Выберите раздел ниже", color = Muted, fontSize = 10.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                if (logoutError != null) NativeNotice(logoutError)
+                if (error != null) {
+                    NativeNotice(error!!)
+                    OutlinedButton(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) {
+                        Text("Повторить загрузку")
+                    }
+                } else if (loading && cards.isEmpty()) {
+                    Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Blue)
+                    }
+                } else if (cards.isEmpty()) {
+                    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Пока здесь пусто", color = White, fontWeight = FontWeight.SemiBold)
+                            Text("Когда в этом разделе появятся данные, они отобразятся здесь.", color = Muted, fontSize = 12.sp)
+                        }
+                    }
+                } else {
+                    Text("СОДЕРЖИМОЕ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    cards.forEach { card ->
+                        Surface(color = Panel, shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Text(card.title, color = White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                                Text(card.detail, color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
+                            }
+                        }
+                    }
+                }
+                Text(if (refreshedAt.isBlank()) "Данные загружаются с сервера ДКД" else "Обновлено в $refreshedAt",
+                    color = Muted, fontSize = 10.sp)
+                Spacer(Modifier.height(8.dp))
             }
         }
     }
+}
 
-    BackHandler(enabled = webView.canGoBack()) { webView.goBack() }
-
-    Column(Modifier.fillMaxSize().background(Navy)) {
-        Row(
-            Modifier.fillMaxWidth().background(Panel).padding(horizontal = 16.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("ДКД", color = White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                Text("Самостоятельное приложение", color = Muted, fontSize = 10.sp)
-            }
-            TextButton(onClick = { webView.reload() }) { Text("Обновить") }
-            TextButton(onClick = onLogout) { Text("Выйти", color = Amber) }
-        }
-        if (progress in 1..99) LinearProgressIndicator(
-            progress = { progress / 100f },
-            modifier = Modifier.fillMaxWidth(),
-            color = Blue,
-            trackColor = Panel
-        )
-        if (logoutError != null) {
-            Surface(color = Color(0xFF4A2B35), modifier = Modifier.fillMaxWidth()) {
-                Text(logoutError, Modifier.padding(12.dp), color = White, fontSize = 12.sp)
-            }
-        }
-        if (loadError) {
-            Surface(color = Color(0xFF4A2B35), modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    "Не удалось загрузить ДКД. Проверьте Wi-Fi или мобильный интернет и нажмите «Обновить».",
-                    Modifier.padding(12.dp), color = White, fontSize = 12.sp
-                )
-            }
-        }
-        AndroidView(
-            factory = { webView },
-            modifier = Modifier.fillMaxSize(),
-            update = { }
-        )
+@Composable
+private fun NativeNotice(message: String) {
+    Surface(color = Color(0xFF422A34), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(message, color = White, fontSize = 12.sp, modifier = Modifier.padding(14.dp))
     }
 }
