@@ -1058,7 +1058,10 @@ private fun AccountScreen(token: String, currentUserId: Int, onError: (String) -
     var privateProfile by remember { mutableStateOf(false) }
     var showConnections by remember { mutableStateOf(true) }
     var refresh by remember { mutableIntStateOf(0) }
+    var followRequests by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     LaunchedEffect(refresh) {
+        val requests = apiCall(token, "GET", "/api/social/follow-requests")
+        followRequests = requests.data?.array("requests") ?: emptyList()
         val r = apiCall(token, "GET", "/api/profile")
         profile = r.data?.optJSONObject("profile")
         fullName = profile?.string("full_name") ?: ""
@@ -1101,6 +1104,35 @@ private fun AccountScreen(token: String, currentUserId: Int, onError: (String) -
                         refresh++
                     }
                 }, modifier = Modifier.fillMaxWidth()) { Text("Сохранить изменения") }
+            }
+        }
+        if (followRequests.isNotEmpty()) {
+            Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("ЗАПРОСЫ НА ПОДПИСКУ · " + followRequests.size, color = Blue, fontWeight = FontWeight.Bold)
+                    followRequests.forEach { request ->
+                        val requester = request.obj("requester")
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(requester.string("avatar_emoji", "👤"), fontSize = 24.sp)
+                            Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                                Text(requester.string("full_name", "Гражданин"), color = White, fontSize = 12.sp)
+                                Text("@" + requester.string("username"), color = Muted, fontSize = 10.sp)
+                            }
+                            TextButton(onClick = {
+                                scope.launch {
+                                    val result = apiCall(token, "POST", "/api/social/follow-requests/" + request.int("requester_user_id") + "/approve")
+                                    if (result.error != null) onError(result.error) else refresh++
+                                }
+                            }) { Text("Принять", color = Blue) }
+                            TextButton(onClick = {
+                                scope.launch {
+                                    val result = apiCall(token, "POST", "/api/social/follow-requests/" + request.int("requester_user_id") + "/reject")
+                                    if (result.error != null) onError(result.error) else refresh++
+                                }
+                            }) { Text("Отклонить", color = Amber, fontSize = 10.sp) }
+                        }
+                    }
+                }
             }
         }
         profile?.let {
