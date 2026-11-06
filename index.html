@@ -126,7 +126,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 
     <section id="socialView" class="view">
       <button class="back" onclick="openView('home')">← На главную</button>
-      <div class="section-head"><h3>Сообщество ДКД</h3><button class="btn secondary" onclick="loadSocialFeed(true)">Обновить</button></div>
+      <div class="section-head"><h3>Сообщество ДКД</h3><div class="row"><button class="btn secondary" onclick="openSocialProfile(state.profile?.telegram_id)">Мой профиль</button><button class="btn secondary" onclick="loadSocialFeed(true)">Обновить</button></div></div>
       <form class="card form" onsubmit="submitSocialPost(event)">
         <h3 style="margin:0">Новая публикация</h3>
         <div class="field"><label for="socialPostBody">О чём хотите рассказать?</label><textarea id="socialPostBody" maxlength="5000" rows="4" placeholder="Поделитесь новостью или мыслью…" required></textarea></div>
@@ -134,6 +134,11 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
       </form>
       <div id="socialFeed" class="list"><div class="empty">Загрузка ленты…</div></div>
       <button id="socialMore" class="btn secondary hidden" style="width:100%;margin-top:12px" onclick="loadSocialFeed(false)">Загрузить ещё</button>
+    </section>
+
+    <section id="socialProfileView" class="view">
+      <button class="back" onclick="openView('social')">← К ленте</button>
+      <div id="socialProfileContent"><div class="empty">Загрузка профиля…</div></div>
     </section>
 
     <section id="parliamentView" class="view">
@@ -355,7 +360,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0d1024'); tg.setBackgroundColor('#0d1024'); } catch(e) {} }
 const initData = tg?.initData || (window.AndroidDKD?.hasSession?.() ? 'native-session' : '');
-const state = {profile:null, isAdmin:false, isPresident:false, isDeputy:false, docs:null, apps:[], socialBeforeId:null, socialHasMore:false, avatarCategory:'Все', pendingAvatar:'👤'};
+const state = {profile:null, isAdmin:false, isPresident:false, isDeputy:false, docs:null, apps:[], socialBeforeId:null, socialHasMore:false, socialProfileId:null, avatarCategory:'Все', pendingAvatar:'👤'};
 const AVATAR_GROUPS = {'Все':'👤 👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️ 👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬 😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽 🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄 🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹 💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩 🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬'.split(' '), 'Государство':'👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️', 'Профессии':'👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬', 'Настроение':'😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽', 'Животные':'🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄', 'Фэнтези':'🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹', 'Стиль':'💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩', 'Космос':'🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬 👾 👽'};
 function renderAvatarPicker(){const cats=Object.keys(AVATAR_GROUPS);$('avatarCategories').innerHTML=cats.map(c=>`<button type="button" class="${state.avatarCategory===c?'active':''}" onclick="setAvatarCategory('${esc(c)}')">${esc(c)}</button>`).join('');const list=AVATAR_GROUPS[state.avatarCategory]||AVATAR_GROUPS['Все'];$('avatarGrid').innerHTML=[...new Set(list)].map(e=>`<button type="button" aria-label="Выбрать ${e}" class="avatar-option ${state.pendingAvatar===e?'selected':''}" onclick="pickAvatar('${e}')">${e}</button>`).join('');$('avatarCurrent').textContent=state.pendingAvatar;}
 function setAvatarCategory(c){state.avatarCategory=c;renderAvatarPicker()}
@@ -489,11 +494,23 @@ function renderSocialPost(post){
  const author=post.author||{},name=author.full_name||author.username||'Гражданин ДКД';
  const avatar=author.avatar_emoji||'👤',reacted=!!post.my_reaction;
  return '<article class="card" style="padding:15px">'+
-  '<div class="row" style="align-items:center"><div style="font-size:28px">'+esc(avatar)+'</div><div style="flex:1;min-width:0"><strong>'+esc(name)+'</strong><div class="muted small">'+(author.username?'@'+esc(author.username)+' · ':'')+fmtDate(post.created_at)+'</div></div></div>'+
+  '<div class="row" style="align-items:center"><button type="button" onclick="openSocialProfile('+Number(author.user_id||post.author_user_id)+')" style="font-size:28px;border:0;background:none;padding:0">'+esc(avatar)+'</button><div style="flex:1;min-width:0"><button type="button" onclick="openSocialProfile('+Number(author.user_id||post.author_user_id)+')" style="border:0;background:none;padding:0;font-weight:700">'+esc(name)+'</button><div class="muted small">'+(author.username?'@'+esc(author.username)+' · ':'')+fmtDate(post.created_at)+'</div></div></div>'+
   '<p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:13px 0">'+esc(post.body||'')+'</p>'+
   '<div class="row"><button class="btn '+(reacted?'primary':'secondary')+'" type="button" onclick="toggleSocialReaction('+Number(post.id)+')">'+(reacted?'♥':'♡')+' '+Number(post.reaction_count||0)+'</button><button class="btn secondary" type="button" onclick="addSocialComment('+Number(post.id)+')">Комментарии · '+Number(post.comment_count||0)+'</button></div>'+
  '</article>';
 }
+async function openSocialProfile(userId){
+ if(!userId){notify('Не удалось определить пользователя','error');return}
+ state.socialProfileId=Number(userId);openView('socialProfile');
+ const el=$('socialProfileContent');el.innerHTML='<div class="empty">Загружаем профиль…</div>';
+ try{
+  const d=await api('/api/social/profiles/'+state.socialProfileId),p=d.profile||{},own=!!p.is_me;
+  const postItems=(p.posts||[]).map(x=>renderSocialPost({...x,author:{user_id:p.user_id,full_name:p.full_name,username:p.username,avatar_emoji:p.avatar_emoji},my_reaction:null})).join('');
+  el.innerHTML='<div class="card" style="padding:18px"><div class="row" style="align-items:center"><div class="profile-avatar" style="font-size:42px;width:76px;height:76px">'+esc(p.avatar_emoji||'👤')+'</div><div style="flex:1;min-width:0"><h2 style="margin:0">'+esc(p.full_name||'Гражданин ДКД')+'</h2><div class="muted">'+(p.username?'@'+esc(p.username):'Профиль гражданина')+'</div></div></div><p style="white-space:pre-wrap;margin:16px 0">'+esc(p.bio||'Пока нет описания профиля.')+'</p><div class="row" style="justify-content:space-around;text-align:center;margin:12px 0"><div><strong>'+Number(p.posts_count||0)+'</strong><div class="muted small">Публикации</div></div><div><strong>'+Number(p.followers_count||0)+'</strong><div class="muted small">Подписчики</div></div><div><strong>'+Number(p.following_count||0)+'</strong><div class="muted small">Подписки</div></div></div>'+(own?'<form class="form" onsubmit="saveSocialBio(event)"><div class="field"><label for="socialBio">О себе · до 280 символов</label><textarea id="socialBio" maxlength="280" rows="3" placeholder="Расскажите о себе…">'+esc(p.bio||'')+'</textarea></div><button class="btn primary">Сохранить описание</button></form>':'<button class="btn '+(p.is_following?'secondary':'primary')+'" style="width:100%" onclick="toggleSocialFollow('+Number(p.user_id)+')">'+(p.is_following?'Вы подписаны · Отписаться':'Подписаться')+'</button>')+'</div><h3 style="margin:18px 0 10px">Публикации</h3><div class="list">'+(postItems||'<div class="empty">Публикаций пока нет.</div>')+'</div>';
+ }catch(e){showError(el,e)}
+}
+async function saveSocialBio(e){e.preventDefault();try{await api('/api/social/profile',{method:'PATCH',body:{bio:$('socialBio').value}});notify('Описание профиля сохранено');await openSocialProfile(state.socialProfileId)}catch(err){notify(err.message,'error')}}
+async function toggleSocialFollow(id){try{const d=await api('/api/social/profiles/'+id+'/follow',{method:'POST'});notify(d.following?'Вы подписались':'Подписка отменена');await openSocialProfile(id)}catch(e){notify(e.message,'error')}}
 async function loadSocialFeed(reset=true){
  const el=$('socialFeed'),more=$('socialMore');
  if(reset){state.socialBeforeId=null;state.socialHasMore=false;el.innerHTML='<div class="empty">Загрузка ленты…</div>'}
