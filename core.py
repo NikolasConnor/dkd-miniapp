@@ -2998,6 +2998,15 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
         for item in comments:
             pid = int(item["post_id"])
             comment_counts[pid] = comment_counts.get(pid, 0) + 1
+    profile_media = rows(db().table("social_post_media").select(
+        "id,post_id,media_type,mime_type,size_bytes"
+    ).in_("post_id", post_ids), "Не удалось загрузить вложения профиля.") if post_ids else []
+    profile_media_map: dict[int, list[dict]] = {}
+    for media in profile_media:
+        pid = int(media["post_id"])
+        profile_media_map.setdefault(pid, []).append({
+            **media, "url": f"/api/social/posts/{pid}/media/{int(media['id'])}",
+        })
     post_items = []
     for post in posts:
         pid = int(post["id"])
@@ -3005,6 +3014,8 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
             **post,
             "reaction_count": reaction_counts.get(pid, 0),
             "comment_count": comment_counts.get(pid, 0),
+            "media": profile_media_map.get(pid, []),
+            "my_reaction": None,
         })
     return {
         "user_id": target_id,
