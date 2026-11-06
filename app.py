@@ -363,6 +363,39 @@ def social_report_post(post_id: int, payload: SocialReportCreate,
     return core.report_social_post(user, post_id, payload.reason, payload.details)
 
 
+
+@app.post("/api/social/comments/{comment_id}/report")
+def social_report_comment(comment_id: int, payload: SocialReportCreate,
+                          user: dict = Depends(auth_user)):
+    return core.report_social_comment(user, comment_id, payload.reason, payload.details)
+
+
+@app.delete("/api/social/posts/{post_id}")
+def social_delete_post(post_id: int, user: dict = Depends(auth_user)):
+    return core.delete_own_social_post(user, post_id)
+
+
+@app.delete("/api/social/comments/{comment_id}")
+def social_delete_comment(comment_id: int, user: dict = Depends(auth_user)):
+    return core.delete_own_social_comment(user, comment_id)
+
+
+@app.get("/api/admin/social/reports")
+def admin_social_reports(status: str = "open", user: dict = Depends(admin_user)):
+    return {"reports": core.admin_list_social_reports(user, status)}
+
+
+class SocialReportReview(BaseModel):
+    status: str = Field(pattern="^(reviewing|resolved|dismissed)$")
+    action: str = Field(default="none", pattern="^(none|hide)$")
+
+
+@app.patch("/api/admin/social/reports/{report_id}")
+def admin_review_social_report(report_id: int, payload: SocialReportReview,
+                               user: dict = Depends(admin_user)):
+    return core.admin_review_social_report(user, report_id, payload.status, payload.action)
+
+
 @app.post("/api/social/profiles/{target_user_id}/block")
 def social_toggle_block(target_user_id: int, user: dict = Depends(auth_user)):
     return core.toggle_social_block(user, target_user_id)
