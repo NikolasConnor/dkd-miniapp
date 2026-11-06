@@ -475,7 +475,12 @@ async function api(url, opts={}) {
 }
 function showError(target,err){if(target)target.innerHTML=`<div class="notice error">${esc(err.message||err)}</div>`}
 let notificationUnreadPrevious=null;
+let notificationPollInFlight=false;
 async function refreshNotifications(showNew=true){
+  if(notificationPollInFlight)return;
+  if(document.visibilityState==='hidden'&&!$('notificationPanel')?.classList.contains('hidden'))return;
+  notificationPollInFlight=true;
+  try{
   try{
     const data=await api('/api/notifications'),items=data.notifications||[],count=Number(data.unread_count||0);
     const badge=$('notificationCount');badge.textContent=count>99?'99+':String(count);badge.classList.toggle('hidden',count===0);
@@ -487,6 +492,7 @@ async function refreshNotifications(showNew=true){
     const list=$('notificationList');
     if(list)list.innerHTML=items.length?items.map(n=>'<article class="notification-item '+(!n.is_read?'unread':'')+'"><div class="row"><strong>'+esc(n.title||'Уведомление')+'</strong>'+(!n.is_read?'<span class="status">Новое</span>':'')+'</div><p>'+esc(n.message||'')+'</p><small>'+fmtDate(n.created_at)+'</small>'+(!n.is_read?'<button class="btn secondary" type="button" onclick="readNotification('+Number(n.id)+')">Отметить прочитанным</button>':'')+'</article>').join(''):'<div class="empty">Уведомлений пока нет</div>';
   }catch(e){const list=$('notificationList');if(list)showError(list,e)}
+  finally{notificationPollInFlight=false}
 }
 function toggleNotifications(){const panel=$('notificationPanel');panel.classList.toggle('hidden');if(!panel.classList.contains('hidden'))refreshNotifications(false)}
 async function readNotification(id){try{await api('/api/notifications/read',{method:'POST',body:{notification_id:id}});await refreshNotifications(false)}catch(e){notify(e.message,'error')}}
@@ -624,12 +630,19 @@ let chatPollTimer=null;
 function startChatPolling(){
  if(chatPollTimer)clearInterval(chatPollTimer);
  chatPollTimer=setInterval(async()=>{
-  const id=state.currentChatId;if(!id||!document.getElementById('chatsView')?.classList.contains('active'))return;
+  const id=state.currentChatId;
+  if(!id||document.visibilityState==='hidden'||!document.getElementById('chatsView')?.classList.contains('active'))return;
   try{
+   const pane=$('chatMessages'),nearBottom=pane.scrollHeight-pane.scrollTop-pane.clientHeight<100;
    const d=await api('/api/chats/'+id+'/messages');
-   if(id===state.currentChatId){renderChatMessages(d.messages||[]);await api('/api/chats/'+id+'/read',{method:'POST',body:{}});await loadChats()}
+   if(id===state.currentChatId){
+    renderChatMessages(d.messages||[]);
+    if(nearBottom)pane.scrollTop=pane.scrollHeight;
+    await api('/api/chats/'+id+'/read',{method:'POST',body:{}});
+    await loadChats();
+   }
   }catch(e){console.warn('Chat refresh failed',e)}
- },7000);
+ },10000);
 }
 function stopChatPolling(){if(chatPollTimer){clearInterval(chatPollTimer);chatPollTimer=null}}
 
@@ -807,7 +820,12 @@ async function init(){
     if(presidentResult.status==='rejected') throw presidentResult.reason;
 
     if(!window.notificationPoller){
-      window.notificationPoller=setInterval(()=>refreshNotifications(true).catch(()=>{}),30000);
+      window.notificationPoller=setInterval(()=>{
+        if(document.visibilityState==='visible')refreshNotifications(true).catch(()=>{});
+      },30000);
+      document.addEventListener('visibilitychange',()=>{
+        if(document.visibilityState==='visible')refreshNotifications(false).catch(()=>{});
+      });
     }
 
     const p=presidentResult.value||{};
