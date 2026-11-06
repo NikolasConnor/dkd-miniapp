@@ -2906,12 +2906,14 @@ def list_chat_people(user: dict, search: str = "") -> list[dict]:
         if len(value) > 80:
             raise DKDError(422, "Слишком длинный поисковый запрос.")
         safe = re.sub(r"[^\w\s@.-]", " ", value, flags=re.UNICODE)
+        safe = re.sub(r"[%_\\\\]", " ", safe)
         safe = " ".join(safe.split())
         if not safe:
             return []
         query = query.or_(f"username.ilike.%{safe}%,full_name.ilike.%{safe}%")
-    return [p for p in rows(query, "Не удалось загрузить список граждан.")
-            if int(p["user_id"]) not in hidden][:50]
+    if hidden:
+        query = query.not_.in_("user_id", sorted(hidden))
+    return rows(query, "Не удалось загрузить список граждан.")[:50]
 
 def create_direct_chat(user: dict, target_user_id: int) -> dict:
     _require_social_citizen(user)
@@ -3450,6 +3452,7 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
         raise DKDError(422, "Поисковый запрос не должен превышать 80 символов.")
     if search_value:
         safe_search = re.sub(r"[^\w\s@.-]", " ", search_value, flags=re.UNICODE)
+        safe_search = re.sub(r"[%_\\\\]", " ", safe_search)
         safe_search = " ".join(safe_search.split())
         if safe_search:
             query = query.ilike("body", f"%{safe_search}%")
@@ -3480,8 +3483,6 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
                             "Не удалось проверить подписки на закрытые профили.")
             allowed = {int(x["followed_user_id"]) for x in accepted}
             posts = [p for p in posts if int(p["author_user_id"]) not in private_ids or int(p["author_user_id"]) in allowed]
-    if not posts:
-        return []
     if not posts:
         return []
     original_ids = sorted({int(p["repost_of_post_id"]) for p in posts if p.get("repost_of_post_id")})
