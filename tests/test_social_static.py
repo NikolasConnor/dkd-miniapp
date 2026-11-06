@@ -311,6 +311,11 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('async function toggleSocialSave(id)', html)
         self.assertIn('async function toggleSocialReaction(id)', html)
         self.assertIn('id="socialFeedSaved"', html)
+        self.assertIn('show_connections: bool | None = None', app)
+        self.assertIn('"show_connections": bool(profile.get("show_connections", True))', core)
+        self.assertIn('connections_hidden', core)
+        self.assertIn('id="socialShowConnections"', html)
+        self.assertIn('p.connections_hidden', html)
 
 
 if __name__ == "__main__":
