@@ -368,7 +368,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
             }
         }.also { view ->
             CookieManager.getInstance().setAcceptCookie(true)
-            CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
+            CookieManager.getInstance().setAcceptThirdPartyCookies(view, false)
             CookieManager.getInstance().setCookie(
                 API_BASE_URL,
                 "dkd_session=$token; Path=/; Secure; HttpOnly; SameSite=Lax"
