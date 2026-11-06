@@ -575,7 +575,7 @@ function showSocialConnections(kind){
  const list=kind==='followers'?(p.followers||[]):(p.following||[]);
  const title=kind==='followers'?'Подписчики':'Подписки';
  const html=list.length?list.map(x=>'<button type="button" class="card row" style="width:100%;padding:10px;text-align:left" onclick="openSocialProfile('+Number(x.user_id)+')"><span style="font-size:25px">'+esc(x.avatar_emoji||'👤')+'</span><span style="flex:1"><strong>'+esc(x.full_name||'Гражданин ДКД')+'</strong><small class="muted" style="display:block">'+(x.username?'@'+esc(x.username):'')+'</small></span></button>').join(''):'<div class="empty">Пока никого нет.</div>';
- const el=$('socialProfileContent');const box=document.createElement('div');box.className='card';box.style.padding='14px';box.innerHTML='<div class="row"><strong>'+title+'</strong><button class="btn secondary" onclick="openSocialProfile(state.socialProfileId)">Назад</button></div>'+html;el.prepend(box);
+ const el=$('socialProfileContent');el.querySelector('#socialConnectionsPanel')?.remove();const box=document.createElement('div');box.id='socialConnectionsPanel';box.className='card';box.style.padding='14px';box.innerHTML='<div class="row"><strong>'+title+'</strong><button class="btn secondary" onclick="openSocialProfile(state.socialProfileId)">Назад</button></div>'+html;el.prepend(box);
 }
 async function uploadSocialCover(input){
  const file=input.files?.[0];if(!file)return;
