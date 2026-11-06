@@ -88,7 +88,7 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn("def _social_blocked_user_ids(", source)
         self.assertIn("def _social_visible_post(", source)
         self.assertIn("hidden_ids = _social_blocked_user_ids(int(user[\"id\"]))", source)
-        self.assertIn("posts = [p for p in posts if int(p[\"author_user_id\"]) not in hidden_ids]", source)
+        self.assertIn('query.not_.in_("author_user_id", sorted(hidden_ids))', source)
         self.assertIn("target_id in hidden_ids", source)
         self.assertGreaterEqual(source.count("_social_visible_post(user, post_id)"), 5)
 
