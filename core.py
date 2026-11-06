@@ -3040,6 +3040,19 @@ def list_chat_messages(user: dict, conversation_id: int, before_id: int | None =
         query = query.lt("id", int(before_id))
     messages = rows(query.order("id", desc=True).limit(max(1, min(int(limit), 100))))
     if messages:
+        message_ids = [int(x["id"]) for x in messages]
+        attachments = rows(db().table("chat_message_media").select(
+            "id,message_id,media_type,mime_type,size_bytes"
+        ).in_("message_id", message_ids), "Не удалось загрузить вложения чата.")
+        media_map: dict[int, list[dict]] = {}
+        for media in attachments:
+            mid = int(media["message_id"])
+            media_map.setdefault(mid, []).append({
+                **media,
+                "url": f"/api/chats/{cid}/media/{int(media['id'])}",
+            })
+        messages = [{**item, "media": media_map.get(int(item["id"]), [])}
+                    for item in messages]
         ids = sorted({int(x["sender_user_id"]) for x in messages})
         authors = rows(db().table("subjects").select(
             "user_id,username,full_name,avatar_emoji").in_("user_id", ids))
