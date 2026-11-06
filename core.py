@@ -4008,6 +4008,12 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
         pid = int(post["id"])
         item = {
             **post,
+            "author": {
+                "user_id": target_id,
+                "username": target.get("username"),
+                "full_name": target.get("full_name") or "Гражданин ДКД",
+                "avatar_emoji": target.get("avatar_emoji") or "👤",
+            },
             "reaction_count": reaction_counts.get(pid, 0),
             "comment_count": comment_counts.get(pid, 0),
             "media": profile_media_map.get(pid, []),
