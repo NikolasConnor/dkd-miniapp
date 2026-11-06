@@ -129,8 +129,9 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
       <div class="section-head"><h3>Сообщество ДКД</h3><div class="row"><button class="btn secondary" onclick="openSocialProfile(state.profile?.telegram_id)">Мой профиль</button><button class="btn secondary" onclick="loadSocialFeed(true)">Обновить</button></div></div>
       <form class="card form" onsubmit="submitSocialPost(event)">
         <h3 style="margin:0">Новая публикация</h3>
-        <div class="field"><label for="socialPostBody">О чём хотите рассказать?</label><textarea id="socialPostBody" maxlength="5000" rows="4" placeholder="Поделитесь новостью или мыслью…" required></textarea></div>
-        <div class="row"><span class="muted small">До 5000 символов</span><button class="btn primary">Опубликовать</button></div>
+        <div class="field"><label for="socialPostBody">О чём хотите рассказать?</label><textarea id="socialPostBody" maxlength="5000" rows="4" placeholder="Поделитесь новостью или мыслью…"></textarea></div>
+        <div class="field"><label for="socialPostFile">Фото или видео · до 50 МБ</label><input id="socialPostFile" type="file" accept="image/jpeg,image/png,image/webp,video/mp4"></div>
+        <div class="row"><span class="muted small">Текст или медиафайл</span><button class="btn primary">Опубликовать</button></div>
       </form>
       <div id="socialFeed" class="list"><div class="empty">Загрузка ленты…</div></div>
       <button id="socialMore" class="btn secondary hidden" style="width:100%;margin-top:12px" onclick="loadSocialFeed(false)">Загрузить ещё</button>
@@ -360,7 +361,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0d1024'); tg.setBackgroundColor('#0d1024'); } catch(e) {} }
 const initData = tg?.initData || (window.AndroidDKD?.hasSession?.() ? 'native-session' : '');
-const state = {profile:null, isAdmin:false, isPresident:false, isDeputy:false, docs:null, apps:[], socialBeforeId:null, socialHasMore:false, socialProfileId:null, avatarCategory:'Все', pendingAvatar:'👤'};
+const state = {profile:null, isAdmin:false, isPresident:false, isDeputy:false, docs:null, apps:[], socialBeforeId:null, socialHasMore:false, socialProfileId:null, socialCommentsOpen:{}, avatarCategory:'Все', pendingAvatar:'👤'};
 const AVATAR_GROUPS = {'Все':'👤 👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️ 👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬 😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽 🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄 🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹 💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩 🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬'.split(' '), 'Государство':'👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️', 'Профессии':'👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬', 'Настроение':'😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽', 'Животные':'🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄', 'Фэнтези':'🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹', 'Стиль':'💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩', 'Космос':'🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬 👾 👽'};
 function renderAvatarPicker(){const cats=Object.keys(AVATAR_GROUPS);$('avatarCategories').innerHTML=cats.map(c=>`<button type="button" class="${state.avatarCategory===c?'active':''}" onclick="setAvatarCategory('${esc(c)}')">${esc(c)}</button>`).join('');const list=AVATAR_GROUPS[state.avatarCategory]||AVATAR_GROUPS['Все'];$('avatarGrid').innerHTML=[...new Set(list)].map(e=>`<button type="button" aria-label="Выбрать ${e}" class="avatar-option ${state.pendingAvatar===e?'selected':''}" onclick="pickAvatar('${e}')">${e}</button>`).join('');$('avatarCurrent').textContent=state.pendingAvatar;}
 function setAvatarCategory(c){state.avatarCategory=c;renderAvatarPicker()}
@@ -496,7 +497,9 @@ function renderSocialPost(post){
  return '<article class="card" style="padding:15px">'+
   '<div class="row" style="align-items:center"><button type="button" onclick="openSocialProfile('+Number(author.user_id||post.author_user_id)+')" style="font-size:28px;border:0;background:none;padding:0">'+esc(avatar)+'</button><div style="flex:1;min-width:0"><button type="button" onclick="openSocialProfile('+Number(author.user_id||post.author_user_id)+')" style="border:0;background:none;padding:0;font-weight:700">'+esc(name)+'</button><div class="muted small">'+(author.username?'@'+esc(author.username)+' · ':'')+fmtDate(post.created_at)+'</div></div></div>'+
   '<p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:13px 0">'+esc(post.body||'')+'</p>'+
-  '<div class="row"><button class="btn '+(reacted?'primary':'secondary')+'" type="button" onclick="toggleSocialReaction('+Number(post.id)+')">'+(reacted?'♥':'♡')+' '+Number(post.reaction_count||0)+'</button><button class="btn secondary" type="button" onclick="addSocialComment('+Number(post.id)+')">Комментарии · '+Number(post.comment_count||0)+'</button></div>'+
+  (post.media||[]).map(m=>m.media_type==='video'?'<video controls playsinline preload="metadata" style="width:100%;max-height:420px;background:#080b18;border-radius:12px;margin:8px 0" src="'+esc(m.url)+'"></video>':'<img loading="lazy" alt="Вложение публикации" style="width:100%;max-height:420px;object-fit:contain;border-radius:12px;margin:8px 0" src="'+esc(m.url)+'">').join('')+
+  '<div class="row"><button class="btn '+(reacted?'primary':'secondary')+'" type="button" onclick="toggleSocialReaction('+Number(post.id)+')">'+(reacted?'♥':'♡')+' '+Number(post.reaction_count||0)+'</button><button class="btn secondary" type="button" onclick="toggleSocialComments('+Number(post.id)+')">Комментарии · '+Number(post.comment_count||0)+'</button><button class="btn secondary" type="button" onclick="reportSocialPost('+Number(post.id)+')">Пожаловаться</button></div>'+
+  '<div id="socialComments'+Number(post.id)+'" class="hidden" style="margin-top:12px"></div>'+
  '</article>';
 }
 async function openSocialProfile(userId){
@@ -543,17 +546,26 @@ async function loadSocialFeed(reset=true){
  }catch(e){if(reset)showError(el,e);else notify(e.message,'error');more.classList.add('hidden')}
 }
 async function submitSocialPost(e){
- e.preventDefault();const field=$('socialPostBody'),body=field.value.trim();if(!body)return;
- try{await api('/api/social/posts',{method:'POST',body:{body}});field.value='';notify('Публикация добавлена');await loadSocialFeed(true)}
- catch(err){notify(err.message,'error')}
+ e.preventDefault();const field=$('socialPostBody'),body=field.value.trim(),file=$('socialPostFile').files?.[0];
+ if(!body&&!file){notify('Добавьте текст или файл публикации','error');return}
+ try{
+  if(file){const form=new FormData();form.append('body',body);form.append('file',file);const headers={};if(initData==='native-session'&&window.AndroidDKD?.hasSession?.())headers['X-Telegram-Init-Data']='native-session';else if(initData)headers['X-Telegram-Init-Data']=initData;const response=await fetch('/api/social/posts/media',{method:'POST',headers,body:form});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||data.message||'Не удалось опубликовать файл')}
+  else await api('/api/social/posts',{method:'POST',body:{body}});
+  field.value='';$('socialPostFile').value='';notify('Публикация добавлена');await loadSocialFeed(true)
+ }catch(err){notify(err.message,'error')}
 }
+async function toggleSocialComments(id){
+ const box=$('socialComments'+id);if(!box)return;
+ if(!box.classList.contains('hidden')){box.classList.add('hidden');return}
+ box.classList.remove('hidden');box.innerHTML='<div class="empty">Загрузка комментариев…</div>';
+ try{const d=await api('/api/social/posts/'+id+'/comments');const list=d.comments||[];box.innerHTML='<div class="list">'+(list.length?list.map(x=>'<div class="card" style="padding:10px"><strong>'+esc(x.author?.full_name||'Гражданин ДКД')+'</strong><p style="white-space:pre-wrap;margin:6px 0">'+esc(x.body)+'</p></div>').join(''):'<div class="empty">Комментариев пока нет.</div>')+'</div><form class="row" onsubmit="submitSocialComment(event,'+id+')" style="margin-top:10px"><input name="body" maxlength="2000" placeholder="Написать комментарий…" required><button class="btn primary">Отправить</button></form>'}
+ catch(e){showError(box,e)}
+}
+async function submitSocialComment(e,id){e.preventDefault();const body=new FormData(e.target).get('body');try{await api('/api/social/posts/'+id+'/comments',{method:'POST',body:{body}});await toggleSocialComments(id);await toggleSocialComments(id);notify('Комментарий добавлен');await loadSocialFeed(true)}catch(err){notify(err.message,'error')}}
+async function reportSocialPost(id){const details=prompt('Опишите причину жалобы (до 2000 символов):');if(details===null)return;try{await api('/api/social/posts/'+id+'/report',{method:'POST',body:{reason:'other',details}});notify('Жалоба отправлена модераторам')}catch(e){notify(e.message,'error')}}
+
 async function toggleSocialReaction(id){
  try{await api('/api/social/posts/'+id+'/reaction',{method:'POST'});await loadSocialFeed(true)}
- catch(e){notify(e.message,'error')}
-}
-async function addSocialComment(id){
- const body=prompt('Ваш комментарий:');if(body===null||!body.trim())return;
- try{await api('/api/social/posts/'+id+'/comments',{method:'POST',body:{body:body.trim()}});notify('Комментарий добавлен');await loadSocialFeed(true)}
  catch(e){notify(e.message,'error')}
 }
 function openView(name){
