@@ -1,5 +1,8 @@
 package ru.dkd.app
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,15 +17,23 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 private val Navy = Color(0xFF101827)
 private val Panel = Color(0xFF1A2638)
 private val Blue = Color(0xFF8DBBFA)
 private val Muted = Color(0xFFA8B5C7)
 private val White = Color(0xFFF4F7FC)
+private val Green = Color(0xFF9BE2B5)
+private val Amber = Color(0xFFFFD28A)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -32,11 +43,65 @@ class MainActivity : ComponentActivity() {
 }
 
 private data class Destination(val title: String, val emoji: String, val subtitle: String)
+private data class ServerStatus(val online: Boolean, val message: String, val apiVersion: String? = null)
+
+private suspend fun checkDkdServer(): ServerStatus = withContext(Dispatchers.IO) {
+    var connection: HttpURLConnection? = null
+    try {
+        connection = (URL("${BuildConfig.DKD_API_BASE_URL.trimEnd('/')}/api/config").openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 20_000
+            readTimeout = 20_000
+            setRequestProperty("Accept", "application/json")
+        }
+        val code = connection.responseCode
+        if (code !in 200..299) {
+            ServerStatus(false, "Сервер ответил с ошибкой HTTP $code")
+        } else {
+            val body = connection.inputStream.bufferedReader().use { it.readText() }
+            val version = runCatching { JSONObject(body).optString("api_version").takeIf { it.isNotBlank() } }.getOrNull()
+            ServerStatus(true, "Сервер ДКД доступен", version)
+        }
+    } catch (e: Exception) {
+        ServerStatus(false, when (e) {
+            is java.net.SocketTimeoutException -> "Сервер не ответил вовремя. Возможно, он просыпается."
+            is java.net.UnknownHostException -> "Не удалось найти адрес сервера. Проверьте интернет."
+            else -> "Нет соединения с сервером ДКД."
+        })
+    } finally {
+        connection?.disconnect()
+    }
+}
+
+private fun networkType(context: Context): String {
+    val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+    val network = manager.activeNetwork ?: return "Нет подключения к сети"
+    val capabilities = manager.getNetworkCapabilities(network) ?: return "Сеть недоступна"
+    return when {
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Мобильный интернет"
+        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Проводная сеть"
+        else -> "Другое подключение"
+    }
+}
 
 @Composable
 private fun DKDApp() {
     var page by remember { mutableStateOf("Главная") }
     var notice by remember { mutableStateOf<String?>(null) }
+    var serverStatus by remember { mutableStateOf(ServerStatus(false, "Проверяем соединение…")) }
+    var checking by remember { mutableStateOf(true) }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    suspend fun refreshServer() {
+        checking = true
+        serverStatus = checkDkdServer()
+        checking = false
+    }
+
+    LaunchedEffect(Unit) { refreshServer() }
+
     val destinations = listOf(
         Destination("Мой профиль", "👤", "Личные сведения и статус"),
         Destination("Государственная Дума", "🏛️", "Парламент и законопроекты"),
@@ -58,7 +123,7 @@ private fun DKDApp() {
                 NavigationBar(containerColor = Panel, contentColor = White) {
                     listOf("Главная", "Документы", "Новости", "Профиль").forEach { item ->
                         NavigationBarItem(
-                            selected = page == item,
+                            selected = page == item || (item == "Профиль" && page == "Мой профиль"),
                             onClick = { page = item },
                             icon = { Text(when (item) {
                                 "Главная" -> "⌂"
@@ -77,8 +142,7 @@ private fun DKDApp() {
                         )
                     }
                 }
-            },
-            snackbarHost = { SnackbarHost(hostState = remember { SnackbarHostState() }) }
+            }
         ) { padding ->
             Column(
                 Modifier.fillMaxSize().padding(padding)
@@ -94,11 +158,11 @@ private fun DKDApp() {
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text("ДКД", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = White)
-                        Text("Цифровая государственная платформа", fontSize = 11.sp, color = Muted)
+                        Text("Цифровое пространство государства", fontSize = 11.sp, color = Muted)
                     }
                     Surface(color = Color(0xFF254B3A), shape = RoundedCornerShape(50)) {
-                        Text("DEMO", Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
-                            color = Color(0xFF9BE2B5), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text("ANDROID", Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
+                            color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
 
@@ -106,11 +170,17 @@ private fun DKDApp() {
                     "Главная" -> {
                         Text("Добро пожаловать", fontSize = 27.sp, fontWeight = FontWeight.Bold, color = White)
                         Text("Демократическая Конфедерация Дебилов", color = Muted, fontSize = 13.sp)
+                        ServerConnectionCard(
+                            network = networkType(context),
+                            status = serverStatus,
+                            checking = checking,
+                            onRefresh = { scope.launch { refreshServer() } }
+                        )
                         Surface(color = Panel, shape = RoundedCornerShape(18.dp)) {
                             Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                                 Text("Цифровое пространство ДКД", color = White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                                Text("Здесь собраны основные государственные сервисы и документы.", color = Muted, fontSize = 12.sp)
-                                Text("Демонстрационная версия · данные не изменяются", color = Blue, fontSize = 11.sp)
+                                Text("Самостоятельное приложение ДКД. Подключение проверяется напрямую, без Telegram.", color = Muted, fontSize = 12.sp)
+                                Text("Состояние сервера не означает, что пользователь уже авторизован.", color = Blue, fontSize = 11.sp)
                             }
                         }
                         Text("Государственные разделы", color = White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
@@ -124,19 +194,25 @@ private fun DKDApp() {
                     "Мой профиль", "Профиль" -> ProfilePage()
                     "Государственная Дума" -> InfoPage("🏛️", "Государственная Дума",
                         "Парламент ДКД", listOf("Состав парламента", "Законопроекты", "Заседания", "Голосования"),
-                        onAction = { notice = "Это демонстрационный раздел. Реальные действия пока отключены." })
+                        onAction = { notice = "Подключение к реальным парламентским данным появится после реализации авторизации Android." })
                     "Правительство" -> InfoPage("⚖️", "Правительство",
                         "Исполнительная власть ДКД", listOf("Президент", "Премьер-министр", "Министерства", "Государственные решения"),
-                        onAction = { notice = "Раздел пока работает в режиме просмотра макета." })
+                        onAction = { notice = "Подключение к реальным государственным данным появится после реализации авторизации Android." })
                     "Документы" -> InfoPage("📄", "Мои документы",
                         "Электронные документы ДКД", listOf("Удостоверение Президента", "Мандат депутата", "Паспорт гражданина", "Подписанные указы"),
-                        onAction = { notice = "Макет документа. Проверка подлинности пока не подключена." })
+                        onAction = { notice = "Для загрузки личных документов требуется безопасный вход в аккаунт ДКД." })
                     "Новости" -> InfoPage("📰", "Новости ДКД",
                         "Лента государственных событий", listOf("Официальные сообщения", "Решения Правительства", "Работа парламента"),
-                        onAction = { notice = "Демонстрационная новость. Сервер новостей пока не подключён." })
-                    "Настройки" -> InfoPage("⚙️", "Настройки",
-                        "Настройки приложения", listOf("Оформление: тёмное", "Версия: 0.1.0 DEMO", "Подключение к серверу: отключено"),
-                        onAction = { notice = "Настройки прототипа. Интеграция будет добавлена позднее." })
+                        onAction = { notice = "Для загрузки персонализированной ленты требуется авторизация." })
+                    "Настройки" -> {
+                        Text("Настройки", fontSize = 26.sp, color = White, fontWeight = FontWeight.Bold)
+                        ServerConnectionCard(networkType(context), serverStatus, checking) {
+                            scope.launch { refreshServer() }
+                        }
+                        InfoPage("⚙️", "Приложение", "Сведения о версии",
+                            listOf("Версия: 0.2.0", "Подключение: прямая проверка API", "Авторизация: ещё не подключена"),
+                            onAction = { scope.launch { refreshServer() } })
+                    }
                     else -> ProfilePage()
                 }
                 notice?.let {
@@ -144,8 +220,36 @@ private fun DKDApp() {
                         Text(it, Modifier.fillMaxWidth().padding(13.dp), color = White, fontSize = 12.sp)
                     }
                 }
-                Text("ДКД · Android prototype 0.1.0", color = Muted, fontSize = 10.sp,
+                Text("ДКД · Android 0.2.0", color = Muted, fontSize = 10.sp,
                     modifier = Modifier.align(Alignment.CenterHorizontally).padding(vertical = 8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun ServerConnectionCard(
+    network: String,
+    status: ServerStatus,
+    checking: Boolean,
+    onRefresh: () -> Unit
+) {
+    Surface(color = Panel, shape = RoundedCornerShape(16.dp)) {
+        Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Связь с ДКД", color = White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
+                    modifier = Modifier.weight(1f))
+                Surface(color = if (status.online) Color(0xFF254B3A) else Color(0xFF57432A), shape = RoundedCornerShape(50)) {
+                    Text(if (checking) "ПРОВЕРКА" else if (status.online) "НА СВЯЗИ" else "НЕТ СВЯЗИ",
+                        Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        color = if (status.online) Green else Amber, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Text("Сеть телефона: $network", color = Muted, fontSize = 12.sp)
+            Text(status.message, color = if (status.online) Green else Amber, fontSize = 12.sp)
+            status.apiVersion?.let { Text("API: $it", color = Muted, fontSize = 10.sp) }
+            OutlinedButton(onClick = onRefresh, enabled = !checking, modifier = Modifier.fillMaxWidth()) {
+                Text(if (checking) "Проверяем…" else "Проверить соединение")
             }
         }
     }
@@ -177,16 +281,8 @@ private fun ProfilePage() {
         Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("👤", fontSize = 48.sp)
             Spacer(Modifier.height(8.dp))
-            Text("Демонстрационный гражданин", color = White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            Text("Профиль-пример · не авторизован", color = Muted, fontSize = 11.sp)
-        }
-    }
-    listOf("Статус" to "Демонстрационный", "Должность" to "Не назначена", "Репутация" to "—", "Гражданство" to "Не проверено").forEach {
-        Surface(color = Panel, shape = RoundedCornerShape(12.dp)) {
-            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(it.first, color = Muted, fontSize = 13.sp)
-                Text(it.second, color = White, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-            }
+            Text("Вход не выполнен", color = White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Text("Личные сведения появятся после авторизации", color = Muted, fontSize = 11.sp)
         }
     }
 }
@@ -201,7 +297,7 @@ private fun InfoPage(
         Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(emoji, fontSize = 35.sp)
             Text(description, color = White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-            Text("Демонстрационный режим. Данные и государственные процессы не изменяются.",
+            Text("Раздел подготовлен. Реальные данные будут подключены через защищённый API ДКД.",
                 color = Muted, fontSize = 12.sp)
         }
     }
@@ -213,9 +309,5 @@ private fun InfoPage(
                 Text("›", color = Blue, fontSize = 24.sp)
             }
         }
-    }
-    Button(onClick = onAction, modifier = Modifier.fillMaxWidth(),
-        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF29476B))) {
-        Text("Открыть демонстрационный раздел")
     }
 }
