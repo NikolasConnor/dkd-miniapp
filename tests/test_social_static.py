@@ -146,7 +146,7 @@ class SocialApiStaticTests(unittest.TestCase):
 
     def test_chat_ui_uses_subject_user_id(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
-        chat = html[html.index("let chatPeopleSearchTimer=null;"):html.index("async function loadSocialFeed(reset=true);")]
+        chat = html[html.index("let chatPeopleSearchTimer=null;"):html.index("async function loadSocialFeed(reset=true){")]
         self.assertIn("state.profile?.user_id", chat)
         self.assertNotIn("state.profile?.telegram_id", chat)
         self.assertIn('id="chatsView"', html)
