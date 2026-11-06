@@ -13,13 +13,18 @@ class SocialApiStaticTests(unittest.TestCase):
             'def social_create_post(',
             'def social_create_comment(',
             'def social_toggle_reaction(',
+            'def social_list_comments(',
+            'def social_report_post(',
+            'def social_toggle_block(',
+            'def social_create_post_with_media(',
+            'def social_get_post_media(',
         )
         for name in expected:
             self.assertIn(name, source)
         block = source.split('# Социальная сеть: лента, публикации, комментарии и реакции', 1)[1]
         block = block.split('@app.get("/api/news")', 1)[0]
         self.assertGreaterEqual(block.count('user: dict = Depends(auth_user)'), 9)
-        for name in ('def social_get_profile(', 'def social_update_profile(', 'def social_toggle_follow(', 'def social_upload_cover(', 'def social_get_cover('):
+        for name in ('def social_get_profile(', 'def social_list_comments(', 'def social_report_post(', 'def social_toggle_block(', 'def social_create_post_with_media(', 'def social_get_post_media(', 'def social_update_profile(', 'def social_toggle_follow(', 'def social_upload_cover(', 'def social_get_cover('):
             self.assertIn(name, block)
 
     def test_social_database_tables_enable_rls_and_revoke_client_access(self):
