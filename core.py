@@ -3630,6 +3630,62 @@ def list_social_comments(user: dict, post_id: int) -> list[dict]:
     })} for item in comments]
 
 
+SOCIAL_EDIT_WINDOW = 15 * 60
+
+def _owned_social_content(user: dict, table: str, content_id: int, select: str) -> dict:
+    _require_social_citizen(user)
+    item = one(db().table(table).select(select).eq("id", int(content_id)).limit(1),
+               "Не удалось проверить публикацию.")
+    if not item or int(item["author_user_id"]) != int(user["id"]):
+        raise DKDError(404, "Материал не найден.")
+    if item.get("deleted_at") or item.get("status") != "published":
+        raise DKDError(404, "Материал не найден.")
+    try:
+        created_at = datetime.fromisoformat(str(item["created_at"]).replace("Z", "+00:00"))
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        raise DKDError(409, "Не удалось проверить время публикации.")
+    age = (datetime.now(timezone.utc) - created_at).total_seconds()
+    if age < 0 or age > SOCIAL_EDIT_WINDOW:
+        raise DKDError(409, "Редактировать материал можно в течение 15 минут после публикации.")
+    return item
+
+
+def edit_own_social_post(user: dict, post_id: int, body: str) -> dict:
+    post = _owned_social_content(user, "social_posts", post_id,
+                                 "id,author_user_id,body,status,created_at,deleted_at")
+    value = str(body or "").strip()
+    if not value or len(value) > 5000:
+        raise DKDError(422, "Текст публикации должен содержать от 1 до 5000 символов.")
+    updated = execute(db().table("social_posts").update({
+        "body": value, "updated_at": now_iso()
+    }).eq("id", int(post["id"])).eq("author_user_id", int(user["id"]))
+      .eq("status", "published").is_("deleted_at", "null")
+      .select("id,body,updated_at"), "Не удалось изменить публикацию.")
+    if not updated:
+        raise DKDError(409, "Публикация уже изменена или удалена.")
+    audit(int(user["id"]), "social_post_edited", None, f"post_id={int(post_id)}")
+    return {"ok": True, "post": updated[0]}
+
+
+def edit_own_social_comment(user: dict, comment_id: int, body: str) -> dict:
+    comment = _owned_social_content(user, "social_comments", comment_id,
+                                    "id,author_user_id,body,status,created_at,deleted_at")
+    value = str(body or "").strip()
+    if not value or len(value) > 2000:
+        raise DKDError(422, "Комментарий должен содержать от 1 до 2000 символов.")
+    updated = execute(db().table("social_comments").update({
+        "body": value, "updated_at": now_iso()
+    }).eq("id", int(comment["id"])).eq("author_user_id", int(user["id"]))
+      .eq("status", "published").is_("deleted_at", "null")
+      .select("id,body,updated_at"), "Не удалось изменить комментарий.")
+    if not updated:
+        raise DKDError(409, "Комментарий уже изменён или удалён.")
+    audit(int(user["id"]), "social_comment_edited", None, f"comment_id={int(comment_id)}")
+    return {"ok": True, "comment": updated[0]}
+
+
 def report_social_post(user: dict, post_id: int, reason: str, details: str = "") -> dict:
     _require_social_citizen(user)
     post = _social_visible_post(user, post_id)
