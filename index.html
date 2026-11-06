@@ -170,7 +170,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 <div class="card form"><h3>Новый личный чат</h3><input id="chatPeopleSearch" maxlength="80" placeholder="Поиск гражданина" oninput="searchChatPeople()"><div id="chatPeopleResults"></div></div>
 <form class="card form" onsubmit="createChatGroup(event)"><h3>Создать группу</h3><input id="chatGroupTitle" required minlength="2" maxlength="80" placeholder="Название группы"><input id="chatGroupMembers" placeholder="Telegram ID участников через запятую"><button class="btn primary">Создать группу</button></form>
 <div id="chatList" class="list"></div></div>
-<div id="chatRoomPane" class="hidden"><button class="btn secondary" onclick="closeChatRoom()">← К чатам</button><h3 id="chatRoomTitle">Чат</h3><div id="chatParticipants" class="muted small"></div><div id="chatMessages" class="list"></div><form class="row" onsubmit="sendChatMessage(event)"><input id="chatMessageBody" maxlength="4000" required placeholder="Сообщение"><button class="btn primary">Отправить</button></form><button id="chatLeaveButton" class="btn secondary hidden" onclick="leaveCurrentChat()">Покинуть группу</button></div>
+<div id="chatRoomPane" class="hidden"><button class="btn secondary" onclick="closeChatRoom()">← К чатам</button><h3 id="chatRoomTitle">Чат</h3><div id="chatParticipants" class="muted small"></div><div id="chatMemberTools" class="card form hidden"><strong>Участники группы</strong><div id="chatMemberList" class="list"></div><input id="chatAddMemberIds" placeholder="ID граждан через запятую"><button class="btn secondary" onclick="addChatMembersUI()">Добавить участников</button></div><div id="chatMessages" class="list"></div><form class="row" onsubmit="sendChatMessage(event)"><input id="chatMessageBody" maxlength="4000" required placeholder="Сообщение"><button class="btn primary">Отправить</button></form><button id="chatLeaveButton" class="btn secondary hidden" onclick="leaveCurrentChat()">Покинуть группу</button></div>
 </section>
 <section id="socialProfileView" class="view">
       <button class="back" onclick="openView('social')">← К ленте</button>
@@ -589,7 +589,41 @@ async function loadChats(){const el=$('chatList');try{const d=await api('/api/ch
 async function searchChatPeople(){clearTimeout(chatPeopleSearchTimer);chatPeopleSearchTimer=setTimeout(async()=>{const q=$('chatPeopleSearch').value.trim(),el=$('chatPeopleResults');if(q.length<2){el.innerHTML='';return}try{const d=await api('/api/chats/people?search='+encodeURIComponent(q));el.innerHTML=(d.people||[]).map(p=>'<button class="card row" onclick="startDirectChat('+Number(p.user_id)+')">'+esc(p.avatar_emoji||'👤')+' '+esc(p.full_name||'Гражданин')+'</button>').join('')||'Никого не найдено'}catch(e){showError(el,e)}},250)}
 async function startDirectChat(id){try{const d=await api('/api/chats/direct',{method:'POST',body:{target_user_id:id}});await openChat(d.conversation.id)}catch(e){notify(e.message,'error')}}
 async function createChatGroup(e){e.preventDefault();const ids=$('chatGroupMembers').value.split(',').map(x=>Number(x.trim())).filter(x=>x>0);try{const d=await api('/api/chats/groups',{method:'POST',body:{title:$('chatGroupTitle').value,member_ids:ids}});await openChat(d.conversation.id)}catch(e){notify(e.message,'error')}}
-async function openChat(id){state.currentChatId=Number(id);$('chatListPane').classList.add('hidden');$('chatRoomPane').classList.remove('hidden');try{const [list,msgs]=await Promise.all([api('/api/chats'),api('/api/chats/'+id+'/messages')]);state.currentChat=(list.chats||[]).find(x=>Number(x.id)===Number(id));if(!state.currentChat)throw new Error('Чат не найден');const other=(state.currentChat.participants||[]).find(p=>Number(p.user_id)!==Number(state.profile?.user_id));$('chatRoomTitle').textContent=state.currentChat.title||other?.profile?.full_name||'Личный чат';$('chatParticipants').textContent=(state.currentChat.participants||[]).map(p=>p.profile?.full_name||'Гражданин').join(' · ');$('chatLeaveButton').classList.toggle('hidden',state.currentChat.type!=='group'||state.currentChat.my_role==='owner');renderChatMessages(msgs.messages||[]);await api('/api/chats/'+id+'/read',{method:'POST',body:{}})}catch(e){showError($('chatMessages'),e)}}
+async function openChat(id){state.currentChatId=Number(id);$('chatListPane').classList.add('hidden');$('chatRoomPane').classList.remove('hidden');try{const [list,msgs]=await Promise.all([api('/api/chats'),api('/api/chats/'+id+'/messages')]);state.currentChat=(list.chats||[]).find(x=>Number(x.id)===Number(id));if(!state.currentChat)throw new Error('Чат не найден');const other=(state.currentChat.participants||[]).find(p=>Number(p.user_id)!==Number(state.profile?.user_id));$('chatRoomTitle').textContent=state.currentChat.title||other?.profile?.full_name||'Личный чат';$('chatParticipants').textContent=(state.currentChat.participants||[]).map(p=>p.profile?.full_name||'Гражданин').join(' · ');renderChatMembers();$('chatLeaveButton').classList.toggle('hidden',state.currentChat.type!=='group'||state.currentChat.my_role==='owner');renderChatMessages(msgs.messages||[]);await api('/api/chats/'+id+'/read',{method:'POST',body:{}})}catch(e){showError($('chatMessages'),e)}}
+function renderChatMembers(){
+ const chat=state.currentChat,el=$('chatMemberTools'),list=$('chatMemberList');
+ if(!chat||chat.type!=='group'){el.classList.add('hidden');return}
+ el.classList.remove('hidden');
+ const owner=chat.my_role==='owner',admin=chat.my_role==='admin';
+ list.innerHTML=(chat.participants||[]).map(p=>{
+  const id=Number(p.user_id),role=p.member_role||'member',profile=p.profile||{};
+  let actions='';
+  if(owner&&role!=='owner')actions='<button class="btn secondary" onclick="changeChatRole('+id+',\\'admin\\')">Сделать админом</button><button class="btn secondary" onclick="changeChatRole('+id+',\\'member\\')">Снять админа</button><button class="btn secondary" onclick="transferChatOwner('+id+')">Передать владение</button>';
+  if((owner||admin)&&role!=='owner'&&(owner||role==='member'))actions+='<button class="btn secondary" onclick="removeChatMemberUI('+id+')">Удалить</button>';
+  return '<div class="card"><strong>'+esc(profile.avatar_emoji||'👤')+' '+esc(profile.full_name||profile.username||'Гражданин')+'</strong><small class="muted" style="display:block">'+(role==='owner'?'Владелец':role==='admin'?'Администратор':'Участник')+'</small><div class="row wrap">'+actions+'</div></div>';
+ }).join('');
+ $('chatAddMemberIds').parentElement.classList.toggle('hidden',!(owner||admin));
+}
+async function addChatMembersUI(){
+ const ids=$('chatAddMemberIds').value.split(',').map(x=>Number(x.trim())).filter(x=>x>0);
+ if(!ids.length)return;
+ try{await api('/api/chats/'+state.currentChatId+'/members',{method:'POST',body:{member_ids:ids}});$('chatAddMemberIds').value='';await openChat(state.currentChatId);notify('Участники добавлены')}
+ catch(e){notify(e.message,'error')}
+}
+async function changeChatRole(id,role){
+ try{await api('/api/chats/'+state.currentChatId+'/members/role',{method:'PATCH',body:{user_id:id,role}});await openChat(state.currentChatId);notify('Роль участника изменена')}
+ catch(e){notify(e.message,'error')}
+}
+async function removeChatMemberUI(id){
+ if(!confirm('Удалить участника из группы?'))return;
+ try{await api('/api/chats/'+state.currentChatId+'/members',{method:'DELETE',body:{user_id:id}});await openChat(state.currentChatId);notify('Участник удалён')}
+ catch(e){notify(e.message,'error')}
+}
+async function transferChatOwner(id){
+ if(!confirm('Передать этому участнику права владельца? Вы станете администратором.'))return;
+ try{await api('/api/chats/'+state.currentChatId+'/ownership',{method:'POST',body:{new_owner_user_id:id}});await openChat(state.currentChatId);notify('Владение передано')}
+ catch(e){notify(e.message,'error')}
+}
 function renderChatMessages(items){$('chatMessages').innerHTML=items.map(m=>'<article class="card"><small>'+esc(m.author?.full_name||'Гражданин')+' · '+fmtDate(m.created_at)+'</small><p style="white-space:pre-wrap">'+esc(m.body)+'</p></article>').join('')||'<div class="empty">Сообщений пока нет.</div>'}
 async function sendChatMessage(e){e.preventDefault();const body=$('chatMessageBody').value.trim();if(!body||!state.currentChatId)return;try{await api('/api/chats/'+state.currentChatId+'/messages',{method:'POST',body:{body}});$('chatMessageBody').value='';const d=await api('/api/chats/'+state.currentChatId+'/messages');renderChatMessages(d.messages||[]);await loadChats()}catch(e){notify(e.message,'error')}}
 function closeChatRoom(){state.currentChatId=null;$('chatRoomPane').classList.add('hidden');$('chatListPane').classList.remove('hidden');loadChats()}
