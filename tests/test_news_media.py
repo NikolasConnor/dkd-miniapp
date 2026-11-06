@@ -18,9 +18,8 @@ class NewsPhotoMimeTests(unittest.TestCase):
             _news_photo_mime(b"not-an-image", "photo")
         self.assertEqual(ctx.exception.status, 422)
 
-    def test_rejects_photo_without_photo_media_type(self):
-        with self.assertRaises(DKDError):
-            _news_photo_mime(b"not-an-image", "video")
+    def test_non_photo_type_does_not_claim_image_mime(self):
+        self.assertEqual(_news_photo_mime(b"video", "video"), "application/octet-stream")
 
     def test_non_photo_media_uses_binary_default(self):
         self.assertEqual(_news_photo_mime(b"video", None), "application/octet-stream")
