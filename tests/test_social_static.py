@@ -251,6 +251,22 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('function editSocialPost(', html)
         self.assertIn('function editSocialComment(', html)
 
+    def test_social_replies_and_reposts_are_wired(self):
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        migration = (ROOT / "supabase/migrations/20261106195000_social_reposts.sql").read_text(encoding="utf-8").lower()
+        self.assertIn('"parent_comment_id": parent_id', core)
+        self.assertIn('def create_social_repost(', core)
+        self.assertIn('repost_of_post_id', core)
+        self.assertIn('parent_comment_id: int | None', app)
+        self.assertIn('@app.post("/api/social/posts/{post_id}/repost")', app)
+        self.assertIn('function renderSocialCommentTree(', html)
+        self.assertIn('function setSocialReply(', html)
+        self.assertIn('function repostSocialPost(', html)
+        self.assertIn('repost_of_post_id', migration)
+        self.assertIn('social_posts_repost_once_idx', migration)
+
     def test_social_write_limits_are_enforced(self):
         source = (ROOT / "core.py").read_text(encoding="utf-8")
         self.assertIn('len(text_value) > 5000', source)
