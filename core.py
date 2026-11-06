@@ -774,6 +774,16 @@ def update_profile_avatar(user: dict, avatar_emoji: str) -> dict:
     return build_profile(user)
 
 
+def update_profile_gender(user: dict, gender: str) -> dict:
+    value = str(gender or "").strip().lower()
+    if value not in ("male", "female", ""):
+        raise DKDError(422, "Выберите мужской или женский пол.")
+    subject = ensure_subject(int(user["id"]), user.get("username"), tg_full_name(user))
+    execute(db().table("subjects").update({"gender": value or None}).eq("id", subject["id"]),
+            "Не удалось сохранить пол в профиле.")
+    return build_profile(user)
+
+
 def update_profile_name(user: dict, full_name: str) -> dict:
     name = clean_name(full_name)
     if not 2 <= len(name) <= 120:
