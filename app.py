@@ -9,9 +9,9 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, Request
+from fastapi import Depends, FastAPI, File, Form, Header, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 import core
@@ -58,7 +58,7 @@ app = FastAPI(title="DKD Mini App API", version=core.APP_VERSION, lifespan=lifes
 _origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
 if _origins:
     app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_methods=["*"],
-                       allow_headers=["Content-Type", "X-Telegram-Init-Data"])
+                       allow_headers=["Content-Type", "X-Telegram-Init-Data", "Authorization"])
 
 
 @app.exception_handler(DKDError)
@@ -81,8 +81,21 @@ async def security_headers(request: Request, call_next):
 # ----------------------------------------------------------------------------
 
 
-def auth_user(x_telegram_init_data: str | None = Header(default=None)) -> dict:
-    return core.verify_init_data(x_telegram_init_data or "")
+def auth_user(
+    request: Request,
+    x_telegram_init_data: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Native Android session is checked server-side; Telegram Mini App auth remains unchanged.
+    bearer = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer = authorization[7:].strip()
+    session = bearer or request.cookies.get("dkd_session", "")
+    if session:
+        return core.verify_android_session(session)
+    if x_telegram_init_data and x_telegram_init_data != "native-session":
+        return core.verify_init_data(x_telegram_init_data)
+    return core.verify_init_data("")
 
 
 def admin_user(user: dict = Depends(auth_user)) -> dict:
@@ -93,6 +106,39 @@ def admin_user(user: dict = Depends(auth_user)) -> dict:
 def president_user(user: dict = Depends(auth_user)) -> dict:
     core.require_president(user)
     return user
+
+
+# ----------------------------------------------------------------------------
+# Авторизация самостоятельного Android-приложения
+# ----------------------------------------------------------------------------
+
+
+class AndroidCodeCreate(BaseModel):
+    telegram_id: int = Field(gt=0)
+
+
+class AndroidCodeRedeem(BaseModel):
+    code: str = Field(min_length=8, max_length=64)
+
+
+@app.post("/api/android/auth/redeem")
+def android_redeem_code(payload: AndroidCodeRedeem):
+    return core.redeem_android_login_code(payload.code)
+
+
+@app.post("/api/admin/android/login-code")
+def admin_create_android_login_code(payload: AndroidCodeCreate, user: dict = Depends(admin_user)):
+    return core.create_android_login_code(user["id"], payload.telegram_id)
+
+
+@app.post("/api/android/auth/logout")
+def android_logout(request: Request, user: dict = Depends(auth_user),
+                   authorization: str | None = Header(default=None)):
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    token = token or request.cookies.get("dkd_session", "")
+    return core.revoke_android_session(token)
 
 
 # ----------------------------------------------------------------------------
@@ -159,6 +205,36 @@ class ProfileUpdate(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
 
 
+class ProfileGenderUpdate(BaseModel):
+    gender: str = Field(default="", max_length=16)
+
+
+class MarriageProposal(BaseModel):
+    partner_user_id: int
+
+
+class MarriageDecision(BaseModel):
+    accept: bool
+
+
+class DivorceDecision(BaseModel):
+    accept: bool
+
+
+class CourtCaseCreate(BaseModel):
+    respondent_user_id: int
+    title: str = Field(min_length=4, max_length=160)
+    claim: str = Field(min_length=20, max_length=8000)
+
+
+class CourtResponseCreate(BaseModel):
+    response_text: str = Field(min_length=20, max_length=8000)
+
+
+class CourtAppealCreate(BaseModel):
+    grounds: str = Field(min_length=20, max_length=5000)
+
+
 class AvatarUpdate(BaseModel):
     avatar_emoji: str = Field(min_length=1, max_length=16)
 
@@ -171,6 +247,11 @@ def get_profile(user: dict = Depends(auth_user)):
 @app.patch("/api/profile")
 def update_profile(payload: ProfileUpdate, user: dict = Depends(auth_user)):
     return {"ok": True, "profile": core.update_profile_name(user, payload.full_name)}
+
+
+@app.patch("/api/profile/gender")
+def update_profile_gender(payload: ProfileGenderUpdate, user: dict = Depends(auth_user)):
+    return {"ok": True, "profile": core.update_profile_gender(user, payload.gender)}
 
 
 @app.patch("/api/profile/avatar")
@@ -212,6 +293,384 @@ def create_application(payload: ApplicationCreate, user: dict = Depends(auth_use
 @app.get("/api/documents")
 def get_documents(user: dict = Depends(auth_user)):
     return core.list_documents(user, core.is_admin(user))
+
+
+# ----------------------------------------------------------------------------
+# Социальная сеть: лента, публикации, комментарии и реакции
+# ----------------------------------------------------------------------------
+
+class SocialPostCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=5000)
+
+
+class SocialCommentCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=2000)
+    parent_comment_id: int | None = Field(default=None, ge=1)
+
+class SocialRepostCreate(BaseModel):
+    caption: str = Field(default="", max_length=5000)
+
+
+@app.get("/api/social/feed")
+def social_feed(before_id: int | None = None, limit: int = 20,
+                search: str = "", following_only: bool = False,
+                saved_only: bool = False, user: dict = Depends(auth_user)):
+    return {"posts": core.list_social_feed(user, before_id=before_id, limit=limit,
+                                           search=search, following_only=following_only,
+                                           saved_only=saved_only)}
+
+
+@app.post("/api/social/posts")
+def social_create_post(payload: SocialPostCreate, user: dict = Depends(auth_user)):
+    return {"ok": True, "post": core.create_social_post(user, payload.body)}
+
+
+@app.post("/api/social/posts/media")
+async def social_create_post_with_media(
+    body: str = Form(default=""),
+    file: UploadFile = File(...),
+    user: dict = Depends(auth_user),
+):
+    data = await file.read(50 * 1024 * 1024 + 1)
+    if len(data) > 50 * 1024 * 1024:
+        raise DKDError(413, "Файл должен быть не больше 50 МБ.")
+    return {"ok": True, "post": core.create_social_post_with_media(
+        user, body, data, file.filename or "upload"
+    )}
+
+
+@app.post("/api/social/posts/{post_id}/repost")
+def social_repost(post_id: int, payload: SocialRepostCreate,
+                  user: dict = Depends(auth_user)):
+    return {"ok": True, "post": core.create_social_repost(user, post_id, payload.caption)}
+
+
+@app.get("/api/social/posts/{post_id}/media/{media_id}")
+def social_get_post_media(post_id: int, media_id: int, user: dict = Depends(auth_user)):
+    data, mime = core.get_social_post_media(user, post_id, media_id)
+    return Response(content=data, media_type=mime, headers={
+        "Cache-Control": "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+    })
+
+
+class SocialContentEdit(BaseModel):
+    body: str = Field(min_length=1, max_length=5000)
+
+
+@app.patch("/api/social/posts/{post_id}")
+def social_edit_post(post_id: int, payload: SocialContentEdit,
+                     user: dict = Depends(auth_user)):
+    return core.edit_own_social_post(user, post_id, payload.body)
+
+
+@app.post("/api/social/posts/{post_id}/comments")
+def social_create_comment(post_id: int, payload: SocialCommentCreate,
+                          user: dict = Depends(auth_user)):
+    return {"ok": True, "comment": core.create_social_comment(
+        user, post_id, payload.body, payload.parent_comment_id
+    )}
+
+
+class SocialReportCreate(BaseModel):
+    reason: str = Field(default="other", max_length=32)
+    details: str = Field(default="", max_length=2000)
+
+
+@app.get("/api/social/posts/{post_id}/comments")
+def social_list_comments(post_id: int, user: dict = Depends(auth_user)):
+    return {"comments": core.list_social_comments(user, post_id)}
+
+
+@app.post("/api/social/posts/{post_id}/report")
+def social_report_post(post_id: int, payload: SocialReportCreate,
+                       user: dict = Depends(auth_user)):
+    return core.report_social_post(user, post_id, payload.reason, payload.details)
+
+
+
+@app.post("/api/social/comments/{comment_id}/report")
+def social_report_comment(comment_id: int, payload: SocialReportCreate,
+                          user: dict = Depends(auth_user)):
+    return core.report_social_comment(user, comment_id, payload.reason, payload.details)
+
+
+@app.delete("/api/social/posts/{post_id}")
+def social_delete_post(post_id: int, user: dict = Depends(auth_user)):
+    return core.delete_own_social_post(user, post_id)
+
+
+@app.patch("/api/social/comments/{comment_id}")
+def social_edit_comment(comment_id: int, payload: SocialContentEdit,
+                        user: dict = Depends(auth_user)):
+    return core.edit_own_social_comment(user, comment_id, payload.body)
+
+
+@app.delete("/api/social/comments/{comment_id}")
+def social_delete_comment(comment_id: int, user: dict = Depends(auth_user)):
+    return core.delete_own_social_comment(user, comment_id)
+
+
+@app.get("/api/admin/social/reports")
+def admin_social_reports(status: str = "open", user: dict = Depends(admin_user)):
+    return {"reports": core.admin_list_social_reports(user, status)}
+
+
+class SocialReportReview(BaseModel):
+    status: str = Field(pattern="^(reviewing|resolved|dismissed)$")
+    action: str = Field(default="none", pattern="^(none|hide)$")
+
+
+@app.patch("/api/admin/social/reports/{report_id}")
+def admin_review_social_report(report_id: int, payload: SocialReportReview,
+                               user: dict = Depends(admin_user)):
+    return core.admin_review_social_report(user, report_id, payload.status, payload.action)
+
+
+@app.post("/api/social/profiles/{target_user_id}/block")
+def social_toggle_block(target_user_id: int, user: dict = Depends(auth_user)):
+    return core.toggle_social_block(user, target_user_id)
+
+
+@app.post("/api/social/posts/{post_id}/reaction")
+def social_toggle_reaction(post_id: int, user: dict = Depends(auth_user)):
+    return core.toggle_social_reaction(user, post_id)
+
+
+@app.post("/api/social/posts/{post_id}/save")
+def social_toggle_save(post_id: int, user: dict = Depends(auth_user)):
+    return core.toggle_social_save(user, post_id)
+
+
+class SocialProfileUpdate(BaseModel):
+    bio: str = Field(default="", max_length=280)
+    show_connections: bool | None = None
+    is_private: bool | None = None
+
+
+@app.get("/api/social/profiles/{target_user_id}")
+def social_get_profile(target_user_id: int, user: dict = Depends(auth_user)):
+    return {"profile": core.get_social_profile(user, target_user_id)}
+
+
+@app.patch("/api/social/profile")
+def social_update_profile(payload: SocialProfileUpdate, user: dict = Depends(auth_user)):
+    return {"ok": True, "profile": core.update_social_profile(
+        user, payload.bio, payload.show_connections, payload.is_private
+    )}
+
+
+@app.post("/api/social/profiles/{target_user_id}/follow")
+def social_toggle_follow(target_user_id: int, user: dict = Depends(auth_user)):
+    return core.toggle_social_follow(user, target_user_id)
+
+
+@app.get("/api/social/follow-requests")
+def social_follow_requests(user: dict = Depends(auth_user)):
+    return {"requests": core.list_social_follow_requests(user)}
+
+
+@app.post("/api/social/follow-requests/{requester_user_id}/approve")
+def social_approve_follow_request(requester_user_id: int, user: dict = Depends(auth_user)):
+    return core.review_social_follow_request(user, requester_user_id, True)
+
+
+@app.post("/api/social/follow-requests/{requester_user_id}/reject")
+def social_reject_follow_request(requester_user_id: int, user: dict = Depends(auth_user)):
+    return core.review_social_follow_request(user, requester_user_id, False)
+
+
+@app.post("/api/social/profile/cover")
+async def social_upload_cover(file: UploadFile = File(...), user: dict = Depends(auth_user)):
+    data = await file.read(8 * 1024 * 1024 + 1)
+    if len(data) > 8 * 1024 * 1024:
+        raise DKDError(413, "Обложка должна быть не больше 8 МБ.")
+    return core.set_social_cover(user, data, file.filename or "cover")
+
+
+@app.get("/api/social/profiles/{target_user_id}/cover")
+def social_get_cover(target_user_id: int, user: dict = Depends(auth_user)):
+    data, mime = core.get_social_cover(user, target_user_id)
+    return Response(content=data, media_type=mime,
+                    headers={"Cache-Control": "private, max-age=300",
+                             "X-Content-Type-Options": "nosniff"})
+
+
+
+# Direct and group chats
+class ChatDirectCreate(BaseModel):
+    target_user_id: int = Field(gt=0)
+
+class ChatGroupCreate(BaseModel):
+    title: str = Field(min_length=2, max_length=80)
+    member_ids: list[int] = Field(default_factory=list, max_length=49)
+
+class ChatMessageCreate(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+    reply_to_message_id: int | None = Field(default=None, gt=0)
+
+class ChatMembersAdd(BaseModel):
+    member_ids: list[int] = Field(min_length=1, max_length=20)
+
+@app.get("/api/chats/people")
+def chats_people(search: str = "", user: dict = Depends(auth_user)):
+    return {"people": core.list_chat_people(user, search)}
+
+@app.get("/api/chats")
+def chats_list(user: dict = Depends(auth_user)):
+    return {"chats": core.list_chats(user)}
+
+@app.post("/api/chats/direct")
+def chats_create_direct(payload: ChatDirectCreate, user: dict = Depends(auth_user)):
+    return core.create_direct_chat(user, payload.target_user_id)
+
+@app.post("/api/chats/groups")
+def chats_create_group(payload: ChatGroupCreate, user: dict = Depends(auth_user)):
+    return core.create_group_chat(user, payload.title, payload.member_ids)
+
+@app.get("/api/chats/{conversation_id}/messages")
+def chats_messages(conversation_id: int, before_id: int | None = None,
+                   limit: int = 50, search: str = "", user: dict = Depends(auth_user)):
+    return {"messages": core.list_chat_messages(
+        user, conversation_id, before_id, limit, search
+    )}
+
+@app.post("/api/chats/{conversation_id}/messages")
+def chats_send_message(conversation_id: int, payload: ChatMessageCreate,
+                       user: dict = Depends(auth_user)):
+    return core.send_chat_message(
+        user, conversation_id, payload.body, payload.reply_to_message_id
+    )
+
+
+class ChatMessageEdit(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+@app.patch("/api/chats/{conversation_id}/messages/{message_id}")
+def chats_edit_message(conversation_id: int, message_id: int,
+                       payload: ChatMessageEdit, user: dict = Depends(auth_user)):
+    return core.edit_chat_message(user, conversation_id, message_id, payload.body)
+
+@app.delete("/api/chats/{conversation_id}/messages/{message_id}")
+def chats_delete_message(conversation_id: int, message_id: int,
+                         user: dict = Depends(auth_user)):
+    return core.delete_chat_message(user, conversation_id, message_id)
+
+
+@app.post("/api/chats/{conversation_id}/media")
+async def chats_send_media(
+    conversation_id: int,
+    file: UploadFile = File(...),
+    body: str = Form(default=""),
+    user: dict = Depends(auth_user),
+):
+    data = await file.read(25 * 1024 * 1024 + 1)
+    if len(data) > 25 * 1024 * 1024:
+        raise DKDError(413, "Вложение должно быть не больше 25 МБ.")
+    return core.create_chat_message_with_media(
+        user, conversation_id, body, data, file.filename or "upload"
+    )
+
+
+@app.get("/api/chats/{conversation_id}/media/{media_id}")
+def chats_get_media(conversation_id: int, media_id: int,
+                    user: dict = Depends(auth_user)):
+    data, mime = core.get_chat_message_media(user, conversation_id, media_id)
+    return Response(content=data, media_type=mime, headers={
+        "Cache-Control": "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": "inline",
+    })
+
+@app.post("/api/chats/{conversation_id}/read")
+def chats_mark_read(conversation_id: int, user: dict = Depends(auth_user)):
+    return core.mark_chat_read(user, conversation_id)
+
+@app.post("/api/chats/{conversation_id}/leave")
+def chats_leave(conversation_id: int, user: dict = Depends(auth_user)):
+    return core.leave_chat(user, conversation_id)
+
+@app.post("/api/chats/{conversation_id}/members")
+def chats_add_members(conversation_id: int, payload: ChatMembersAdd,
+                      user: dict = Depends(auth_user)):
+    return core.add_chat_members(user, conversation_id, payload.member_ids)
+class ChatMemberRoleChange(BaseModel):
+    user_id: int = Field(gt=0)
+    role: str = Field(pattern="^(admin|member)$")
+
+class ChatMemberRemove(BaseModel):
+    user_id: int = Field(gt=0)
+
+class ChatOwnershipTransfer(BaseModel):
+    new_owner_user_id: int = Field(gt=0)
+
+@app.patch("/api/chats/{conversation_id}/members/role")
+def chats_change_member_role(conversation_id: int, payload: ChatMemberRoleChange,
+                             user: dict = Depends(auth_user)):
+    return core.set_chat_member_role(user, conversation_id, payload.user_id, payload.role)
+
+@app.delete("/api/chats/{conversation_id}/members")
+def chats_remove_member(conversation_id: int, payload: ChatMemberRemove,
+                        user: dict = Depends(auth_user)):
+    return core.remove_chat_member(user, conversation_id, payload.user_id)
+
+@app.post("/api/chats/{conversation_id}/ownership")
+def chats_transfer_ownership(conversation_id: int, payload: ChatOwnershipTransfer,
+                             user: dict = Depends(auth_user)):
+    return core.transfer_chat_ownership(user, conversation_id, payload.new_owner_user_id)
+
+
+
+# Закон №3: регистрация брака, развод и Суд ДКД
+@app.get("/api/family")
+def family_list(user: dict = Depends(auth_user)):
+    return core.list_marriages(user)
+
+
+@app.post("/api/family/proposals")
+def family_propose(payload: MarriageProposal, user: dict = Depends(auth_user)):
+    return core.propose_marriage(user, payload.partner_user_id)
+
+
+@app.post("/api/family/proposals/{marriage_id}/decision")
+def family_decide(marriage_id: int, payload: MarriageDecision, user: dict = Depends(auth_user)):
+    return core.decide_marriage(user, marriage_id, payload.accept)
+
+
+@app.post("/api/family/{marriage_id}/divorce")
+def family_divorce(marriage_id: int, user: dict = Depends(auth_user)):
+    return core.request_divorce(user, marriage_id)
+
+
+@app.post("/api/family/{marriage_id}/divorce/decision")
+def family_divorce_decision(marriage_id: int, payload: DivorceDecision, user: dict = Depends(auth_user)):
+    return core.decide_divorce(user, marriage_id, payload.accept)
+
+
+@app.get("/api/court/cases")
+def court_cases(user: dict = Depends(auth_user)):
+    return core.list_court_cases(user)
+
+
+@app.post("/api/court/cases")
+def court_file_case(payload: CourtCaseCreate, user: dict = Depends(auth_user)):
+    return core.file_court_case(user, payload.respondent_user_id, payload.title, payload.claim)
+
+
+@app.post("/api/court/cases/{case_id}/response")
+def court_respond(case_id: int, payload: CourtResponseCreate, user: dict = Depends(auth_user)):
+    return core.respond_court_case(user, case_id, payload.response_text)
+
+
+@app.post("/api/court/cases/{case_id}/appeals")
+def court_appeal(case_id: int, payload: CourtAppealCreate, user: dict = Depends(auth_user)):
+    return core.appeal_court_case(user, case_id, payload.grounds)
+
+
+@app.get("/api/court/archive")
+def court_archive(user: dict = Depends(auth_user)):
+    core._require_citizen(user)
+    return core.list_public_court_decisions()
 
 
 @app.get("/api/news")
