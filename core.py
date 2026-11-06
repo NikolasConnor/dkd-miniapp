@@ -2907,8 +2907,9 @@ def list_chat_people(user: dict, search: str = "") -> list[dict]:
             raise DKDError(422, "Слишком длинный поисковый запрос.")
         safe = re.sub(r"[^\\w\\s@.\\-]", " ", value, flags=re.UNICODE)
         safe = " ".join(safe.split())
-        if safe:
-            query = query.or_(f"username.ilike.%{safe}%,full_name.ilike.%{safe}%")
+        if not safe:
+            return []
+        query = query.or_(f"username.ilike.%{safe}%,full_name.ilike.%{safe}%")
     return [p for p in rows(query, "Не удалось загрузить список граждан.")
             if int(p["user_id"]) not in hidden][:50]
 
@@ -3435,7 +3436,8 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
                         .eq("follower_user_id", int(user["id"])),
                         "Не удалось загрузить список подписок.")
         followed_ids = [int(x["followed_user_id"]) for x in followed]
-        followed_ids.append(int(user["id"]))
+        if not followed_ids:
+            return []
         query = query.in_("author_user_id", followed_ids)
     posts = rows(query.order("id", desc=True).limit(size), "Не удалось загрузить ленту.")
     if not posts:
