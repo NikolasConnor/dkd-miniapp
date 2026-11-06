@@ -343,7 +343,7 @@ def tg_full_name(user: dict) -> str:
 # Пользователи (subjects)
 # ----------------------------------------------------------------------------
 
-SUBJECT_COLS = "id,user_id,username,full_name,is_citizen,reputation,created_at,citizenship_granted_at,avatar_emoji"
+SUBJECT_COLS = "id,user_id,username,full_name,is_citizen,reputation,created_at,citizenship_granted_at,avatar_emoji,gender"
 
 
 def get_subject(user_id: int) -> dict | None:
@@ -2507,6 +2507,214 @@ def _ensure_president_certificate() -> None:
             log.warning("President certificate notification failed for user %s: %s", uid, exc)
 
 
+# ----------------------------------------------------------------------------
+# Закон №3: браки и судебные дела
+# ----------------------------------------------------------------------------
+
+def _require_citizen(user: dict) -> dict:
+    subject = get_subject(int(user["id"]))
+    if not subject or not subject.get("is_citizen"):
+        raise DKDError(403, "Эта функция доступна только гражданам ДКД.")
+    return subject
+
+
+def _subject_public(user_id: int) -> dict:
+    item = get_subject(int(user_id))
+    if not item or not item.get("is_citizen"):
+        raise DKDError(404, "Гражданин не найден.")
+    return {"user_id": int(item["user_id"]), "full_name": item.get("full_name") or "Гражданин ДКД",
+            "username": item.get("username"), "avatar_emoji": item.get("avatar_emoji") or "👤"}
+
+
+def list_marriages(user: dict) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    records = rows(db().table("marriages").select(
+        "id,partner_one_user_id,partner_two_user_id,status,proposed_by,proposed_at,accepted_at,ended_at,created_at"
+    ).or_(f"partner_one_user_id.eq.{uid},partner_two_user_id.eq.{uid}")
+     .order("created_at", desc=True).limit(50), "Не удалось загрузить семейные документы.")
+    result = []
+    for item in records:
+        partner_id = int(item["partner_two_user_id"] if int(item["partner_one_user_id"]) == uid else item["partner_one_user_id"])
+        result.append({**item, "partner": _subject_public(partner_id),
+                       "is_my_proposal": int(item.get("proposed_by") or 0) == uid})
+    return {"marriages": result}
+
+
+def propose_marriage(user: dict, partner_user_id: int) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    partner_id = int(partner_user_id)
+    if uid == partner_id:
+        raise DKDError(422, "Нельзя заключить брак с самим собой.")
+    partner = _subject_public(partner_id)
+    if one(db().table("marriages").select("id").eq("status", "active")
+           .or_(f"partner_one_user_id.eq.{uid},partner_two_user_id.eq.{uid}").limit(1)):
+        raise DKDError(409, "У вас уже есть действующий брак.")
+    if one(db().table("marriages").select("id").eq("status", "active")
+           .or_(f"partner_one_user_id.eq.{partner_id},partner_two_user_id.eq.{partner_id}").limit(1)):
+        raise DKDError(409, "У выбранного гражданина уже есть действующий брак.")
+    existing = one(db().table("marriages").select("id").eq("status", "proposed")
+                   .eq("proposed_by", uid).eq("partner_two_user_id", partner_id).limit(1))
+    if existing:
+        raise DKDError(409, "Предложение этому гражданину уже отправлено.")
+    created = execute(db().table("marriages").insert({
+        "partner_one_user_id": uid, "partner_two_user_id": partner_id,
+        "proposed_by": uid, "status": "proposed",
+    }), "Не удалось отправить предложение о браке.")
+    create_notification(partner_id, "Предложение о браке ДКД",
+                        f"{_subject_public(uid)['full_name']} предлагает заключить официальный брак. Откройте раздел «Государство → Семья».")
+    return {"ok": True, "marriage": created[0] if created else None, "partner": partner}
+
+
+def decide_marriage(user: dict, marriage_id: int, accept: bool) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    item = one(db().table("marriages").select("*").eq("id", int(marriage_id)).eq("status", "proposed").limit(1))
+    if not item or int(item["partner_two_user_id"]) != uid or int(item["proposed_by"]) == uid:
+        raise DKDError(404, "Ожидающее предложение о браке не найдено.")
+    status = "active" if accept else "rejected"
+    if accept:
+        for key in ("partner_one_user_id", "partner_two_user_id"):
+            partner_id = int(item[key])
+            active = one(db().table("marriages").select("id").eq("status", "active")
+                         .or_(f"partner_one_user_id.eq.{partner_id},partner_two_user_id.eq.{partner_id}").limit(1))
+            if active:
+                raise DKDError(409, "Один из граждан уже состоит в браке.")
+    updated = execute(db().table("marriages").update({
+        "status": status, "accepted_at": now_iso() if accept else None,
+    }).eq("id", int(marriage_id)).eq("status", "proposed"), "Не удалось обработать предложение.")
+    if not updated:
+        raise DKDError(409, "Предложение уже было обработано.")
+    other = int(item["partner_one_user_id"])
+    create_notification(other, "Ответ на предложение о браке",
+                        "Предложение принято. Брак зарегистрирован." if accept else "Предложение отклонено.")
+    return {"ok": True, "status": status}
+
+
+def request_divorce(user: dict, marriage_id: int) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    item = one(db().table("marriages").select("*").eq("id", int(marriage_id)).eq("status", "active").limit(1))
+    if not item or uid not in (int(item["partner_one_user_id"]), int(item["partner_two_user_id"])):
+        raise DKDError(404, "Действующий брак не найден.")
+    updated = execute(db().table("marriages").update({
+        "status": "divorce_pending", "divorce_requested_by": uid, "divorce_requested_at": now_iso(),
+    }).eq("id", int(marriage_id)).eq("status", "active"), "Не удалось подать заявление о расторжении брака.")
+    if not updated:
+        raise DKDError(409, "Статус брака уже изменился.")
+    other = int(item["partner_two_user_id"] if uid == int(item["partner_one_user_id"]) else item["partner_one_user_id"])
+    create_notification(other, "Заявление о расторжении брака",
+                        "Ваш супруг/супруга подал(а) заявление. Для расторжения требуется ваше подтверждение.")
+    return {"ok": True, "status": "divorce_pending"}
+
+
+def decide_divorce(user: dict, marriage_id: int, accept: bool) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    item = one(db().table("marriages").select("*").eq("id", int(marriage_id)).eq("status", "divorce_pending").limit(1))
+    if not item or uid not in (int(item["partner_one_user_id"]), int(item["partner_two_user_id"])) or int(item["divorce_requested_by"]) == uid:
+        raise DKDError(404, "Заявление, ожидающее вашего ответа, не найдено.")
+    status = "divorced" if accept else "active"
+    updated = execute(db().table("marriages").update({
+        "status": status, "ended_at": now_iso() if accept else None,
+        "divorce_requested_by": None, "divorce_requested_at": None,
+    }).eq("id", int(marriage_id)).eq("status", "divorce_pending"), "Не удалось обработать заявление.")
+    if not updated:
+        raise DKDError(409, "Заявление уже было обработано.")
+    other = int(item["partner_one_user_id"] if uid == int(item["partner_two_user_id"]) else item["partner_two_user_id"])
+    create_notification(other, "Расторжение брака",
+                        "Брак расторгнут. Документ доступен в разделе «Семья»." if accept else "В расторжении брака отказано.")
+    return {"ok": True, "status": status}
+
+
+def list_court_cases(user: dict) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    cases = rows(db().table("court_cases").select(
+        "id,plaintiff_user_id,respondent_user_id,title,claim,status,response_text,decision_text,decision_public,created_at,decided_at"
+    ).or_(f"plaintiff_user_id.eq.{uid},respondent_user_id.eq.{uid}")
+     .order("created_at", desc=True).limit(100), "Не удалось загрузить судебные дела.")
+    for item in cases:
+        item["plaintiff"] = _subject_public(int(item["plaintiff_user_id"]))
+        item["respondent"] = _subject_public(int(item["respondent_user_id"]))
+        item["my_role"] = "plaintiff" if int(item["plaintiff_user_id"]) == uid else "respondent"
+    return {"cases": cases}
+
+
+def file_court_case(user: dict, respondent_user_id: int, title: str, claim: str) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    respondent = int(respondent_user_id)
+    if respondent == uid:
+        raise DKDError(422, "Нельзя подать иск против самого себя.")
+    target = _subject_public(respondent)
+    title_value, claim_value = str(title or "").strip(), str(claim or "").strip()
+    if not 4 <= len(title_value) <= 160 or not 20 <= len(claim_value) <= 8000:
+        raise DKDError(422, "Укажите название (4–160 символов) и обстоятельства дела (20–8000 символов).")
+    created = execute(db().table("court_cases").insert({
+        "plaintiff_user_id": uid, "respondent_user_id": respondent,
+        "title": title_value, "claim": claim_value, "status": "awaiting_response",
+    }), "Не удалось зарегистрировать иск.")
+    if not created:
+        raise DKDError(502, "Суд не подтвердил регистрацию иска.")
+    case = created[0]
+    create_notification(respondent, "Вам направлен иск в Суд ДКД",
+                        f"Дело №{case['id']}: {title_value}. Вы можете представить ответ и доказательства.")
+    return {"ok": True, "case": case, "respondent": target}
+
+
+def respond_court_case(user: dict, case_id: int, response_text: str) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    item = one(db().table("court_cases").select("id,plaintiff_user_id,respondent_user_id,status")
+               .eq("id", int(case_id)).limit(1))
+    text_value = str(response_text or "").strip()
+    if not item or int(item["respondent_user_id"]) != uid or item["status"] != "awaiting_response":
+        raise DKDError(404, "Дело не найдено или ответ уже не принимается.")
+    if not 20 <= len(text_value) <= 8000:
+        raise DKDError(422, "Ответ должен содержать от 20 до 8000 символов.")
+    updated = execute(db().table("court_cases").update({
+        "response_text": text_value, "responded_at": now_iso(), "status": "awaiting_ai_judge",
+    }).eq("id", int(case_id)).eq("status", "awaiting_response"), "Не удалось сохранить ответ.")
+    if not updated:
+        raise DKDError(409, "Дело уже изменилось.")
+    create_notification(int(item["plaintiff_user_id"]), "Ответ по судебному делу",
+                        f"По делу №{case_id} ответчик представил позицию. Дело ожидает рассмотрения.")
+    return {"ok": True, "status": "awaiting_ai_judge"}
+
+
+def appeal_court_case(user: dict, case_id: int, grounds: str) -> dict:
+    uid = int(user["id"])
+    _require_citizen(user)
+    item = one(db().table("court_cases").select("id,plaintiff_user_id,respondent_user_id,status,decided_at")
+               .eq("id", int(case_id)).limit(1))
+    grounds_value = str(grounds or "").strip()
+    if not item or uid not in (int(item["plaintiff_user_id"]), int(item["respondent_user_id"])):
+        raise DKDError(404, "Судебное дело не найдено.")
+    if item["status"] != "decided":
+        raise DKDError(409, "Апелляция возможна только после вынесения решения.")
+    if not 20 <= len(grounds_value) <= 5000:
+        raise DKDError(422, "Укажите основания апелляции (20–5000 символов).")
+    created = execute(db().table("court_appeals").insert({
+        "case_id": int(case_id), "appellant_user_id": uid, "grounds": grounds_value,
+        "status": "awaiting_ai_appeal_judge",
+    }), "Не удалось зарегистрировать апелляцию.")
+    execute(db().table("court_cases").update({"status": "appealed"}).eq("id", int(case_id)).eq("status", "decided"),
+            "Не удалось обновить статус дела.")
+    other = int(item["respondent_user_id"] if uid == int(item["plaintiff_user_id"]) else item["plaintiff_user_id"])
+    create_notification(other, "Подана апелляция", f"Решение по делу №{case_id} обжаловано.")
+    return {"ok": True, "appeal": created[0] if created else None}
+
+
+def list_public_court_decisions() -> dict:
+    cases = rows(db().table("court_cases").select(
+        "id,title,decision_text,decided_at"
+    ).eq("status", "decided").eq("decision_public", True)
+     .order("decided_at", desc=True).limit(100), "Не удалось загрузить судебный архив.")
+    return {"decisions": cases}
+
+
 def list_documents(user: dict, admin: bool) -> dict:
     uid = int(user["id"])
     # В публичном разделе документов показываем только законы, подписанные Президентом.
@@ -2562,8 +2770,9 @@ def list_documents(user: dict, admin: bool) -> dict:
         else:
             item.pop("secret_for_user_id", None)
             public_decrees.append(item)
+    marriages = list_marriages(user).get("marriages", [])
     return {"laws": laws, "decrees": public_decrees, "mandates": mandates,
-            "president_certificate": president_certificate}
+            "president_certificate": president_certificate, "marriages": marriages}
 
 def _election_results_news(kind: str, election: dict, counts: dict[str, int], extra: str = "") -> str:
     title = clean_name(election.get("title")) or ("Выборы в Госдуму" if kind == "duma" else "Президентские выборы")
