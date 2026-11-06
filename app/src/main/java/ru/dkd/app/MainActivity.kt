@@ -8,6 +8,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.webkit.JavascriptInterface
+import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -176,7 +177,6 @@ private suspend fun revokeSession(token: String) = withContext(Dispatchers.IO) {
 
 private class AndroidSessionBridge(private val tokenProvider: () -> String?) {
     @JavascriptInterface fun hasSession(): Boolean = !tokenProvider().isNullOrBlank()
-    @JavascriptInterface fun getSessionToken(): String = tokenProvider().orEmpty()
 }
 
 @Composable
@@ -226,8 +226,14 @@ private fun DKDApp() {
                     val old = token!!
                     scope.launch {
                         revokeSession(old)
-                        store.clear()
-                        token = null
+                        CookieManager.getInstance().setCookie(
+                            API_BASE_URL,
+                            "dkd_session=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax"
+                        ) {
+                            CookieManager.getInstance().flush()
+                            store.clear()
+                            token = null
+                        }
                     }
                 }
             )
@@ -340,7 +346,15 @@ private fun AuthenticatedApp(token: String, onLogout: () -> Unit) {
                     if (request?.isForMainFrame == true) loadError = true
                 }
             }
-            loadUrl(API_BASE_URL)
+        }.also { view ->
+            CookieManager.getInstance().setAcceptCookie(true)
+            CookieManager.getInstance().setCookie(
+                API_BASE_URL,
+                "dkd_session=$token; Path=/; Secure; HttpOnly; SameSite=Lax"
+            ) {
+                CookieManager.getInstance().flush()
+                view.post { view.loadUrl(API_BASE_URL) }
+            }
         }
     }
 
