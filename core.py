@@ -3412,7 +3412,8 @@ def _require_social_citizen(user: dict) -> dict:
 
 
 def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
-                     search: str = "", following_only: bool = False) -> list[dict]:
+                     search: str = "", following_only: bool = False,
+                     saved_only: bool = False) -> list[dict]:
     _require_social_citizen(user)
     size = max(1, min(int(limit), 50))
     hidden_ids = _social_blocked_user_ids(int(user["id"]))
@@ -3431,6 +3432,14 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
             query = query.ilike("body", f"%{safe_search}%")
     if hidden_ids:
         query = query.not_.in_("author_user_id", sorted(hidden_ids))
+    if saved_only:
+        saved_rows = rows(db().table("social_saved_posts").select("post_id")
+                          .eq("user_id", int(user["id"])),
+                          "Не удалось загрузить сохранённые публикации.")
+        saved_ids = {int(item["post_id"]) for item in saved_rows}
+        if not saved_ids:
+            return []
+        query = query.in_("id", sorted(saved_ids))
     if following_only:
         followed = rows(db().table("social_follows").select("followed_user_id")
                         .eq("follower_user_id", int(user["id"])),
@@ -3471,6 +3480,10 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
         reaction_counts[pid] = reaction_counts.get(pid, 0) + 1
         if int(item["user_id"]) == int(user["id"]):
             my_reactions[pid] = str(item.get("reaction") or "like")
+    saved_rows = rows(db().table("social_saved_posts").select("post_id")
+                      .eq("user_id", int(user["id"])).in_("post_id", post_ids),
+                      "Не удалось проверить сохранённые публикации.")
+    saved_ids = {int(item["post_id"]) for item in saved_rows}
     comment_counts: dict[int, int] = {}
     for item in comments:
         pid = int(item["post_id"])
@@ -3496,6 +3509,7 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
             "reaction_count": reaction_counts.get(pid, 0),
             "comment_count": comment_counts.get(pid, 0),
             "my_reaction": my_reactions.get(pid),
+            "is_saved": pid in saved_ids,
             "media": media_map.get(pid, []),
         }
         original = original_map.get(int(post["repost_of_post_id"])) if post.get("repost_of_post_id") else None
@@ -3963,6 +3977,23 @@ def toggle_social_reaction(user: dict, post_id: int) -> dict:
         except Exception:
             log.exception("Could not create social like notification")
     return {"reacted": True}
+
+
+def toggle_social_save(user: dict, post_id: int) -> dict:
+    _require_social_citizen(user)
+    _social_visible_post(user, post_id)
+    uid = int(user["id"])
+    existing = one(db().table("social_saved_posts").select("post_id")
+                   .eq("user_id", uid).eq("post_id", int(post_id)).limit(1))
+    if existing:
+        execute(db().table("social_saved_posts").delete()
+                .eq("user_id", uid).eq("post_id", int(post_id)),
+                "Не удалось убрать публикацию из сохранённого.")
+        return {"saved": False}
+    execute(db().table("social_saved_posts").insert({
+        "user_id": uid, "post_id": int(post_id),
+    }), "Не удалось сохранить публикацию.")
+    return {"saved": True}
 
 
 def get_social_profile(user: dict, target_user_id: int) -> dict:
