@@ -159,7 +159,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
         <div class="field"><label for="socialPostFile">Фото или видео · до 50 МБ</label><input id="socialPostFile" type="file" accept="image/jpeg,image/png,image/webp,video/mp4"></div>
         <div class="row"><span class="muted small">Текст или медиафайл</span><button class="btn primary">Опубликовать</button></div>
       </form>
-      <div id="socialFeed" class="list"><div class="empty">Загрузка ленты…</div></div>
+      <div class="card form" style="margin:12px 0"><div class="field"><label for="socialFeedSearch">Поиск по публикациям</label><input id="socialFeedSearch" type="search" maxlength="80" placeholder="Найти текст публикации…" oninput="scheduleSocialFeedSearch()"></div><div class="row"><button id="socialFeedAll" class="btn primary" type="button" onclick="setSocialFeedMode(false)">Все публикации</button><button id="socialFeedFollowing" class="btn secondary" type="button" onclick="setSocialFeedMode(true)">Мои подписки</button></div><div class="field" style="margin-top:10px"><label for="socialPeopleSearch">Найти гражданина</label><input id="socialPeopleSearch" type="search" maxlength="80" placeholder="Имя или @username" oninput="searchSocialPeople()"></div><div id="socialPeopleResults" class="list"></div></div><div id="socialFeed" class="list"><div class="empty">Загрузка ленты…</div></div>
       <button id="socialMore" class="btn secondary hidden" style="width:100%;margin-top:12px" onclick="loadSocialFeed(false)">Загрузить ещё</button>
     </section>
 
@@ -735,11 +735,35 @@ async function sendChatMessage(e){e.preventDefault();const body=$('chatMessageBo
 function closeChatRoom(){stopChatPolling();state.currentChatId=null;$('chatRoomPane').classList.add('hidden');$('chatListPane').classList.remove('hidden');loadChats()}
 async function leaveCurrentChat(){if(!state.currentChatId||!confirm('Покинуть группу?'))return;try{await api('/api/chats/'+state.currentChatId+'/leave',{method:'POST',body:{}});closeChatRoom()}catch(e){notify(e.message,'error')}}
 
+let socialFeedSearchTimer=null,socialPeopleSearchTimer=null;
+let socialFeedFollowingOnly=false;
+function setSocialFeedMode(following){
+ socialFeedFollowingOnly=!!following;
+ $('socialFeedAll').className='btn '+(!following?'primary':'secondary');
+ $('socialFeedFollowing').className='btn '+(following?'primary':'secondary');
+ loadSocialFeed(true);
+}
+function scheduleSocialFeedSearch(){
+ clearTimeout(socialFeedSearchTimer);
+ socialFeedSearchTimer=setTimeout(()=>loadSocialFeed(true),300);
+}
+async function searchSocialPeople(){
+ clearTimeout(socialPeopleSearchTimer);
+ socialPeopleSearchTimer=setTimeout(async()=>{
+  const input=$('socialPeopleSearch'),box=$('socialPeopleResults'),q=input.value.trim();
+  if(q.length<2){box.innerHTML='';return}
+  box.innerHTML='<div class="muted small">Поиск граждан…</div>';
+  try{
+   const d=await api('/api/chats/people?search='+encodeURIComponent(q));
+   box.innerHTML=(d.people||[]).map(p=>'<button type="button" class="card row" style="width:100%;text-align:left" onclick="openSocialProfile('+Number(p.user_id)+')"><span style="font-size:24px">'+esc(p.avatar_emoji||'👤')+'</span><span style="flex:1"><strong>'+esc(p.full_name||'Гражданин ДКД')+'</strong><small class="muted" style="display:block">'+(p.username?'@'+esc(p.username):'')+'</small></span></button>').join('')||'<div class="empty">Граждане не найдены.</div>';
+  }catch(e){showError(box,e)}
+ },250);
+}
 async function loadSocialFeed(reset=true){
  const el=$('socialFeed'),more=$('socialMore');
  if(reset){state.socialBeforeId=null;state.socialHasMore=false;el.innerHTML='<div class="empty">Загрузка ленты…</div>'}
  try{
-  const params=new URLSearchParams({limit:'20'});if(!reset&&state.socialBeforeId)params.set('before_id',String(state.socialBeforeId));
+  const params=new URLSearchParams({limit:'20'});const search=$('socialFeedSearch')?.value.trim()||'';if(search)params.set('search',search);if(socialFeedFollowingOnly)params.set('following_only','true');if(!reset&&state.socialBeforeId)params.set('before_id',String(state.socialBeforeId));
   const d=await api('/api/social/feed?'+params.toString()),posts=d.posts||[];
   if(reset)el.innerHTML='';
   if(posts.length){el.insertAdjacentHTML('beforeend',posts.map(renderSocialPost).join(''));state.socialBeforeId=Number(posts[posts.length-1].id);state.socialHasMore=posts.length===20}
