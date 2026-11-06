@@ -3109,7 +3109,7 @@ def delete_chat_message(user: dict, conversation_id: int, message_id: int) -> di
     message = _owned_chat_message(user, conversation_id, message_id)
     deleted_at = now_iso()
     execute(db().table("chat_messages").update({
-        "deleted_at": deleted_at, "body": "Сообщение удалено"
+        "deleted_at": deleted_at, "updated_at": deleted_at, "body": "Сообщение удалено"
     }).eq("id", int(message["id"])).eq("conversation_id", int(conversation_id))
       .is_("deleted_at", "null"), "Не удалось удалить сообщение.")
     return {"ok": True, "message_id": int(message["id"]), "deleted_at": deleted_at}
