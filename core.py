@@ -2870,6 +2870,69 @@ def create_social_comment(user: dict, post_id: int, body: str) -> dict:
     return created[0]
 
 
+def list_social_comments(user: dict, post_id: int) -> list[dict]:
+    _require_social_citizen(user)
+    post = one(db().table("social_posts").select("id,status,deleted_at")
+               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
+    if not post or post.get("status") != "published" or post.get("deleted_at"):
+        raise DKDError(404, "Публикация не найдена.")
+    comments = rows(db().table("social_comments").select(
+        "id,post_id,author_user_id,parent_comment_id,body,created_at"
+    ).eq("post_id", int(post_id)).eq("status", "published")
+      .is_("deleted_at", "null").order("created_at"),
+      "Не удалось загрузить комментарии.")
+    author_ids = sorted({int(x["author_user_id"]) for x in comments})
+    authors = rows(db().table("subjects").select(
+        "user_id,full_name,username,avatar_emoji"
+    ).in_("user_id", author_ids), "Не удалось загрузить авторов комментариев.") if author_ids else []
+    author_map = {int(x["user_id"]): x for x in authors}
+    return [{**item, "author": author_map.get(int(item["author_user_id"]), {
+        "full_name": "Гражданин ДКД", "avatar_emoji": "👤"
+    })} for item in comments]
+
+
+def report_social_post(user: dict, post_id: int, reason: str, details: str = "") -> dict:
+    _require_social_citizen(user)
+    post = one(db().table("social_posts").select("id,status,deleted_at")
+               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
+    if not post or post.get("status") != "published" or post.get("deleted_at"):
+        raise DKDError(404, "Публикация не найдена.")
+    allowed = {"spam", "harassment", "violence", "sexual_content", "illegal_content", "other"}
+    reason_value = str(reason or "other").strip()
+    details_value = str(details or "").strip()
+    if reason_value not in allowed or len(details_value) > 2000:
+        raise DKDError(422, "Проверьте причину и описание жалобы.")
+    created = execute(db().table("social_reports").insert({
+        "reporter_user_id": int(user["id"]), "post_id": int(post_id),
+        "reason": reason_value, "details": details_value,
+    }), "Не удалось отправить жалобу.")
+    return {"ok": True, "report_id": int(created[0]["id"]) if created else None}
+
+
+def toggle_social_block(user: dict, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    target_id = int(target_user_id)
+    if target_id == int(user["id"]):
+        raise DKDError(422, "Нельзя заблокировать собственный профиль.")
+    target = get_subject(target_id)
+    if not target or not target.get("is_citizen"):
+        raise DKDError(404, "Профиль гражданина не найден.")
+    existing = one(db().table("social_user_blocks").select("blocker_user_id")
+                   .eq("blocker_user_id", int(user["id"]))
+                   .eq("blocked_user_id", target_id).limit(1))
+    if existing:
+        execute(db().table("social_user_blocks").delete()
+                .eq("blocker_user_id", int(user["id"]))
+                .eq("blocked_user_id", target_id), "Не удалось снять блокировку.")
+        return {"blocked": False}
+    execute(db().table("social_user_blocks").insert({
+        "blocker_user_id": int(user["id"]), "blocked_user_id": target_id,
+    }), "Не удалось заблокировать пользователя.")
+    execute(db().table("social_follows").delete()
+            .or_(f"and(follower_user_id.eq.{int(user['id'])},followed_user_id.eq.{target_id}),and(follower_user_id.eq.{target_id},followed_user_id.eq.{int(user['id'])})"))
+    return {"blocked": True}
+
+
 def toggle_social_reaction(user: dict, post_id: int) -> dict:
     _require_social_citizen(user)
     post = one(db().table("social_posts").select("id,status,deleted_at")
