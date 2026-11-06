@@ -2701,6 +2701,16 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20) 
     for item in comments:
         pid = int(item["post_id"])
         comment_counts[pid] = comment_counts.get(pid, 0) + 1
+    media_rows = rows(db().table("social_post_media").select(
+        "id,post_id,media_type,mime_type,size_bytes"
+    ).in_("post_id", post_ids), "Не удалось загрузить вложения публикаций.")
+    media_map: dict[int, list[dict]] = {}
+    for media in media_rows:
+        pid = int(media["post_id"])
+        media_map.setdefault(pid, []).append({
+            **media,
+            "url": f"/api/social/posts/{pid}/media/{int(media['id'])}",
+        })
     result = []
     for post in posts:
         pid = int(post["id"])
@@ -2715,6 +2725,7 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20) 
             "reaction_count": reaction_counts.get(pid, 0),
             "comment_count": comment_counts.get(pid, 0),
             "my_reaction": my_reactions.get(pid),
+            "media": media_map.get(pid, []),
         })
     return result
 
@@ -2747,6 +2758,100 @@ def create_social_post(user: dict, body: str) -> dict:
         "comment_count": 0,
         "my_reaction": None,
     }
+
+
+def create_social_post_with_media(user: dict, body: str, data: bytes, filename: str) -> dict:
+    _require_social_citizen(user)
+    text_value = str(body or "").strip()
+    if len(text_value) > 5000:
+        raise DKDError(422, "Публикация не должна превышать 5000 символов.")
+    if not data:
+        raise DKDError(422, "Файл публикации пуст.")
+    if len(data) > 50 * 1024 * 1024:
+        raise DKDError(413, "Файл должен быть не больше 50 МБ.")
+    if data.startswith(bytes.fromhex("ffd8ff")):
+        mime, ext, media_type = "image/jpeg", "jpg", "image"
+    elif data.startswith(bytes.fromhex("89504e470d0a1a0a")):
+        mime, ext, media_type = "image/png", "png", "image"
+    elif len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        mime, ext, media_type = "image/webp", "webp", "image"
+    elif len(data) >= 12 and data[4:8] == b"ftyp":
+        mime, ext, media_type = "video/mp4", "mp4", "video"
+    else:
+        raise DKDError(422, "Поддерживаются изображения JPEG, PNG, WebP и видео MP4.")
+    user_id = int(user["id"])
+    path = f"{user_id}/posts/{uuid.uuid4().hex}.{ext}"
+    try:
+        db().storage.from_("social-media").upload(
+            path=path, file=data,
+            file_options={"content-type": mime, "upsert": "false"}
+        )
+    except Exception as exc:
+        log.exception("Social post media upload failed")
+        raise db_error(exc, "Не удалось загрузить файл публикации.") from exc
+    post = None
+    try:
+        created = execute(db().table("social_posts").insert({
+            "author_user_id": user_id, "body": text_value, "status": "published",
+        }), "Не удалось создать публикацию.")
+        if not created:
+            raise DKDError(502, "Сервер не подтвердил создание публикации.")
+        post = created[0]
+        media_rows = execute(db().table("social_post_media").insert({
+            "post_id": int(post["id"]), "owner_user_id": user_id,
+            "storage_path": path, "media_type": media_type,
+            "mime_type": mime, "size_bytes": len(data),
+        }), "Не удалось сохранить вложение публикации.")
+        if not media_rows:
+            raise DKDError(502, "Сервер не подтвердил сохранение вложения.")
+    except Exception:
+        if post:
+            try:
+                db().table("social_posts").delete().eq("id", int(post["id"])).execute()
+            except Exception:
+                log.exception("Could not roll back social post %s", post.get("id"))
+        try:
+            db().storage.from_("social-media").remove([path])
+        except Exception:
+            log.exception("Could not clean up social upload %s", path)
+        raise
+    subject = get_subject(user_id) or {}
+    return {
+        **post,
+        "author": {
+            "user_id": user_id, "username": subject.get("username"),
+            "full_name": subject.get("full_name") or "Пользователь ДКД",
+            "avatar_emoji": subject.get("avatar_emoji") or "👤",
+        },
+        "reaction_count": 0, "comment_count": 0, "my_reaction": None,
+        "media": [{
+            "id": int(media_rows[0]["id"]), "post_id": int(post["id"]),
+            "media_type": media_type, "mime_type": mime, "size_bytes": len(data),
+            "url": f"/api/social/posts/{int(post['id'])}/media/{int(media_rows[0]['id'])}",
+        }],
+    }
+
+
+def get_social_post_media(user: dict, post_id: int, media_id: int) -> tuple[bytes, str]:
+    _require_social_citizen(user)
+    post = one(db().table("social_posts").select("id,status,deleted_at")
+               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
+    if not post or post.get("status") != "published" or post.get("deleted_at"):
+        raise DKDError(404, "Публикация не найдена.")
+    media = one(db().table("social_post_media").select(
+        "id,post_id,storage_path,mime_type"
+    ).eq("id", int(media_id)).eq("post_id", int(post_id)).limit(1),
+       "Не удалось найти вложение.")
+    if not media:
+        raise DKDError(404, "Вложение не найдено.")
+    try:
+        data = db().storage.from_("social-media").download(media["storage_path"])
+    except Exception as exc:
+        raise db_error(exc, "Не удалось получить вложение.") from exc
+    mime = str(media.get("mime_type") or "")
+    if mime not in ("image/jpeg", "image/png", "image/webp", "video/mp4"):
+        raise DKDError(415, "Формат вложения не поддерживается.")
+    return data, mime
 
 
 def create_social_comment(user: dict, post_id: int, body: str) -> dict:
