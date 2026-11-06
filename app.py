@@ -444,6 +444,7 @@ def social_toggle_save(post_id: int, user: dict = Depends(auth_user)):
 
 class SocialProfileUpdate(BaseModel):
     bio: str = Field(default="", max_length=280)
+    show_connections: bool | None = None
 
 
 @app.get("/api/social/profiles/{target_user_id}")
@@ -453,7 +454,9 @@ def social_get_profile(target_user_id: int, user: dict = Depends(auth_user)):
 
 @app.patch("/api/social/profile")
 def social_update_profile(payload: SocialProfileUpdate, user: dict = Depends(auth_user)):
-    return {"ok": True, "profile": core.update_social_profile(user, payload.bio)}
+    return {"ok": True, "profile": core.update_social_profile(
+        user, payload.bio, payload.show_connections
+    )}
 
 
 @app.post("/api/social/profiles/{target_user_id}/follow")
