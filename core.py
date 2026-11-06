@@ -3057,8 +3057,62 @@ def list_chat_messages(user: dict, conversation_id: int, before_id: int | None =
         authors = rows(db().table("subjects").select(
             "user_id,username,full_name,avatar_emoji").in_("user_id", ids))
         author_map = {int(x["user_id"]): x for x in authors}
-        messages = [{**x, "author": author_map.get(int(x["sender_user_id"]), {})} for x in messages]
+        messages = [{
+            **x,
+            "author": author_map.get(int(x["sender_user_id"]), {}),
+            "can_edit": int(x["sender_user_id"]) == int(user["id"]),
+            "can_delete": int(x["sender_user_id"]) == int(user["id"]),
+        } for x in messages]
     return list(reversed(messages))
+
+
+CHAT_MESSAGE_EDIT_WINDOW = 15 * 60
+
+def _owned_chat_message(user: dict, conversation_id: int, message_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, cid, mid = int(user["id"]), int(conversation_id), int(message_id)
+    _chat_participant(cid, uid)
+    message = one(db().table("chat_messages").select(
+        "id,conversation_id,sender_user_id,body,created_at,updated_at,deleted_at"
+    ).eq("id", mid).eq("conversation_id", cid).limit(1),
+       "Не удалось проверить сообщение.")
+    if not message or message.get("deleted_at"):
+        raise DKDError(404, "Сообщение не найдено.")
+    if int(message["sender_user_id"]) != uid:
+        raise DKDError(403, "Изменять или удалять можно только свои сообщения.")
+    try:
+        created_at = datetime.fromisoformat(str(message["created_at"]).replace("Z", "+00:00"))
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        raise DKDError(409, "Не удалось проверить время отправки сообщения.")
+    age = (datetime.now(timezone.utc) - created_at).total_seconds()
+    if age < 0 or age > CHAT_MESSAGE_EDIT_WINDOW:
+        raise DKDError(409, "Изменять или удалять сообщение можно в течение 15 минут после отправки.")
+    return message
+
+def edit_chat_message(user: dict, conversation_id: int, message_id: int, body: str) -> dict:
+    message = _owned_chat_message(user, conversation_id, message_id)
+    value = str(body or "").strip()
+    if not value or len(value) > CHAT_MESSAGE_MAX_LENGTH:
+        raise DKDError(422, "Сообщение должно содержать от 1 до 4000 символов.")
+    updated = execute(db().table("chat_messages").update({
+        "body": value, "updated_at": now_iso()
+    }).eq("id", int(message["id"])).eq("conversation_id", int(conversation_id))
+      .is_("deleted_at", "null").select("id,body,updated_at"),
+      "Не удалось изменить сообщение.")
+    if not updated:
+        raise DKDError(409, "Сообщение уже изменено или удалено.")
+    return {"ok": True, "message": updated[0]}
+
+def delete_chat_message(user: dict, conversation_id: int, message_id: int) -> dict:
+    message = _owned_chat_message(user, conversation_id, message_id)
+    deleted_at = now_iso()
+    execute(db().table("chat_messages").update({
+        "deleted_at": deleted_at, "body": "Сообщение удалено"
+    }).eq("id", int(message["id"])).eq("conversation_id", int(conversation_id))
+      .is_("deleted_at", "null"), "Не удалось удалить сообщение.")
+    return {"ok": True, "message_id": int(message["id"]), "deleted_at": deleted_at}
 
 def send_chat_message(user: dict, conversation_id: int, body: str) -> dict:
     _require_social_citizen(user)
