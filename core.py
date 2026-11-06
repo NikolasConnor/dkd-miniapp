@@ -3033,13 +3033,21 @@ def list_chats(user: dict) -> list[dict]:
     return result
 
 def list_chat_messages(user: dict, conversation_id: int, before_id: int | None = None,
-                       limit: int = 50) -> list[dict]:
+                       limit: int = 50, search: str = "") -> list[dict]:
     _require_social_citizen(user)
     cid = int(conversation_id)
     _chat_participant(cid, int(user["id"]))
     query = db().table("chat_messages").select(
         "id,conversation_id,sender_user_id,body,created_at,updated_at,reply_to_message_id"
     ).eq("conversation_id", cid).is_("deleted_at", "null")
+    term = str(search or "").strip()
+    if len(term) > 80:
+        raise DKDError(422, "Поисковый запрос слишком длинный.")
+    if term:
+        safe_term = re.sub(r"[%_*]", " ", term)
+        safe_term = " ".join(safe_term.split())
+        if safe_term:
+            query = query.ilike("body", f"%{safe_term}%")
     if before_id is not None:
         query = query.lt("id", int(before_id))
     messages = rows(query.order("id", desc=True).limit(max(1, min(int(limit), 100))))
