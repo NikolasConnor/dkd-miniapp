@@ -341,6 +341,16 @@ def social_get_post_media(post_id: int, media_id: int, user: dict = Depends(auth
     })
 
 
+class SocialContentEdit(BaseModel):
+    body: str = Field(min_length=1, max_length=5000)
+
+
+@app.patch("/api/social/posts/{post_id}")
+def social_edit_post(post_id: int, payload: SocialContentEdit,
+                     user: dict = Depends(auth_user)):
+    return core.edit_own_social_post(user, post_id, payload.body)
+
+
 @app.post("/api/social/posts/{post_id}/comments")
 def social_create_comment(post_id: int, payload: SocialCommentCreate,
                           user: dict = Depends(auth_user)):
@@ -373,6 +383,12 @@ def social_report_comment(comment_id: int, payload: SocialReportCreate,
 @app.delete("/api/social/posts/{post_id}")
 def social_delete_post(post_id: int, user: dict = Depends(auth_user)):
     return core.delete_own_social_post(user, post_id)
+
+
+@app.patch("/api/social/comments/{comment_id}")
+def social_edit_comment(comment_id: int, payload: SocialContentEdit,
+                        user: dict = Depends(auth_user)):
+    return core.edit_own_social_comment(user, comment_id, payload.body)
 
 
 @app.delete("/api/social/comments/{comment_id}")
