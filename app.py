@@ -9,9 +9,9 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, Header, Request
+from fastapi import Depends, FastAPI, File, Header, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 import core
@@ -311,6 +311,22 @@ def social_update_profile(payload: SocialProfileUpdate, user: dict = Depends(aut
 @app.post("/api/social/profiles/{target_user_id}/follow")
 def social_toggle_follow(target_user_id: int, user: dict = Depends(auth_user)):
     return core.toggle_social_follow(user, target_user_id)
+
+
+@app.post("/api/social/profile/cover")
+async def social_upload_cover(file: UploadFile = File(...), user: dict = Depends(auth_user)):
+    data = await file.read(8 * 1024 * 1024 + 1)
+    if len(data) > 8 * 1024 * 1024:
+        raise DKDError(413, "Обложка должна быть не больше 8 МБ.")
+    return core.set_social_cover(user, data, file.filename or "cover")
+
+
+@app.get("/api/social/profiles/{target_user_id}/cover")
+def social_get_cover(target_user_id: int, user: dict = Depends(auth_user)):
+    data, mime = core.get_social_cover(user, target_user_id)
+    return Response(content=data, media_type=mime,
+                    headers={"Cache-Control": "private, max-age=300",
+                             "X-Content-Type-Options": "nosniff"})
 
 
 @app.get("/api/news")
