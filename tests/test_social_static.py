@@ -69,6 +69,8 @@ class SocialApiStaticTests(unittest.TestCase):
             self.assertIn(f'revoke all on public.{table} from anon, authenticated', sql)
         self.assertIn("partner_one_user_id <> partner_two_user_id", sql)
         self.assertIn("status='decided' and decision_public=true", sql)
+        self.assertIn("dkd_guard_single_active_marriage", sql)
+        self.assertIn("revoke all on function public.dkd_guard_single_active_marriage()", sql)
 
     def test_law3_ui_has_family_and_court_workflows(self):
         html = (ROOT / "index.html").read_text(encoding="utf-8")
