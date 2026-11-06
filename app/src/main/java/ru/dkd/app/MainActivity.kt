@@ -7,15 +7,11 @@ import android.os.Bundle
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import android.webkit.JavascriptInterface
-import android.webkit.CookieManager
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -311,109 +307,115 @@ private fun LoginScreen(
 }
 
 
-private data class NativeSection(val title: String, val subtitle: String, val endpoint: String, val icon: String)
-private val NativeSections = listOf(
-    NativeSection("Главная", "Обзор вашего государства", "/api/profile", "⌂"),
-    NativeSection("Лента", "Публикации и обсуждения", "/api/social/feed?limit=30", "◉"),
-    NativeSection("Чаты", "Личные и групповые переписки", "/api/chats", "✉"),
-    NativeSection("Государство", "Новости, партии и парламент", "/api/news", "⌘"),
-    NativeSection("Профиль", "Ваш аккаунт и документы", "/api/profile", "◌")
-)
-private data class NativeCard(val title: String, val detail: String)
 
-private suspend fun loadNativeSection(token: String, endpoint: String): Pair<List<NativeCard>, String?> =
+private data class NetResult(val data: JSONObject? = null, val error: String? = null)
+private const val MAX_TEXT = 5000
+
+private suspend fun apiCall(token: String, method: String, path: String, payload: JSONObject? = null): NetResult =
     withContext(Dispatchers.IO) {
         var connection: HttpURLConnection? = null
         try {
-            connection = (URL("$API_BASE_URL$endpoint").openConnection() as HttpURLConnection).apply {
-                requestMethod = "GET"
-                connectTimeout = 12_000
-                readTimeout = 20_000
-                setRequestProperty("Authorization", "Bearer $token")
+            connection = (URL(API_BASE_URL + path).openConnection() as HttpURLConnection).apply {
+                requestMethod = method
+                connectTimeout = 15_000
+                readTimeout = 25_000
+                setRequestProperty("Authorization", "Bearer " + token)
                 setRequestProperty("Accept", "application/json")
+                if (payload != null) {
+                    doOutput = true
+                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
+                }
+            }
+            if (payload != null) connection.outputStream.use {
+                it.write(payload.toString().toByteArray(Charsets.UTF_8))
             }
             val status = connection.responseCode
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
             val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            if (status !in 200..299) {
-                val message = runCatching { JSONObject(body).optString("detail") }.getOrNull()
-                return@withContext Pair(emptyList(), message?.takeIf { it.isNotBlank() }
-                    ?: "Сервер вернул ошибку HTTP $status.")
-            }
-            val json = JSONObject(body)
-            val cards = mutableListOf<NativeCard>()
-            fun addObject(obj: JSONObject, fallback: String) {
-                val title = sequenceOf("title", "full_name", "name", "body", "text", "username")
-                    .map { obj.optString(it).trim() }.firstOrNull { it.isNotBlank() && it != "null" }
-                    ?: fallback
-                val detail = sequenceOf("description", "subtitle", "position", "status", "created_at")
-                    .map { obj.optString(it).trim() }.firstOrNull { it.isNotBlank() && it != "null" }
-                    ?: sequenceOf("body", "text", "content")
-                        .map { obj.optString(it).trim() }.firstOrNull { it.isNotBlank() && it != title }
-                    ?: "Откройте раздел, чтобы посмотреть подробности."
-                cards += NativeCard(title.take(100), detail.take(220))
-            }
-            for (key in listOf("posts", "chats", "news", "parties", "members", "items", "notifications")) {
-                val array = json.optJSONArray(key) ?: continue
-                for (i in 0 until minOf(array.length(), 30)) {
-                    array.optJSONObject(i)?.let { addObject(it, "$key · \${i + 1}") }
-                }
-                if (cards.isNotEmpty()) break
-            }
-            if (cards.isEmpty()) {
-                var nested = false
-                for (key in listOf("profile", "user", "parliament", "data")) {
-                    val obj = json.optJSONObject(key) ?: continue
-                    nested = true
-                    addObject(obj, "Данные аккаунта")
-                }
-                if (!nested && json.length() > 0) {
-                    val labels = mapOf(
-                        "full_name" to "ФИО", "username" to "Имя пользователя",
-                        "position" to "Должность", "reputation" to "Репутация",
-                        "is_citizen" to "Гражданство", "unread_count" to "Непрочитано"
-                    )
-                    val keys = json.keys()
-                    while (keys.hasNext()) {
-                        val key = keys.next()
-                        val value = json.opt(key)
-                        if (value !is JSONObject && value !is org.json.JSONArray && value != JSONObject.NULL) {
-                            cards += NativeCard(labels[key] ?: key.replace('_', ' '), value.toString())
-                        }
-                    }
-                }
-            }
-            Pair(cards, null)
+            val json = runCatching { JSONObject(body) }.getOrNull()
+            if (status in 200..299) NetResult(json, null)
+            else NetResult(error = json?.optString("detail")?.takeIf { it.isNotBlank() && it != "null" }
+                ?: "Ошибка сервера: HTTP " + status)
         } catch (e: Exception) {
-            Pair(emptyList(), when (e) {
+            NetResult(error = when (e) {
                 is java.net.UnknownHostException -> "Нет соединения с сервером ДКД."
-                is java.net.SocketTimeoutException -> "Сервер долго не отвечает. Попробуйте ещё раз."
-                else -> "Не удалось загрузить раздел. Проверьте интернет."
+                is java.net.SocketTimeoutException -> "Сервер не ответил вовремя."
+                else -> "Не удалось выполнить запрос. Проверьте интернет."
             })
         } finally { connection?.disconnect() }
     }
 
+private suspend fun apiUpload(
+    token: String, path: String, context: Context, uri: Uri, body: String = ""
+): NetResult = withContext(Dispatchers.IO) {
+    var connection: HttpURLConnection? = null
+    try {
+        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            ?: return@withContext NetResult(error = "Не удалось прочитать выбранный файл.")
+        if (bytes.size > 50 * 1024 * 1024) return@withContext NetResult(error = "Файл больше 50 МБ.")
+        val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
+        val boundary = "DKD-" + java.util.UUID.randomUUID().toString()
+        connection = (URL(API_BASE_URL + path).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 20_000
+            readTimeout = 60_000
+            doOutput = true
+            setRequestProperty("Authorization", "Bearer " + token)
+            setRequestProperty("Accept", "application/json")
+            setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary)
+        }
+        connection.outputStream.use { raw ->
+            val out = raw.buffered()
+            fun write(value: String) { out.write(value.toByteArray(Charsets.UTF_8)) }
+            write("--" + boundary + "\r\nContent-Disposition: form-data; name=\"body\"\r\n\r\n" + body + "\r\n")
+            write("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"upload\"\r\n")
+            write("Content-Type: " + mime + "\r\n\r\n")
+            out.write(bytes)
+            write("\r\n--" + boundary + "--\r\n")
+            out.flush()
+        }
+        val status = connection.responseCode
+        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+        val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        val json = runCatching { JSONObject(response) }.getOrNull()
+        if (status in 200..299) NetResult(json)
+        else NetResult(error = json?.optString("detail")?.takeIf { it.isNotBlank() } ?: "Ошибка загрузки: HTTP " + status)
+    } catch (_: Exception) {
+        NetResult(error = "Не удалось загрузить файл. Проверьте соединение и разрешение на доступ к нему.")
+    } finally { connection?.disconnect() }
+}
+
+private fun JSONObject.string(key: String, fallback: String = ""): String =
+    optString(key).takeIf { it.isNotBlank() && it != "null" } ?: fallback
+private fun JSONObject.int(key: String): Int = optInt(key, 0)
+private fun JSONObject.bool(key: String): Boolean = optBoolean(key, false)
+private fun JSONObject.array(key: String): List<JSONObject> {
+    val value = optJSONArray(key) ?: return emptyList()
+    return (0 until value.length()).mapNotNull { value.optJSONObject(it) }
+}
+private fun JSONObject.obj(key: String): JSONObject = optJSONObject(key) ?: JSONObject()
+private fun safePathId(value: Int): String = value.toString()
+
 @Composable
 private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -> Unit) {
-    var selected by remember { mutableIntStateOf(0) }
-    var cards by remember { mutableStateOf<List<NativeCard>>(emptyList()) }
-    var loading by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var refreshedAt by remember { mutableStateOf("") }
+    var tab by remember { mutableIntStateOf(0) }
+    var profileId by remember { mutableIntStateOf(0) }
+    var postId by remember { mutableIntStateOf(0) }
+    var chatId by remember { mutableIntStateOf(0) }
+    var notificationsOpen by remember { mutableStateOf(false) }
+    var currentUserId by remember { mutableIntStateOf(0) }
+    var unreadCount by remember { mutableIntStateOf(0) }
+    var toast by remember { mutableStateOf<String?>(logoutError) }
     val scope = rememberCoroutineScope()
-    val section = NativeSections[selected]
-    fun refresh() {
-        scope.launch {
-            loading = true
-            error = null
-            val result = loadNativeSection(token, section.endpoint)
-            cards = result.first
-            error = result.second
-            refreshedAt = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-            loading = false
-        }
+
+    LaunchedEffect(token) {
+        val result = apiCall(token, "GET", "/api/profile")
+        currentUserId = result.data?.optJSONObject("profile")?.int("user_id")
+            ?: result.data?.optJSONObject("profile")?.int("id") ?: 0
+        val notes = apiCall(token, "GET", "/api/notifications")
+        unreadCount = notes.data?.optInt("unread_count", 0) ?: 0
     }
-    LaunchedEffect(selected, token) { refresh() }
+
     MaterialTheme(colorScheme = darkColorScheme(
         primary = Blue, onPrimary = Navy, background = Navy,
         surface = Panel, onSurface = White, secondary = Muted
@@ -421,25 +423,30 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
         Scaffold(
             containerColor = Navy,
             topBar = {
-                Row(Modifier.fillMaxWidth().background(Panel).padding(horizontal = 18.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    Modifier.fillMaxWidth().background(Panel).padding(horizontal = 16.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Column(Modifier.weight(1f)) {
                         Text("ДКД", color = White, fontWeight = FontWeight.Bold, fontSize = 21.sp)
-                        Text("Цифровое государство", color = Muted, fontSize = 11.sp)
+                        Text("Социальная сеть", color = Muted, fontSize = 11.sp)
                     }
-                    TextButton(onClick = { refresh() }, enabled = !loading) {
-                        Text(if (loading) "Загрузка…" else "Обновить", color = Blue)
+                    TextButton(onClick = { notificationsOpen = true }) {
+                        Text("Уведомления" + if (unreadCount > 0) " · " + unreadCount else "", color = Blue)
                     }
                     TextButton(onClick = onLogout) { Text("Выйти", color = Amber) }
                 }
             },
             bottomBar = {
                 NavigationBar(containerColor = Panel, contentColor = White) {
-                    NativeSections.forEachIndexed { index, item ->
+                    val labels = listOf("Лента", "Люди", "Чаты", "Профиль")
+                    val icons = listOf("◉", "◎", "✉", "◌")
+                    labels.forEachIndexed { index, label ->
                         NavigationBarItem(
-                            selected = selected == index, onClick = { selected = index },
-                            icon = { Text(item.icon, fontSize = 20.sp) },
-                            label = { Text(item.title, fontSize = 10.sp) },
+                            selected = tab == index,
+                            onClick = { tab = index; profileId = 0; postId = 0; chatId = 0 },
+                            icon = { Text(icons[index], fontSize = 20.sp) },
+                            label = { Text(label, fontSize = 10.sp) },
                             colors = NavigationBarItemDefaults.colors(
                                 selectedIconColor = Blue, selectedTextColor = Blue,
                                 indicatorColor = Color(0xFF263B59),
@@ -450,70 +457,706 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                 }
             }
         ) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding).background(Navy)
-                .verticalScroll(rememberScrollState()).padding(horizontal = 18.dp, vertical = 18.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Surface(color = Color(0xFF17243A), shape = RoundedCornerShape(22.dp),
-                    modifier = Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(section.title.uppercase(), color = Blue, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                        Text(section.subtitle, color = White, fontSize = 23.sp, fontWeight = FontWeight.SemiBold)
-                        Text("Отдельное приложение ДКД · Android", color = Muted, fontSize = 12.sp)
-                    }
-                }
-                if (selected == 0) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        listOf("Социальная сеть", "Государство").forEachIndexed { index, label ->
-                            Surface(color = Panel, shape = RoundedCornerShape(15.dp), modifier = Modifier.weight(1f)) {
-                                Column(Modifier.padding(14.dp)) {
-                                    Text(if (index == 0) "◉" else "⌘", color = Blue, fontSize = 23.sp)
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(label, color = White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                                    Text("Выберите раздел ниже", color = Muted, fontSize = 10.sp)
-                                }
-                            }
+            Column(Modifier.fillMaxSize().padding(padding)) {
+                if (toast != null) {
+                    Surface(color = Color(0xFF422A34), modifier = Modifier.fillMaxWidth()) {
+                        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(toast!!, color = White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { toast = null }) { Text("Закрыть") }
                         }
                     }
                 }
-                if (logoutError != null) NativeNotice(logoutError)
-                if (error != null) {
-                    NativeNotice(error!!)
-                    OutlinedButton(onClick = { refresh() }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Повторить загрузку")
-                    }
-                } else if (loading && cards.isEmpty()) {
-                    Box(Modifier.fillMaxWidth().padding(30.dp), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Blue)
-                    }
-                } else if (cards.isEmpty()) {
-                    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Пока здесь пусто", color = White, fontWeight = FontWeight.SemiBold)
-                            Text("Когда в этом разделе появятся данные, они отобразятся здесь.", color = Muted, fontSize = 12.sp)
-                        }
-                    }
-                } else {
-                    Text("СОДЕРЖИМОЕ", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    cards.forEach { card ->
-                        Surface(color = Panel, shape = RoundedCornerShape(17.dp), modifier = Modifier.fillMaxWidth()) {
-                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                                Text(card.title, color = White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                                Text(card.detail, color = Muted, fontSize = 12.sp, lineHeight = 18.sp)
-                            }
-                        }
-                    }
+                when {
+                    notificationsOpen -> NotificationsScreen(token, onBack = { notificationsOpen = false },
+                        onUnreadChanged = { unreadCount = it }, onError = { toast = it })
+                    postId > 0 -> CommentsScreen(token, postId, currentUserId,
+                        onBack = { postId = 0 }, onError = { toast = it })
+                    profileId > 0 -> SocialProfileScreen(token, profileId, currentUserId,
+                        onBack = { profileId = 0 },
+                        onOpenPost = { postId = it },
+                        onOpenChat = { chatId = it; tab = 2; profileId = 0 },
+                        onError = { toast = it })
+                    chatId > 0 -> ChatConversationScreen(token, chatId, currentUserId,
+                        onBack = { chatId = 0 }, onError = { toast = it })
+                    tab == 0 -> SocialFeedScreen(token, currentUserId,
+                        onOpenProfile = { profileId = it },
+                        onOpenComments = { postId = it },
+                        onError = { toast = it })
+                    tab == 1 -> PeopleScreen(token,
+                        onOpenProfile = { profileId = it },
+                        onOpenChat = { chatId = it },
+                        onError = { toast = it })
+                    tab == 2 -> ChatsScreen(token,
+                        onOpenChat = { chatId = it },
+                        onError = { toast = it })
+                    else -> AccountScreen(token, currentUserId, onError = { toast = it })
                 }
-                Text(if (refreshedAt.isBlank()) "Данные загружаются с сервера ДКД" else "Обновлено в $refreshedAt",
-                    color = Muted, fontSize = 10.sp)
-                Spacer(Modifier.height(8.dp))
             }
         }
     }
 }
 
 @Composable
-private fun NativeNotice(message: String) {
-    Surface(color = Color(0xFF422A34), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
-        Text(message, color = White, fontSize = 12.sp, modifier = Modifier.padding(14.dp))
+private fun ScreenHeader(title: String, subtitle: String = "") {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 14.dp)) {
+        Text(title, color = White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        if (subtitle.isNotBlank()) Text(subtitle, color = Muted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun SocialFeedScreen(
+    token: String, currentUserId: Int,
+    onOpenProfile: (Int) -> Unit, onOpenComments: (Int) -> Unit,
+    onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var posts by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf("") }
+    var search by remember { mutableStateOf("") }
+    var filter by remember { mutableIntStateOf(0) }
+    var selectedUri by remember { mutableStateOf<Uri?>(null) }
+    var refreshing by remember { mutableIntStateOf(0) }
+    val picker = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { selectedUri = it }
+
+    fun reload() {
+        scope.launch {
+            loading = true
+            var path = "/api/social/feed?limit=40"
+            if (search.isNotBlank()) path += "&search=" + Uri.encode(search.trim())
+            if (filter == 1) path += "&following_only=true"
+            if (filter == 2) path += "&saved_only=true"
+            val result = apiCall(token, "GET", path)
+            if (result.error != null) onError(result.error)
+            posts = result.data?.array("posts") ?: emptyList()
+            loading = false
+        }
+    }
+    LaunchedEffect(token, filter, refreshing) { reload() }
+
+    Column(Modifier.fillMaxSize()) {
+        ScreenHeader("Лента", "Публикации граждан ДКД")
+        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            OutlinedTextField(
+                value = text, onValueChange = { text = it },
+                modifier = Modifier.fillMaxWidth(), placeholder = { Text("Что нового?") },
+                minLines = 2, maxLines = 4
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Button(onClick = {
+                    if (text.isNotBlank() || selectedUri != null) scope.launch {
+                        loading = true
+                        val result = if (selectedUri != null) apiUpload(token, "/api/social/posts/media", context, selectedUri!!, text)
+                        else apiCall(token, "POST", "/api/social/posts", JSONObject().put("body", text.trim()))
+                        loading = false
+                        if (result.error != null) onError(result.error)
+                        else { text = ""; selectedUri = null; refreshing++ }
+                    } else onError("Напишите текст или прикрепите файл.")
+                }, enabled = !loading && (text.isNotBlank() || selectedUri != null)) { Text("Опубликовать") }
+                OutlinedButton(onClick = { picker.launch("*/*") }) { Text(if (selectedUri == null) "＋ Медиа" else "Файл выбран") }
+                if (selectedUri != null) TextButton(onClick = { selectedUri = null }) { Text("Убрать") }
+            }
+            OutlinedTextField(
+                value = search, onValueChange = { search = it },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                placeholder = { Text("Поиск по публикациям") },
+                trailingIcon = { TextButton(onClick = { reload() }) { Text("Найти") } }
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = filter == 0, onClick = { filter = 0 }, label = { Text("Все") })
+                FilterChip(selected = filter == 1, onClick = { filter = 1 }, label = { Text("Подписки") })
+                FilterChip(selected = filter == 2, onClick = { filter = 2 }, label = { Text("Сохранённые") })
+            }
+        }
+        if (loading && posts.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Blue) }
+        } else if (posts.isEmpty()) {
+            EmptyState("Публикаций пока нет", "Создайте первую запись или измените фильтр.")
+        } else {
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(posts, key = { it.int("id") }) { post ->
+                    SocialPostCard(token, post, currentUserId,
+                        onAuthor = { onOpenProfile(it) },
+                        onComments = { onOpenComments(post.int("id")) },
+                        onRefresh = { refreshing++ }, onError = onError)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SocialPostCard(
+    token: String, post: JSONObject, currentUserId: Int,
+    onAuthor: (Int) -> Unit, onComments: () -> Unit,
+    onRefresh: () -> Unit, onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    val author = post.obj("author")
+    val postId = post.int("id")
+    val authorId = author.int("user_id")
+    val original = post.obj("repost_of")
+    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(author.string("avatar_emoji", "👤"), fontSize = 27.sp)
+                Spacer(Modifier.width(9.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(author.string("full_name", "Гражданин ДКД"), color = White,
+                        fontWeight = FontWeight.SemiBold, modifier = Modifier.clickable { if (authorId > 0) onAuthor(authorId) })
+                    Text("@" + author.string("username", "dkd_user") + " · " + post.string("created_at").take(16).replace("T", " "),
+                        color = Muted, fontSize = 10.sp)
+                }
+                if (post.int("repost_of_post_id") > 0) Text("РЕПОСТ", color = Blue, fontSize = 9.sp)
+            }
+            if (post.string("body").isNotBlank()) Text(post.string("body"), color = White, fontSize = 14.sp, lineHeight = 21.sp)
+            if (post.array("media").isNotEmpty()) {
+                Surface(color = Color(0xFF24344B), shape = RoundedCornerShape(10.dp)) {
+                    Text("📎 Вложений: " + post.array("media").size + " · " +
+                        post.array("media").joinToString { it.string("media_type", "файл") },
+                        color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(11.dp))
+                }
+            }
+            if (original.length() > 0) {
+                Surface(color = Color(0xFF111C2C), shape = RoundedCornerShape(12.dp)) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text("Исходная публикация · " + original.obj("author").string("full_name", "Автор"),
+                            color = Blue, fontSize = 10.sp)
+                        Text(original.string("body", "Исходная запись недоступна"), color = White, fontSize = 12.sp)
+                    }
+                }
+            }
+            Divider(color = Color(0xFF34445A))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                TextButton(onClick = {
+                    scope.launch {
+                        val r = apiCall(token, "POST", "/api/social/posts/" + postId + "/reaction")
+                        if (r.error != null) onError(r.error) else onRefresh()
+                    }
+                }) { Text((if (post.string("my_reaction").isNotBlank()) "♥ " else "♡ ") + post.int("reaction_count"), color = if (post.string("my_reaction").isNotBlank()) Amber else Muted) }
+                TextButton(onClick = onComments) { Text("Комментарии " + post.int("comment_count"), color = Muted) }
+                TextButton(onClick = {
+                    scope.launch {
+                        val r = apiCall(token, "POST", "/api/social/posts/" + postId + "/save")
+                        if (r.error != null) onError(r.error) else onRefresh()
+                    }
+                }) { Text(if (post.bool("is_saved")) "★" else "☆", color = Blue) }
+                TextButton(onClick = {
+                    scope.launch {
+                        val r = apiCall(token, "POST", "/api/social/posts/" + postId + "/repost", JSONObject().put("caption", ""))
+                        if (r.error != null) onError(r.error) else { onError("Репост опубликован."); onRefresh() }
+                    }
+                }) { Text("↗", color = Blue) }
+                if (authorId == currentUserId) {
+                    TextButton(onClick = {
+                        scope.launch {
+                            val r = apiCall(token, "DELETE", "/api/social/posts/" + postId)
+                            if (r.error != null) onError(r.error) else onRefresh()
+                        }
+                    }) { Text("Удалить", color = Amber, fontSize = 10.sp) }
+                } else {
+                    TextButton(onClick = {
+                        scope.launch {
+                            val r = apiCall(token, "POST", "/api/social/posts/" + postId + "/report",
+                                JSONObject().put("reason", "other").put("details", ""))
+                            if (r.error != null) onError(r.error) else onError("Жалоба отправлена модераторам.")
+                        }
+                    }) { Text("⚑", color = Muted) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommentsScreen(
+    token: String, postId: Int, currentUserId: Int,
+    onBack: () -> Unit, onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var comments by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var body by remember { mutableStateOf("") }
+    var parentId by remember { mutableIntStateOf(0) }
+    var busy by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    fun load() {
+        scope.launch {
+            busy = true
+            val r = apiCall(token, "GET", "/api/social/posts/" + postId + "/comments")
+            if (r.error != null) onError(r.error)
+            comments = r.data?.array("comments") ?: emptyList()
+            busy = false
+        }
+    }
+    LaunchedEffect(postId, refresh) { load() }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("← Назад", color = Blue) }
+            Text("Комментарии", color = White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+        }
+        androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            items(comments, key = { it.int("id") }) { comment ->
+                val author = comment.obj("author")
+                val nested = comment.optInt("parent_comment_id", 0) > 0
+                Surface(color = if (nested) Color(0xFF111C2C) else Panel,
+                    shape = RoundedCornerShape(13.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = if (nested) 22.dp else 0.dp)) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(author.string("avatar_emoji", "👤") + "  " + author.string("full_name", "Гражданин"),
+                            color = Blue, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                        Text(comment.string("body"), color = White, fontSize = 13.sp)
+                        Row {
+                            TextButton(onClick = { parentId = comment.int("id") }) { Text("Ответить", color = Muted, fontSize = 10.sp) }
+                            if (comment.int("author_user_id") == currentUserId) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        val r = apiCall(token, "DELETE", "/api/social/comments/" + comment.int("id"))
+                                        if (r.error != null) onError(r.error) else refresh++
+                                    }
+                                }) { Text("Удалить", color = Amber, fontSize = 10.sp) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Column(Modifier.padding(12.dp)) {
+            if (parentId > 0) Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Ответ на комментарий #" + parentId, color = Blue, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = { parentId = 0 }) { Text("Отмена") }
+            }
+            OutlinedTextField(value = body, onValueChange = { body = it }, modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Написать комментарий…") }, maxLines = 3)
+            Button(onClick = {
+                if (body.isNotBlank()) scope.launch {
+                    val payload = JSONObject().put("body", body.trim())
+                    if (parentId > 0) payload.put("parent_comment_id", parentId)
+                    val r = apiCall(token, "POST", "/api/social/posts/" + postId + "/comments", payload)
+                    if (r.error != null) onError(r.error) else { body = ""; parentId = 0; refresh++ }
+                }
+            }, modifier = Modifier.fillMaxWidth(), enabled = body.isNotBlank()) { Text("Отправить") }
+        }
+    }
+}
+
+@Composable
+private fun PeopleScreen(
+    token: String, onOpenProfile: (Int) -> Unit,
+    onOpenChat: (Int) -> Unit, onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var query by remember { mutableStateOf("") }
+    var people by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var busy by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(refresh) {
+        busy = true
+        val r = apiCall(token, "GET", "/api/chats/people?search=" + Uri.encode(query))
+        if (r.error != null) onError(r.error)
+        people = r.data?.array("people") ?: emptyList()
+        busy = false
+    }
+    Column(Modifier.fillMaxSize()) {
+        ScreenHeader("Люди", "Найти граждан и открыть профиль")
+        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.weight(1f),
+                singleLine = true, placeholder = { Text("Имя или @username") })
+            TextButton(onClick = { refresh++ }) { Text("Найти") }
+        }
+        if (busy && people.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = Blue)
+        } else androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier.weight(1f), contentPadding = PaddingValues(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(people, key = { it.int("user_id") }) { person ->
+                Surface(color = Panel, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(person.string("avatar_emoji", "👤"), fontSize = 27.sp)
+                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                            Text(person.string("full_name", "Гражданин"), color = White, fontWeight = FontWeight.SemiBold)
+                            Text("@" + person.string("username", "user"), color = Muted, fontSize = 11.sp)
+                        }
+                        TextButton(onClick = { onOpenProfile(person.int("user_id")) }) { Text("Профиль") }
+                        TextButton(onClick = {
+                            scope.launch {
+                                val r = apiCall(token, "POST", "/api/chats/direct",
+                                    JSONObject().put("target_user_id", person.int("user_id")))
+                                val id = r.data?.optInt("conversation_id", 0)
+                                    ?: r.data?.optInt("id", 0) ?: 0
+                                if (r.error != null) onError(r.error)
+                                else if (id > 0) onOpenChat(id) else onError("Чат создан, но сервер не вернул его номер.")
+                            }
+                        }) { Text("Чат", color = Blue) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatsScreen(token: String, onOpenChat: (Int) -> Unit, onError: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var chats by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var refresh by remember { mutableIntStateOf(0) }
+    var createGroup by remember { mutableStateOf(false) }
+    var groupTitle by remember { mutableStateOf("") }
+    var memberIds by remember { mutableStateOf("") }
+    LaunchedEffect(refresh) {
+        val r = apiCall(token, "GET", "/api/chats")
+        if (r.error != null) onError(r.error)
+        chats = r.data?.array("chats") ?: emptyList()
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Чаты", color = White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text("Личные и групповые переписки", color = Muted, fontSize = 12.sp)
+            }
+            TextButton(onClick = { createGroup = true }) { Text("＋ Группа", color = Blue) }
+        }
+        if (chats.isEmpty()) EmptyState("Пока нет переписок", "Найдите граждан во вкладке «Люди», чтобы начать общение.")
+        else androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier.weight(1f), contentPadding = PaddingValues(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(chats, key = { it.int("id") }) { chat ->
+                val participants = chat.array("participants")
+                val names = participants.mapNotNull { it.obj("profile").string("full_name").takeIf { n -> n.isNotBlank() } }
+                val last = chat.obj("last_message")
+                Surface(color = Panel, shape = RoundedCornerShape(15.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { onOpenChat(chat.int("id")) }) {
+                    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (chat.string("type") == "group") "👥" else "✉️", fontSize = 26.sp)
+                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                            Text(chat.string("title").ifBlank { names.filter { it.isNotBlank() }.take(2).joinToString(", ").ifBlank { "Личный чат" } },
+                                color = White, fontWeight = FontWeight.SemiBold)
+                            Text(last.string("body", names.joinToString(", ")), color = Muted, fontSize = 11.sp, maxLines = 1)
+                        }
+                        if (chat.int("unread_count") > 0) Text(chat.int("unread_count").toString(),
+                            color = Navy, fontSize = 11.sp, modifier = Modifier.background(Blue, RoundedCornerShape(20.dp)).padding(7.dp))
+                    }
+                }
+            }
+        }
+    }
+    if (createGroup) AlertDialog(
+        onDismissRequest = { createGroup = false },
+        title = { Text("Новая группа") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(groupTitle, { groupTitle = it }, label = { Text("Название группы") })
+                OutlinedTextField(memberIds, { memberIds = it }, label = { Text("ID участников через запятую") })
+                Text("Добавьте ID граждан, которых хотите пригласить. Вы сами будете создателем группы.", color = Muted, fontSize = 11.sp)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val ids = memberIds.split(",").mapNotNull { it.trim().toIntOrNull() }.distinct()
+                scope.launch {
+                    val r = apiCall(token, "POST", "/api/chats/groups",
+                        JSONObject().put("title", groupTitle.trim()).put("member_ids", org.json.JSONArray(ids)))
+                    if (r.error != null) onError(r.error)
+                    else { refresh++; createGroup = false; groupTitle = ""; memberIds = "" }
+                }
+            }, enabled = groupTitle.trim().length >= 2) { Text("Создать") }
+        },
+        dismissButton = { TextButton(onClick = { createGroup = false }) { Text("Отмена") } }
+    )
+}
+
+@Composable
+private fun ChatConversationScreen(
+    token: String, chatId: Int, currentUserId: Int,
+    onBack: () -> Unit, onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var messages by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var body by remember { mutableStateOf("") }
+    var search by remember { mutableStateOf("") }
+    var replyId by remember { mutableIntStateOf(0) }
+    var busy by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    fun load() {
+        scope.launch {
+            busy = true
+            val r = apiCall(token, "GET", "/api/chats/" + chatId + "/messages?limit=80" +
+                if (search.isNotBlank()) "&search=" + Uri.encode(search) else "")
+            if (r.error != null) onError(r.error)
+            messages = r.data?.array("messages") ?: emptyList()
+            apiCall(token, "POST", "/api/chats/" + chatId + "/read")
+            busy = false
+        }
+    }
+    LaunchedEffect(chatId, refresh) { load() }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("← Назад", color = Blue) }
+            Text("Переписка", color = White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
+        OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+            singleLine = true, placeholder = { Text("Поиск по сообщениям") },
+            trailingIcon = { TextButton(onClick = { refresh++ }) { Text("Найти") } })
+        androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(messages, key = { it.int("id") }) { message ->
+                val mine = message.int("sender_user_id") == currentUserId
+                Surface(color = if (mine) Color(0xFF263B59) else Panel,
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = if (mine) 36.dp else 0.dp, end = if (mine) 0.dp else 36.dp)) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(message.obj("author").string("full_name", "Участник"), color = Blue, fontSize = 10.sp)
+                        if (message.obj("reply_to").length() > 0) Text("↳ " + message.obj("reply_to").string("body"), color = Muted, fontSize = 10.sp)
+                        Text(message.string("body"), color = White, fontSize = 13.sp)
+                        Row {
+                            TextButton(onClick = { replyId = message.int("id") }) { Text("Ответить", color = Muted, fontSize = 10.sp) }
+                            if (message.bool("can_delete")) TextButton(onClick = {
+                                scope.launch {
+                                    val r = apiCall(token, "DELETE", "/api/chats/" + chatId + "/messages/" + message.int("id"))
+                                    if (r.error != null) onError(r.error) else refresh++
+                                }
+                            }) { Text("Удалить", color = Amber, fontSize = 10.sp) }
+                        }
+                    }
+                }
+            }
+        }
+        Column(Modifier.padding(12.dp)) {
+            if (replyId > 0) Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Ответ на сообщение #" + replyId, color = Blue, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                TextButton(onClick = { replyId = 0 }) { Text("Отмена") }
+            }
+            OutlinedTextField(value = body, onValueChange = { body = it }, modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Сообщение…") }, maxLines = 4)
+            Button(onClick = {
+                if (body.isNotBlank()) scope.launch {
+                    val payload = JSONObject().put("body", body.trim())
+                    if (replyId > 0) payload.put("reply_to_message_id", replyId)
+                    val r = apiCall(token, "POST", "/api/chats/" + chatId + "/messages", payload)
+                    if (r.error != null) onError(r.error) else { body = ""; replyId = 0; refresh++ }
+                }
+            }, modifier = Modifier.fillMaxWidth(), enabled = body.isNotBlank()) { Text("Отправить") }
+        }
+    }
+}
+
+@Composable
+private fun SocialProfileScreen(
+    token: String, targetId: Int, currentUserId: Int,
+    onBack: () -> Unit, onOpenPost: (Int) -> Unit,
+    onOpenChat: (Int) -> Unit, onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var profile by remember { mutableStateOf<JSONObject?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(targetId, refresh) {
+        busy = true
+        val r = apiCall(token, "GET", "/api/social/profiles/" + targetId)
+        if (r.error != null) onError(r.error)
+        profile = r.data?.optJSONObject("profile")
+        busy = false
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("← Назад", color = Blue) }
+            Text("Профиль", color = White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+        }
+        val p = profile
+        if (p == null) {
+            if (busy) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Blue) }
+            else EmptyState("Профиль недоступен", "Возможно, пользователь закрыл доступ или удалил аккаунт.")
+        } else {
+            val subject = p.obj("subject")
+            val isOwn = targetId == currentUserId
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.weight(1f), contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(subject.string("avatar_emoji", "👤"), fontSize = 42.sp)
+                            Text(subject.string("full_name", "Гражданин ДКД"), color = White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text("@" + subject.string("username", "user"), color = Muted, fontSize = 12.sp)
+                            Text(p.string("bio"), color = White, fontSize = 13.sp)
+                            Text("Подписчики: " + p.array("followers").size + " · Подписки: " + p.array("following").size,
+                                color = Muted, fontSize = 11.sp)
+                            if (!isOwn) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Button(onClick = {
+                                    scope.launch {
+                                        val r = apiCall(token, "POST", "/api/social/profiles/" + targetId + "/follow")
+                                        if (r.error != null) onError(r.error) else refresh++
+                                    }
+                                }) { Text(if (p.bool("is_following")) "Отписаться" else if (p.bool("follow_pending")) "Запрос отправлен" else "Подписаться") }
+                                OutlinedButton(onClick = {
+                                    scope.launch {
+                                        val r = apiCall(token, "POST", "/api/chats/direct", JSONObject().put("target_user_id", targetId))
+                                        val id = r.data?.optInt("conversation_id", 0) ?: r.data?.optInt("id", 0) ?: 0
+                                        if (r.error != null) onError(r.error) else if (id > 0) onOpenChat(id)
+                                    }
+                                }) { Text("Написать") }
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        val r = apiCall(token, "POST", "/api/social/profiles/" + targetId + "/block")
+                                        if (r.error != null) onError(r.error) else { onError("Настройка блокировки обновлена."); onBack() }
+                                    }
+                                }) { Text("Блок", color = Amber) }
+                            }
+                            if (isOwn) Text("Это ваш профиль", color = Blue, fontSize = 11.sp)
+                        }
+                    }
+                }
+                if (!p.bool("can_view_posts") && !isOwn) item { EmptyState("Профиль закрыт", "Подпишитесь, чтобы отправить запрос на просмотр публикаций.") }
+                items(p.array("posts"), key = { it.int("id") }) { post ->
+                    SocialPostCard(token, post, currentUserId,
+                        onAuthor = {}, onComments = { onOpenPost(post.int("id")) },
+                        onRefresh = { refresh++ }, onError = onError)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AccountScreen(token: String, currentUserId: Int, onError: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var profile by remember { mutableStateOf<JSONObject?>(null) }
+    var social by remember { mutableStateOf<JSONObject?>(null) }
+    var fullName by remember { mutableStateOf("") }
+    var bio by remember { mutableStateOf("") }
+    var avatar by remember { mutableStateOf("👤") }
+    var privateProfile by remember { mutableStateOf(false) }
+    var showConnections by remember { mutableStateOf(true) }
+    var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(refresh) {
+        val r = apiCall(token, "GET", "/api/profile")
+        profile = r.data?.optJSONObject("profile")
+        fullName = profile?.string("full_name") ?: ""
+        avatar = profile?.string("avatar_emoji", "👤") ?: "👤"
+        val sid = currentUserId.takeIf { it > 0 } ?: profile?.int("user_id") ?: 0
+        if (sid > 0) {
+            val s = apiCall(token, "GET", "/api/social/profiles/" + sid)
+            social = s.data?.optJSONObject("profile")
+            bio = social?.string("bio") ?: ""
+            privateProfile = social?.bool("is_private") ?: false
+            showConnections = social?.optBoolean("show_connections", true) ?: true
+        }
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        ScreenHeader("Мой профиль", "Личные данные и настройки приватности")
+        Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(avatar, fontSize = 38.sp)
+                OutlinedTextField(fullName, { fullName = it }, modifier = Modifier.fillMaxWidth(), label = { Text("ФИО") })
+                OutlinedTextField(avatar, { avatar = it }, modifier = Modifier.fillMaxWidth(), label = { Text("Эмодзи аватара") }, singleLine = true)
+                OutlinedTextField(bio, { bio = it }, modifier = Modifier.fillMaxWidth(), label = { Text("О себе") }, maxLines = 3)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = privateProfile, onCheckedChange = { privateProfile = it })
+                    Text("Закрытый профиль", color = White, fontSize = 13.sp)
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = showConnections, onCheckedChange = { showConnections = it })
+                    Text("Показывать подписчиков и подписки", color = White, fontSize = 13.sp)
+                }
+                Button(onClick = {
+                    scope.launch {
+                        val nameResult = apiCall(token, "PATCH", "/api/profile", JSONObject().put("full_name", fullName.trim()))
+                        if (nameResult.error != null) onError(nameResult.error)
+                        val avatarResult = apiCall(token, "PATCH", "/api/profile/avatar", JSONObject().put("avatar_emoji", avatar))
+                        if (avatarResult.error != null) onError(avatarResult.error)
+                        val socialResult = apiCall(token, "PATCH", "/api/social/profile",
+                            JSONObject().put("bio", bio).put("is_private", privateProfile).put("show_connections", showConnections))
+                        if (socialResult.error != null) onError(socialResult.error) else onError("Профиль сохранён.")
+                        refresh++
+                    }
+                }, modifier = Modifier.fillMaxWidth()) { Text("Сохранить изменения") }
+            }
+        }
+        profile?.let {
+            Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("ГОСУДАРСТВО ДКД", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    Text("Должность: " + it.string("role", "Участник"), color = White)
+                    Text("Партия: " + it.string("party_name", "Не состоит"), color = White)
+                    Text("Статус: " + it.string("citizenship", "Не указан"), color = Muted, fontSize = 12.sp)
+                }
+            }
+        }
+        Text("Настройки уведомлений и документы доступны в соответствующих разделах государства.", color = Muted, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun NotificationsScreen(
+    token: String, onBack: () -> Unit,
+    onUnreadChanged: (Int) -> Unit, onError: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var notes by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var refresh by remember { mutableIntStateOf(0) }
+    LaunchedEffect(refresh) {
+        val r = apiCall(token, "GET", "/api/notifications")
+        if (r.error != null) onError(r.error)
+        notes = r.data?.array("notifications") ?: emptyList()
+        onUnreadChanged(r.data?.optInt("unread_count", 0) ?: 0)
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("← Назад", color = Blue) }
+            Text("Уведомления", color = White, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            TextButton(onClick = {
+                scope.launch {
+                    val r = apiCall(token, "POST", "/api/notifications/read-all")
+                    if (r.error != null) onError(r.error) else refresh++
+                }
+            }) { Text("Прочитать всё", color = Blue, fontSize = 11.sp) }
+        }
+        if (notes.isEmpty()) EmptyState("Уведомлений нет", "Здесь появятся важные события и сообщения.")
+        else androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier.weight(1f), contentPadding = PaddingValues(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(notes, key = { it.int("id") }) { item ->
+                Surface(color = if (item.bool("is_read")) Panel else Color(0xFF243B57),
+                    shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable {
+                        scope.launch {
+                            val r = apiCall(token, "POST", "/api/notifications/read", JSONObject().put("notification_id", item.int("id")))
+                            if (r.error != null) onError(r.error) else refresh++
+                        }
+                    }) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(item.string("title", "Уведомление"), color = White, fontWeight = FontWeight.SemiBold)
+                        Text(item.string("message"), color = Muted, fontSize = 12.sp)
+                        Text(item.string("created_at").take(16).replace("T", " "), color = Blue, fontSize = 10.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyState(title: String, description: String) {
+    Column(Modifier.fillMaxWidth().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        Text("◌", color = Blue, fontSize = 34.sp)
+        Text(title, color = White, fontWeight = FontWeight.SemiBold)
+        Text(description, color = Muted, fontSize = 12.sp)
     }
 }
