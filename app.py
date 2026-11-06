@@ -482,6 +482,32 @@ def chats_send_message(conversation_id: int, payload: ChatMessageCreate,
                        user: dict = Depends(auth_user)):
     return core.send_chat_message(user, conversation_id, payload.body)
 
+
+@app.post("/api/chats/{conversation_id}/media")
+async def chats_send_media(
+    conversation_id: int,
+    file: UploadFile = File(...),
+    body: str = Form(default=""),
+    user: dict = Depends(auth_user),
+):
+    data = await file.read(25 * 1024 * 1024 + 1)
+    if len(data) > 25 * 1024 * 1024:
+        raise DKDError(413, "Вложение должно быть не больше 25 МБ.")
+    return core.create_chat_message_with_media(
+        user, conversation_id, body, data, file.filename or "upload"
+    )
+
+
+@app.get("/api/chats/{conversation_id}/media/{media_id}")
+def chats_get_media(conversation_id: int, media_id: int,
+                    user: dict = Depends(auth_user)):
+    data, mime = core.get_chat_message_media(user, conversation_id, media_id)
+    return Response(content=data, media_type=mime, headers={
+        "Cache-Control": "private, max-age=300",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": "inline",
+    })
+
 @app.post("/api/chats/{conversation_id}/read")
 def chats_mark_read(conversation_id: int, user: dict = Depends(auth_user)):
     return core.mark_chat_read(user, conversation_id)
