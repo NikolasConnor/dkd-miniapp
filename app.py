@@ -58,7 +58,7 @@ app = FastAPI(title="DKD Mini App API", version=core.APP_VERSION, lifespan=lifes
 _origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()]
 if _origins:
     app.add_middleware(CORSMiddleware, allow_origins=_origins, allow_methods=["*"],
-                       allow_headers=["Content-Type", "X-Telegram-Init-Data"])
+                       allow_headers=["Content-Type", "X-Telegram-Init-Data", "Authorization"])
 
 
 @app.exception_handler(DKDError)
@@ -81,8 +81,21 @@ async def security_headers(request: Request, call_next):
 # ----------------------------------------------------------------------------
 
 
-def auth_user(x_telegram_init_data: str | None = Header(default=None)) -> dict:
-    return core.verify_init_data(x_telegram_init_data or "")
+def auth_user(
+    request: Request,
+    x_telegram_init_data: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
+) -> dict:
+    # Native Android session is checked server-side; Telegram Mini App auth remains unchanged.
+    bearer = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer = authorization[7:].strip()
+    session = bearer or request.cookies.get("dkd_session", "")
+    if session:
+        return core.verify_android_session(session)
+    if x_telegram_init_data and x_telegram_init_data != "native-session":
+        return core.verify_init_data(x_telegram_init_data)
+    return core.verify_init_data("")
 
 
 def admin_user(user: dict = Depends(auth_user)) -> dict:
@@ -93,6 +106,39 @@ def admin_user(user: dict = Depends(auth_user)) -> dict:
 def president_user(user: dict = Depends(auth_user)) -> dict:
     core.require_president(user)
     return user
+
+
+# ----------------------------------------------------------------------------
+# Авторизация самостоятельного Android-приложения
+# ----------------------------------------------------------------------------
+
+
+class AndroidCodeCreate(BaseModel):
+    telegram_id: int = Field(gt=0)
+
+
+class AndroidCodeRedeem(BaseModel):
+    code: str = Field(min_length=8, max_length=64)
+
+
+@app.post("/api/android/auth/redeem")
+def android_redeem_code(payload: AndroidCodeRedeem):
+    return core.redeem_android_login_code(payload.code)
+
+
+@app.post("/api/admin/android/login-code")
+def admin_create_android_login_code(payload: AndroidCodeCreate, user: dict = Depends(admin_user)):
+    return core.create_android_login_code(user["id"], payload.telegram_id)
+
+
+@app.post("/api/android/auth/logout")
+def android_logout(request: Request, user: dict = Depends(auth_user),
+                   authorization: str | None = Header(default=None)):
+    token = ""
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    token = token or request.cookies.get("dkd_session", "")
+    return core.revoke_android_session(token)
 
 
 # ----------------------------------------------------------------------------
