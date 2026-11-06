@@ -305,6 +305,10 @@ class SocialPostCreate(BaseModel):
 
 class SocialCommentCreate(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
+    parent_comment_id: int | None = Field(default=None, ge=1)
+
+class SocialRepostCreate(BaseModel):
+    caption: str = Field(default="", max_length=5000)
 
 
 @app.get("/api/social/feed")
@@ -332,6 +336,12 @@ async def social_create_post_with_media(
     )}
 
 
+@app.post("/api/social/posts/{post_id}/repost")
+def social_repost(post_id: int, payload: SocialRepostCreate,
+                  user: dict = Depends(auth_user)):
+    return {"ok": True, "post": core.create_social_repost(user, post_id, payload.caption)}
+
+
 @app.get("/api/social/posts/{post_id}/media/{media_id}")
 def social_get_post_media(post_id: int, media_id: int, user: dict = Depends(auth_user)):
     data, mime = core.get_social_post_media(user, post_id, media_id)
@@ -354,7 +364,9 @@ def social_edit_post(post_id: int, payload: SocialContentEdit,
 @app.post("/api/social/posts/{post_id}/comments")
 def social_create_comment(post_id: int, payload: SocialCommentCreate,
                           user: dict = Depends(auth_user)):
-    return {"ok": True, "comment": core.create_social_comment(user, post_id, payload.body)}
+    return {"ok": True, "comment": core.create_social_comment(
+        user, post_id, payload.body, payload.parent_comment_id
+    )}
 
 
 class SocialReportCreate(BaseModel):
