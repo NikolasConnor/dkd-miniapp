@@ -2880,6 +2880,31 @@ def list_news() -> list:
 # Социальная лента (первый серверный этап)
 # ----------------------------------------------------------------------------
 
+def _social_blocked_user_ids(user_id: int) -> set[int]:
+    """IDs hidden from this user because either side has blocked the other."""
+    uid = int(user_id)
+    outgoing = rows(db().table("social_user_blocks").select("blocked_user_id")
+                    .eq("blocker_user_id", uid), "Не удалось проверить блокировки.")
+    incoming = rows(db().table("social_user_blocks").select("blocker_user_id")
+                    .eq("blocked_user_id", uid), "Не удалось проверить блокировки.")
+    return ({int(x["blocked_user_id"]) for x in outgoing}
+            | {int(x["blocker_user_id"]) for x in incoming})
+
+
+def _social_visible_post(user: dict, post_id: int) -> dict:
+    """Load a published post and enforce mutual block visibility."""
+    _require_social_citizen(user)
+    post = one(db().table("social_posts").select(
+        "id,author_user_id,status,deleted_at"
+    ).eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
+    if not post or post.get("status") != "published" or post.get("deleted_at"):
+        raise DKDError(404, "Публикация не найдена.")
+    if int(post["author_user_id"]) != int(user["id"]):
+        if int(post["author_user_id"]) in _social_blocked_user_ids(int(user["id"])):
+            raise DKDError(404, "Публикация не найдена.")
+    return post
+
+
 def _require_social_citizen(user: dict) -> dict:
     subject = get_subject(int(user["id"]))
     if not subject or not subject.get("is_citizen"):
@@ -2896,6 +2921,10 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20) 
     if before_id is not None:
         query = query.lt("id", int(before_id))
     posts = rows(query.order("id", desc=True).limit(size), "Не удалось загрузить ленту.")
+    if not posts:
+        return []
+    hidden_ids = _social_blocked_user_ids(int(user["id"]))
+    posts = [p for p in posts if int(p["author_user_id"]) not in hidden_ids]
     if not posts:
         return []
     author_ids = sorted({int(p["author_user_id"]) for p in posts})
@@ -3055,10 +3084,7 @@ def create_social_post_with_media(user: dict, body: str, data: bytes, filename: 
 
 def get_social_post_media(user: dict, post_id: int, media_id: int) -> tuple[bytes, str]:
     _require_social_citizen(user)
-    post = one(db().table("social_posts").select("id,status,deleted_at")
-               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
-    if not post or post.get("status") != "published" or post.get("deleted_at"):
-        raise DKDError(404, "Публикация не найдена.")
+    post = _social_visible_post(user, post_id)
     media = one(db().table("social_post_media").select(
         "id,post_id,storage_path,mime_type"
     ).eq("id", int(media_id)).eq("post_id", int(post_id)).limit(1),
@@ -3178,6 +3204,9 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
     target = get_subject(target_id)
     if not target or not target.get("is_citizen"):
         raise DKDError(404, "Профиль гражданина не найден.")
+    hidden_ids = _social_blocked_user_ids(int(user["id"]))
+    if target_id != int(user["id"]) and target_id in hidden_ids:
+        raise DKDError(404, "Профиль гражданина не найден.")
     profile = one(db().table("social_profiles").select(
         "user_id,bio,cover_storage_path,updated_at"
     ).eq("user_id", target_id).limit(1)) or {
@@ -3190,8 +3219,10 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
     own_follow = one(db().table("social_follows").select("follower_user_id")
                      .eq("follower_user_id", int(user["id"]))
                      .eq("followed_user_id", target_id).limit(1))
-    follower_ids = sorted({int(x["follower_user_id"]) for x in followers})
-    following_ids = sorted({int(x["followed_user_id"]) for x in following})
+    follower_ids = sorted({int(x["follower_user_id"]) for x in followers
+                          if int(x["follower_user_id"]) not in hidden_ids})
+    following_ids = sorted({int(x["followed_user_id"]) for x in following
+                           if int(x["followed_user_id"]) not in hidden_ids})
     connection_ids = sorted(set(follower_ids + following_ids + [target_id]))
     connection_subjects = rows(db().table("subjects").select(
         "user_id,username,full_name,avatar_emoji,is_citizen"
