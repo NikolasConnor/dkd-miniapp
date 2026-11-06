@@ -2893,6 +2893,19 @@ def _chat_participant(conversation_id: int, user_id: int) -> dict:
       .is_("left_at", "null").limit(1), "Не удалось проверить доступ к чату.")
     if not row:
         raise DKDError(404, "Чат не найден.")
+    conv = one(db().table("chat_conversations").select(
+        "id,type"
+    ).eq("id", int(conversation_id)).limit(1), "Не удалось проверить тип чата.")
+    if not conv:
+        raise DKDError(404, "Чат не найден.")
+    if conv.get("type") == "direct":
+        others = rows(db().table("chat_participants").select("user_id")
+                      .eq("conversation_id", int(conversation_id))
+                      .is_("left_at", "null"))
+        blocked = _social_blocked_user_ids(int(user_id))
+        if any(int(x["user_id"]) in blocked for x in others
+               if int(x["user_id"]) != int(user_id)):
+            raise DKDError(403, "Доступ к личному чату недоступен из-за блокировки.")
     return row
 
 def list_chat_people(user: dict, search: str = "") -> list[dict]:
@@ -3016,8 +3029,14 @@ def list_chats(user: dict) -> list[dict]:
         by_chat.setdefault(int(p["conversation_id"]), []).append(
             {**p, "profile": subject_map.get(int(p["user_id"]), {})})
     result = []
+    blocked_ids = _social_blocked_user_ids(uid)
     for conv in conversations:
         cid = int(conv["id"])
+        if conv.get("type") == "direct" and any(
+            int(p["user_id"]) in blocked_ids for p in by_chat.get(cid, [])
+            if int(p["user_id"]) != uid
+        ):
+            continue
         latest = one(db().table("chat_messages").select(
             "id,sender_user_id,body,created_at"
         ).eq("conversation_id", cid).is_("deleted_at", "null").order("id", desc=True).limit(1))
