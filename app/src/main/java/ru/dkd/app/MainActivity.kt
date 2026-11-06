@@ -484,7 +484,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                 when {
                     notificationsOpen -> NotificationsScreen(token, onBack = { notificationsOpen = false },
                         onUnreadChanged = { unreadCount = it }, onError = { toast = it })
-                    detail != null -> PortalDetailScreen(detail!!, onBack = { detail = null })
+                    detail != null -> PortalDetailScreen(token, detail!!, onBack = { detail = null }, onError = { toast = it })
                     postId > 0 -> CommentsScreen(token, postId, currentUserId,
                         onBack = { postId = 0 }, onError = { toast = it })
                     profileId > 0 -> SocialProfileScreen(token, profileId, currentUserId,
@@ -622,20 +622,87 @@ private fun GovernmentScreen(onOpen: (String) -> Unit) {
 }
 
 @Composable
-private fun PortalDetailScreen(title: String, onBack: () -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
-        TextButton(onClick = onBack) { Text("← Назад", color = Blue) }
-        Spacer(Modifier.height(12.dp))
-        Text("СЕРВИС ДКД", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-        Text(title, color = White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(16.dp))
-        Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(20.dp)) {
-            Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Раздел подготовлен к интеграции", color = White, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "Это отдельный экран Android-приложения. Чтобы показывать здесь реальные сведения и выполнять действия, раздел необходимо подключить к соответствующим API ДКД. Сейчас данные и операции этого сервиса ещё не подключены в Android-клиенте.",
-                    color = Muted, fontSize = 12.sp
-                )
+private fun PortalDetailScreen(
+    token: String,
+    title: String,
+    onBack: () -> Unit,
+    onError: (String) -> Unit
+) {
+    var payload by remember(title) { mutableStateOf<JSONObject?>(null) }
+    var loading by remember(title) { mutableStateOf(true) }
+    var refresh by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+    val endpoint = when (title) {
+        "Статус гражданина" -> "/api/passport"
+        "Документы" -> "/api/documents"
+        "Новости" -> "/api/news"
+        "Партии", "Политические партии" -> "/api/parties"
+        "Выборы" -> "/api/votes"
+        "Государственная Дума" -> "/api/duma"
+        "Президент", "Правительство" -> "/api/president/status"
+        "Законы" -> "/api/president/laws"
+        "Обращения" -> "/api/applications"
+        else -> null
+    }
+    LaunchedEffect(token, title, refresh) {
+        loading = true
+        if (endpoint != null) {
+            val result = apiCall(token, "GET", endpoint)
+            if (result.error != null) onError(result.error)
+            payload = result.data
+        } else payload = null
+        loading = false
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onBack) { Text("← Назад", color = Blue) }
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { refresh++ }) { Text("Обновить", color = Blue) }
+        }
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp)) {
+            Text("СЕРВИС ДКД", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+            Text(title, color = White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.height(14.dp))
+            when {
+                loading -> Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Blue)
+                }
+                payload != null -> {
+                    val keys = payload!!.keys().asSequence().toList()
+                    if (keys.isEmpty()) {
+                        Text("Пока нет данных в этом разделе.", color = Muted, fontSize = 13.sp)
+                    } else {
+                        keys.forEach { key ->
+                            val value = payload!!.opt(key)
+                            val rendered = when (value) {
+                                is JSONObject -> value.toString(2)
+                                is org.json.JSONArray -> value.toString(2)
+                                JSONObject.NULL -> "—"
+                                else -> value.toString()
+                            }
+                            Surface(
+                                color = Color(0xFF151C2A),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                            ) {
+                                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text(key.replace('_', ' ').replaceFirstChar { it.uppercase() },
+                                        color = Blue, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    Text(rendered, color = White, fontSize = 12.sp)
+                                }
+                            }
+                        }
+                    }
+                }
+                else -> Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(18.dp)) {
+                    Text(
+                        "Для этого раздела ещё не подключён отдельный API-экран.",
+                        color = Muted, fontSize = 12.sp, modifier = Modifier.padding(18.dp)
+                    )
+                }
             }
         }
     }
