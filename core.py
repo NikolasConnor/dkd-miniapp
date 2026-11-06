@@ -2656,12 +2656,12 @@ def list_news() -> list:
 
 
 def _news_photo_mime(data: bytes, media_type: str | None) -> str:
-    """Определяет поддерживаемый формат фото по сигнатуре, а не по имени файла."""
+    """Определяет поддерживаемый формат фото по бинарной сигнатуре."""
     if media_type != "photo":
         return "application/octet-stream"
-    if data.startswith(b"\\xff\\xd8\\xff"):
+    if data.startswith(bytes.fromhex("ffd8ff")):
         return "image/jpeg"
-    if data.startswith(b"\\x89PNG\\r\\n\\x1a\\n"):
+    if data.startswith(bytes.fromhex("89504e470d0a1a0a")):
         return "image/png"
     raise DKDError(422, "Фото должно быть в формате JPEG или PNG.")
 
