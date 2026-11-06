@@ -395,3 +395,12 @@ if __name__ == "__main__":
         self.assertIn("search: str = \"\"", app)
         self.assertIn("function searchCurrentChatMessages()", html)
         self.assertIn("chatSearchRequestId", html)
+
+    def test_direct_chat_access_respects_blocks_in_both_directions(self):
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        participant = core[core.index("def _chat_participant"):core.index("def list_chat_people")]
+        chats = core[core.index("def list_chats"):core.index("def list_chat_messages")]
+        self.assertIn('conv.get("type") == "direct"', participant)
+        self.assertIn("_social_blocked_user_ids(int(user_id))", participant)
+        self.assertIn("blocked_ids = _social_blocked_user_ids(uid)", chats)
+        self.assertIn("if conv.get(\"type\") == \"direct\"", chats)
