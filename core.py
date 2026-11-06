@@ -3124,13 +3124,23 @@ def add_chat_members(user: dict, conversation_id: int, member_ids: list[int]) ->
                    .eq("conversation_id", cid).is_("left_at", "null"))
     existing = {int(x["user_id"]) for x in current}
     new_ids = [x for x in ids if x not in existing]
-    if len(existing) + len(new_ids) > CHAT_GROUP_MAX_MEMBERS:
+    all_rows = rows(db().table("chat_participants").select("user_id,left_at")
+                    .eq("conversation_id", cid).in_("user_id", ids))
+    rejoin_ids = [int(x["user_id"]) for x in all_rows
+                  if x.get("left_at") is not None and int(x["user_id"]) not in existing]
+    new_ids = [x for x in new_ids if x not in rejoin_ids]
+    if len(existing) + len(new_ids) + len(rejoin_ids) > CHAT_GROUP_MAX_MEMBERS:
         raise DKDError(422, "В группе может быть не более 50 участников.")
+    for member_id in rejoin_ids:
+        execute(db().table("chat_participants").update({
+            "left_at": None, "joined_at": now_iso(), "member_role": "member"
+        }).eq("conversation_id", cid).eq("user_id", member_id),
+        "Не удалось вернуть участника в группу.")
     if new_ids:
         execute(db().table("chat_participants").insert([
             {"conversation_id": cid, "user_id": x, "member_role": "member"} for x in new_ids
         ]), "Не удалось добавить участников.")
-    return {"ok": True, "added": len(new_ids)}
+    return {"ok": True, "added": len(new_ids) + len(rejoin_ids)}
 
 
 def set_chat_member_role(user: dict, conversation_id: int, target_user_id: int,
