@@ -133,6 +133,8 @@ class SocialApiStaticTests(unittest.TestCase):
             'def chats_people(', 'def chats_list(', 'def chats_create_direct(',
             'def chats_create_group(', 'def chats_messages(', 'def chats_send_message(',
             'def chats_mark_read(', 'def chats_leave(', 'def chats_add_members(',
+            'def chats_change_member_role(', 'def chats_remove_member(',
+            'def chats_transfer_ownership(',
         ):
             self.assertIn(marker, app)
         chat_block = app[app.index('# Direct and group chats'):app.index('# Закон №3')]
@@ -141,6 +143,8 @@ class SocialApiStaticTests(unittest.TestCase):
             'def list_chat_people(', 'def create_direct_chat(', 'def create_group_chat(',
             'def list_chats(', 'def list_chat_messages(', 'def send_chat_message(',
             'def mark_chat_read(', 'def leave_chat(', 'def add_chat_members(',
+            'def set_chat_member_role(', 'def remove_chat_member(',
+            'def transfer_chat_ownership(',
         ):
             self.assertIn(marker, core)
 
@@ -159,6 +163,26 @@ class SocialApiStaticTests(unittest.TestCase):
             self.assertIn(f'revoke all on public.{table} from anon, authenticated', sql)
         self.assertIn("direct_key text unique", sql)
         self.assertIn("char_length(btrim(body)) between 1 and 4000", sql)
+
+    def test_chat_group_management_is_atomic_and_restricted(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        sql = (ROOT / "supabase/migrations/20261106210000_chat_group_management.sql").read_text(encoding="utf-8").lower()
+        for marker in ('Depends(auth_user)', 'core.set_chat_member_role', 'core.remove_chat_member', 'core.transfer_chat_ownership'):
+            self.assertIn(marker, app)
+        self.assertIn('actor["member_role"] != "owner"', core)
+        self.assertIn('actor["member_role"] not in {"owner", "admin"}', core)
+        self.assertIn('security invoker', sql)
+        self.assertIn('revoke all on function public.transfer_chat_ownership', sql)
+        self.assertIn('grant execute on function public.transfer_chat_ownership', sql)
+
+    def test_chat_ui_has_group_moderation_and_polling(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        self.assertIn('id="chatMemberTools"', html)
+        self.assertIn('function transferChatOwner(', html)
+        self.assertIn('function removeChatMemberUI(', html)
+        self.assertIn('function startChatPolling(', html)
+        self.assertIn('clearInterval(chatPollTimer)', html)
 
     def test_social_write_limits_are_enforced(self):
         source = (ROOT / "core.py").read_text(encoding="utf-8")
