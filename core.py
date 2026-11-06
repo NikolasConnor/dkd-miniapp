@@ -2655,6 +2655,134 @@ def list_news() -> list:
 
 
 
+# ----------------------------------------------------------------------------
+# Социальная лента (первый серверный этап)
+# ----------------------------------------------------------------------------
+
+def _require_social_citizen(user: dict) -> dict:
+    subject = get_subject(int(user["id"]))
+    if not subject or not subject.get("is_citizen"):
+        raise DKDError(403, "Социальная сеть ДКД доступна только гражданам.")
+    return subject
+
+
+def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20) -> list[dict]:
+    _require_social_citizen(user)
+    size = max(1, min(int(limit), 50))
+    query = db().table("social_posts").select(
+        "id,author_user_id,body,status,created_at,updated_at"
+    ).eq("status", "published").is_("deleted_at", "null")
+    if before_id is not None:
+        query = query.lt("id", int(before_id))
+    posts = rows(query.order("id", desc=True).limit(size), "Не удалось загрузить ленту.")
+    if not posts:
+        return []
+    author_ids = sorted({int(p["author_user_id"]) for p in posts})
+    authors = rows(db().table("subjects").select(
+        "user_id,username,full_name,avatar_emoji"
+    ).in_("user_id", author_ids), "Не удалось загрузить авторов публикаций.")
+    author_map = {int(a["user_id"]): a for a in authors}
+    post_ids = [int(p["id"]) for p in posts]
+    reactions = rows(db().table("social_reactions").select(
+        "post_id,user_id,reaction"
+    ).in_("post_id", post_ids), "Не удалось загрузить реакции.")
+    comments = rows(db().table("social_comments").select(
+        "post_id"
+    ).in_("post_id", post_ids).eq("status", "published").is_("deleted_at", "null"),
+       "Не удалось загрузить комментарии.")
+    reaction_counts: dict[int, int] = {}
+    my_reactions: dict[int, str] = {}
+    for item in reactions:
+        pid = int(item["post_id"])
+        reaction_counts[pid] = reaction_counts.get(pid, 0) + 1
+        if int(item["user_id"]) == int(user["id"]):
+            my_reactions[pid] = str(item.get("reaction") or "like")
+    comment_counts: dict[int, int] = {}
+    for item in comments:
+        pid = int(item["post_id"])
+        comment_counts[pid] = comment_counts.get(pid, 0) + 1
+    result = []
+    for post in posts:
+        pid = int(post["id"])
+        result.append({
+            **post,
+            "author": author_map.get(int(post["author_user_id"]), {
+                "user_id": int(post["author_user_id"]),
+                "full_name": "Пользователь ДКД",
+                "username": None,
+                "avatar_emoji": "👤",
+            }),
+            "reaction_count": reaction_counts.get(pid, 0),
+            "comment_count": comment_counts.get(pid, 0),
+            "my_reaction": my_reactions.get(pid),
+        })
+    return result
+
+
+def create_social_post(user: dict, body: str) -> dict:
+    _require_social_citizen(user)
+    text_value = str(body or "").strip()
+    if not text_value:
+        raise DKDError(422, "Напишите текст публикации.")
+    if len(text_value) > 5000:
+        raise DKDError(422, "Публикация не должна превышать 5000 символов.")
+    created = execute(db().table("social_posts").insert({
+        "author_user_id": int(user["id"]),
+        "body": text_value,
+        "status": "published",
+    }), "Не удалось опубликовать запись.")
+    if not created:
+        raise DKDError(502, "Сервер не подтвердил создание публикации.")
+    post = created[0]
+    subject = get_subject(int(user["id"])) or {}
+    return {
+        **post,
+        "author": {
+            "user_id": int(user["id"]),
+            "username": subject.get("username"),
+            "full_name": subject.get("full_name") or "Пользователь ДКД",
+            "avatar_emoji": subject.get("avatar_emoji") or "👤",
+        },
+        "reaction_count": 0,
+        "comment_count": 0,
+        "my_reaction": None,
+    }
+
+
+def create_social_comment(user: dict, post_id: int, body: str) -> dict:
+    _require_social_citizen(user)
+    text_value = str(body or "").strip()
+    if not text_value or len(text_value) > 2000:
+        raise DKDError(422, "Комментарий должен содержать от 1 до 2000 символов.")
+    post = one(db().table("social_posts").select("id,status,deleted_at")
+               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
+    if not post or post.get("status") != "published" or post.get("deleted_at"):
+        raise DKDError(404, "Публикация не найдена.")
+    created = execute(db().table("social_comments").insert({
+        "post_id": int(post_id), "author_user_id": int(user["id"]), "body": text_value,
+        "status": "published",
+    }), "Не удалось добавить комментарий.")
+    return created[0]
+
+
+def toggle_social_reaction(user: dict, post_id: int) -> dict:
+    _require_social_citizen(user)
+    post = one(db().table("social_posts").select("id,status,deleted_at")
+               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
+    if not post or post.get("status") != "published" or post.get("deleted_at"):
+        raise DKDError(404, "Публикация не найдена.")
+    existing = one(db().table("social_reactions").select("id")
+                   .eq("post_id", int(post_id)).eq("user_id", int(user["id"])).limit(1))
+    if existing:
+        execute(db().table("social_reactions").delete().eq("id", int(existing["id"])),
+                "Не удалось убрать реакцию.")
+        return {"reacted": False}
+    execute(db().table("social_reactions").insert({
+        "post_id": int(post_id), "user_id": int(user["id"]), "reaction": "like",
+    }), "Не удалось поставить реакцию.")
+    return {"reacted": True}
+
+
 def _news_photo_mime(data: bytes, media_type: str | None) -> str:
     """Определяет поддерживаемый формат фото по бинарной сигнатуре."""
     if media_type != "photo":
