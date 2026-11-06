@@ -205,6 +205,10 @@ class ProfileUpdate(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
 
 
+class ProfileGenderUpdate(BaseModel):
+    gender: str = Field(default="", max_length=16)
+
+
 class AvatarUpdate(BaseModel):
     avatar_emoji: str = Field(min_length=1, max_length=16)
 
@@ -217,6 +221,11 @@ def get_profile(user: dict = Depends(auth_user)):
 @app.patch("/api/profile")
 def update_profile(payload: ProfileUpdate, user: dict = Depends(auth_user)):
     return {"ok": True, "profile": core.update_profile_name(user, payload.full_name)}
+
+
+@app.patch("/api/profile/gender")
+def update_profile_gender(payload: ProfileGenderUpdate, user: dict = Depends(auth_user)):
+    return {"ok": True, "profile": core.update_profile_gender(user, payload.gender)}
 
 
 @app.patch("/api/profile/avatar")
