@@ -209,6 +209,32 @@ class ProfileGenderUpdate(BaseModel):
     gender: str = Field(default="", max_length=16)
 
 
+class MarriageProposal(BaseModel):
+    partner_user_id: int
+
+
+class MarriageDecision(BaseModel):
+    accept: bool
+
+
+class DivorceDecision(BaseModel):
+    accept: bool
+
+
+class CourtCaseCreate(BaseModel):
+    respondent_user_id: int
+    title: str = Field(min_length=4, max_length=160)
+    claim: str = Field(min_length=20, max_length=8000)
+
+
+class CourtResponseCreate(BaseModel):
+    response_text: str = Field(min_length=20, max_length=8000)
+
+
+class CourtAppealCreate(BaseModel):
+    grounds: str = Field(min_length=20, max_length=5000)
+
+
 class AvatarUpdate(BaseModel):
     avatar_emoji: str = Field(min_length=1, max_length=16)
 
@@ -380,6 +406,58 @@ def social_get_cover(target_user_id: int, user: dict = Depends(auth_user)):
     return Response(content=data, media_type=mime,
                     headers={"Cache-Control": "private, max-age=300",
                              "X-Content-Type-Options": "nosniff"})
+
+
+# Закон №3: регистрация брака, развод и Суд ДКД
+@app.get("/api/family")
+def family_list(user: dict = Depends(auth_user)):
+    return core.list_marriages(user)
+
+
+@app.post("/api/family/proposals")
+def family_propose(payload: MarriageProposal, user: dict = Depends(auth_user)):
+    return core.propose_marriage(user, payload.partner_user_id)
+
+
+@app.post("/api/family/proposals/{marriage_id}/decision")
+def family_decide(marriage_id: int, payload: MarriageDecision, user: dict = Depends(auth_user)):
+    return core.decide_marriage(user, marriage_id, payload.accept)
+
+
+@app.post("/api/family/{marriage_id}/divorce")
+def family_divorce(marriage_id: int, user: dict = Depends(auth_user)):
+    return core.request_divorce(user, marriage_id)
+
+
+@app.post("/api/family/{marriage_id}/divorce/decision")
+def family_divorce_decision(marriage_id: int, payload: DivorceDecision, user: dict = Depends(auth_user)):
+    return core.decide_divorce(user, marriage_id, payload.accept)
+
+
+@app.get("/api/court/cases")
+def court_cases(user: dict = Depends(auth_user)):
+    return core.list_court_cases(user)
+
+
+@app.post("/api/court/cases")
+def court_file_case(payload: CourtCaseCreate, user: dict = Depends(auth_user)):
+    return core.file_court_case(user, payload.respondent_user_id, payload.title, payload.claim)
+
+
+@app.post("/api/court/cases/{case_id}/response")
+def court_respond(case_id: int, payload: CourtResponseCreate, user: dict = Depends(auth_user)):
+    return core.respond_court_case(user, case_id, payload.response_text)
+
+
+@app.post("/api/court/cases/{case_id}/appeals")
+def court_appeal(case_id: int, payload: CourtAppealCreate, user: dict = Depends(auth_user)):
+    return core.appeal_court_case(user, case_id, payload.grounds)
+
+
+@app.get("/api/court/archive")
+def court_archive(user: dict = Depends(auth_user)):
+    core._require_citizen(user)
+    return core.list_public_court_decisions()
 
 
 @app.get("/api/news")
