@@ -4006,7 +4006,7 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
     if target_id != int(user["id"]) and target_id in hidden_ids:
         raise DKDError(404, "Профиль гражданина не найден.")
     profile = one(db().table("social_profiles").select(
-        "user_id,bio,cover_storage_path,updated_at"
+        "user_id,bio,cover_storage_path,updated_at,show_connections"
     ).eq("user_id", target_id).limit(1)) or {
         "user_id": target_id, "bio": "", "cover_storage_path": None,
     }
@@ -4026,8 +4026,9 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
         "user_id,username,full_name,avatar_emoji,is_citizen"
     ).in_("user_id", connection_ids), "Не удалось загрузить список подписок.")
     connection_map = {int(x["user_id"]): x for x in connection_subjects if x.get("is_citizen")}
-    follower_list = [connection_map[x] for x in follower_ids if x in connection_map]
-    following_list = [connection_map[x] for x in following_ids if x in connection_map]
+    can_view_connections = target_id == int(user["id"]) or bool(profile.get("show_connections", True))
+    follower_list = [connection_map[x] for x in follower_ids if x in connection_map] if can_view_connections else []
+    following_list = [connection_map[x] for x in following_ids if x in connection_map] if can_view_connections else []
     posts = rows(db().table("social_posts").select(
         "id,author_user_id,body,status,created_at,updated_at,repost_of_post_id"
     ).eq("author_user_id", target_id).eq("status", "published")
@@ -4114,6 +4115,8 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
         "full_name": target.get("full_name") or "Гражданин ДКД",
         "avatar_emoji": target.get("avatar_emoji") or "👤",
         "bio": profile.get("bio") or "",
+        "show_connections": bool(profile.get("show_connections", True)),
+        "connections_hidden": not can_view_connections,
         "cover_storage_path": profile.get("cover_storage_path"),
         "followers_count": len(follower_list),
         "following_count": len(following_list),
@@ -4126,15 +4129,17 @@ def get_social_profile(user: dict, target_user_id: int) -> dict:
     }
 
 
-def update_social_profile(user: dict, bio: str) -> dict:
-    subject = _require_social_citizen(user)
+def update_social_profile(user: dict, bio: str, show_connections: bool | None = None) -> dict:
+    _require_social_citizen(user)
     text_value = str(bio or "").strip()
     if len(text_value) > 280:
         raise DKDError(422, "Описание профиля не должно превышать 280 символов.")
     payload = {"user_id": int(user["id"]), "bio": text_value,
                "updated_at": datetime.now(timezone.utc).isoformat()}
+    if show_connections is not None:
+        payload["show_connections"] = bool(show_connections)
     execute(db().table("social_profiles").upsert(payload, on_conflict="user_id"),
-            "Не удалось сохранить описание профиля.")
+            "Не удалось сохранить настройки профиля.")
     return get_social_profile(user, int(user["id"]))
 
 
