@@ -646,7 +646,7 @@ function renderChatMessages(items){
    if(x.media_type==='video')return '<video controls playsinline preload="metadata" style="width:100%;max-height:360px;border-radius:12px" src="'+url+'"></video>';
    return '<a href="'+url+'" target="_blank" rel="noopener"><img loading="lazy" alt="Вложение" src="'+url+'" style="max-width:100%;max-height:360px;object-fit:contain;border-radius:12px"></a>';
   }).join('');
-  const own=Number(m.sender_user_id)===Number(state.profile?.user_id);
+  const own=!!m.can_edit;
   const controls=own?'<div class="row" style="gap:8px;margin-top:8px"><button class="btn secondary" type="button" onclick="editChatMessage('+Number(m.id)+','+JSON.stringify(String(m.body||''))+')">Изменить</button><button class="btn danger" type="button" onclick="deleteChatMessage('+Number(m.id)+')">Удалить</button></div>':'';
   return '<article class="card"><small>'+esc(m.author?.full_name||'Гражданин')+' · '+fmtDate(m.created_at)+(m.updated_at&&m.updated_at!==m.created_at?' · изменено':'')+'</small><p style="white-space:pre-wrap">'+esc(m.body)+'</p>'+media+controls+'</article>';
  }).join('')||'<div class="empty">Сообщений пока нет.</div>';
