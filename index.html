@@ -72,6 +72,8 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
         <button class="tile" onclick="openView('parties')"><span class="icon">🎭</span><strong>Партии</strong><span>Участие и состав</span></button>
         <button class="tile" onclick="openView('elections')"><span class="icon">🗳️</span><strong>Выборы</strong><span>Голосование</span></button>
         <button class="tile" onclick="openView('news')"><span class="icon">📰</span><strong>Новости</strong><span>Последние публикации</span></button>
+        <button class="tile" onclick="openView('social')"><span class="icon">💬</span><strong>Сообщество</strong><span>Публикации граждан</span></button>
+        <button class="tile" onclick="openView('family')"><span class="icon">💍</span><strong>Семья и суд</strong><span>Брак, заявления и дела</span></button>
         <button class="tile hidden" id="presidentTile" onclick="openView('president')"><span class="icon">🏅</span><strong>Президент</strong><span>Указы и управление</span></button>
         <button class="tile hidden" id="parliamentTile" onclick="openView('parliament')"><span class="icon">🏛️</span><strong>Государственная дума</strong><span>Парламент ДКД</span></button>
         <button class="tile hidden" id="adminTile" onclick="openView('admin')"><span class="icon">🛡️</span><strong>Администрация</strong><span>Управление системой</span></button>
@@ -89,7 +91,8 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
         <div id="avatarGrid" class="avatar-grid"></div>
         <div class="row" style="margin-top:12px"><span class="muted small">Выбрано: <strong id="avatarCurrent">👤</strong></span><button class="btn primary" type="button" onclick="saveAvatar()">Сохранить аватарку</button></div>
       </div>
-      <form class="card form" onsubmit="saveProfile(event)"><div class="field"><label for="fullName">ФИО</label><input id="fullName" minlength="2" maxlength="120" placeholder="Введите ФИО" required></div><button class="btn primary">Сохранить изменения</button></form>
+      <form class="card form" onsubmit="saveProfile(event)"><div class="field"><label for="fullName">ФИО</label><input id="fullName" minlength="2" maxlength="120" placeholder="Введите ФИО" required></div><button class="btn primary">Сохранить ФИО</button></form>
+      <div class="card form"><div class="field"><label for="profileGender">Пол · согласно Закону №3</label><select id="profileGender" onchange="saveProfileGender(this.value)"><option value="">Не указан</option><option value="male">Мужской</option><option value="female">Женский</option></select></div><small class="muted">Пол указывается гражданином самостоятельно. Его можно изменить в любой момент.</small></div>
     </section>
 
     <section id="documentsView" class="view">
@@ -103,6 +106,30 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
         <button class="tile" onclick="showDocTab('laws')"><span class="icon">⚖️</span><strong>Законы и указы</strong><span>Государственные документы</span></button>
       </div>
       <div id="docTabContent"></div>
+    </section>
+
+    <section id="familyView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button>
+      <div class="section-head"><h3>Семья и Суд ДКД</h3><button class="btn secondary" onclick="loadFamilyCourt()">Обновить</button></div>
+      <div class="card form">
+        <h3 style="margin:0">Предложение о браке</h3>
+        <p class="muted small">Введите Telegram ID гражданина. Брак регистрируется только после его добровольного согласия.</p>
+        <form class="row" onsubmit="proposeMarriage(event)"><input id="marriagePartnerId" type="number" min="1" placeholder="Telegram ID гражданина" required><button class="btn primary">Предложить</button></form>
+      </div>
+      <div class="section-head"><h3>Мои семейные документы</h3></div>
+      <div id="marriagesList" class="list"><div class="empty">Загрузка…</div></div>
+      <div class="section-head"><h3>Обратиться в Суд ДКД</h3></div>
+      <form class="card form" onsubmit="fileCourtCase(event)">
+        <p class="muted small">Укажите Telegram ID ответчика, название дела и обстоятельства спора. Ответчик сможет представить свою позицию. Судебное решение пока не выносится автоматически: система регистрирует дело и передаёт его на отдельный этап рассмотрения ИИ-судьёй.</p>
+        <div class="field"><label for="courtRespondent">Telegram ID ответчика</label><input id="courtRespondent" type="number" min="1" required></div>
+        <div class="field"><label for="courtTitle">Название дела</label><input id="courtTitle" minlength="4" maxlength="160" required></div>
+        <div class="field"><label for="courtClaim">Иск и обстоятельства</label><textarea id="courtClaim" minlength="20" maxlength="8000" rows="5" required></textarea></div>
+        <button class="btn primary">Подать иск</button>
+      </form>
+      <div class="section-head"><h3>Мои судебные дела</h3></div>
+      <div id="courtCasesList" class="list"><div class="empty">Загрузка…</div></div>
+      <div class="section-head"><h3>Открытый архив решений</h3></div>
+      <div id="courtArchive" class="list"><div class="empty">Загрузка…</div></div>
     </section>
 
     <section id="partiesView" class="view">
@@ -121,6 +148,34 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 
     <section id="newsView" class="view">
       <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Новости ДКД</h3><button class="btn secondary" onclick="loadNews()">Обновить</button></div><div id="newsContent" class="list"></div>
+    </section>
+
+    <section id="socialView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button>
+      <div class="section-head"><h3>Сообщество ДКД</h3><div class="row"><button class="btn secondary" onclick="openSocialProfile(state.profile?.telegram_id)">Мой профиль</button><button class="btn secondary" onclick="loadSocialFeed(true)">Обновить</button></div></div>
+      <div class="row wrap" style="margin:10px 0"><button id="socialFeedAll" class="btn primary" onclick="setSocialFeedMode(false)">Все публикации</button><button id="socialFeedFollowing" class="btn secondary" onclick="setSocialFeedMode(true)">Мои подписки</button><button id="socialFeedSaved" class="btn secondary" onclick="setSocialSavedMode()">Сохранённое</button></div>
+      <form class="card form" onsubmit="submitSocialPost(event)">
+        <h3 style="margin:0">Новая публикация</h3>
+        <div class="field"><label for="socialPostBody">О чём хотите рассказать?</label><textarea id="socialPostBody" maxlength="5000" rows="4" placeholder="Поделитесь новостью или мыслью…"></textarea></div>
+        <div class="field"><label for="socialPostFile">Фото или видео · до 50 МБ</label><input id="socialPostFile" type="file" accept="image/jpeg,image/png,image/webp,video/mp4"></div>
+        <div class="row"><span class="muted small">Текст или медиафайл</span><button class="btn primary">Опубликовать</button></div>
+      </form>
+      <div class="card form" style="margin:12px 0"><div class="field"><label for="socialFeedSearch">Поиск по публикациям</label><input id="socialFeedSearch" type="search" maxlength="80" placeholder="Найти текст публикации…" oninput="scheduleSocialFeedSearch()"></div><div class="row"><button id="socialFeedAll" class="btn primary" type="button" onclick="setSocialFeedMode(false)">Все публикации</button><button id="socialFeedFollowing" class="btn secondary" type="button" onclick="setSocialFeedMode(true)">Мои подписки</button></div><div class="field" style="margin-top:10px"><label for="socialPeopleSearch">Найти гражданина</label><input id="socialPeopleSearch" type="search" maxlength="80" placeholder="Имя или @username" oninput="searchSocialPeople()"></div><div id="socialPeopleResults" class="list"></div></div><div id="socialFeed" class="list"><div class="empty">Загрузка ленты…</div></div>
+      <button id="socialMore" class="btn secondary hidden" style="width:100%;margin-top:12px" onclick="loadSocialFeed(false)">Загрузить ещё</button>
+    </section>
+
+    <section id="chatsView" class="view">
+<button class="back" onclick="openView('home')">← На главную</button>
+<div class="section-head"><h2>Сообщения</h2><button class="btn secondary" onclick="loadChats()">Обновить</button></div>
+<div id="chatListPane">
+<div class="card form"><h3>Новый личный чат</h3><input id="chatPeopleSearch" maxlength="80" placeholder="Поиск гражданина" oninput="searchChatPeople()"><div id="chatPeopleResults"></div></div>
+<form class="card form" onsubmit="createChatGroup(event)"><h3>Создать группу</h3><input id="chatGroupTitle" required minlength="2" maxlength="80" placeholder="Название группы"><div><input id="chatGroupPeopleSearch" placeholder="Найти граждан по имени или @username" oninput="searchGroupPeople('create')"><div id="chatGroupPeopleResults" class="list"></div><div id="chatGroupPeopleSelected" class="muted small"></div></div><button class="btn primary">Создать группу</button></form>
+<div id="chatList" class="list"></div></div>
+<div id="chatRoomPane" class="hidden"><button class="btn secondary" onclick="closeChatRoom()">← К чатам</button><h3 id="chatRoomTitle">Чат</h3><div id="chatParticipants" class="muted small"></div><div id="chatMemberTools" class="card form hidden"><strong>Участники группы</strong><div id="chatMemberList" class="list"></div><input id="chatAddPeopleSearch" placeholder="Найти граждан по имени или @username" oninput="searchGroupPeople('add')"><div id="chatAddPeopleResults" class="list"></div><div id="chatAddPeopleSelected" class="muted small"></div><button class="btn secondary" onclick="addChatMembersUI()">Добавить выбранных</button></div><div id="chatReplyPreview" class="notice hidden" style="margin:10px 0"><div class="row"><span id="chatReplyPreviewText" class="small"></span><button class="btn secondary" type="button" onclick="cancelChatReply()">Отмена</button></div></div><input id="chatMessageSearch" maxlength="80" placeholder="Поиск по сообщениям" oninput="searchCurrentChatMessages()"><div id="chatMessages" class="list"></div><form class="row" onsubmit="sendChatMessage(event)"><input id="chatMessageBody" maxlength="4000" placeholder="Сообщение"><button class="btn primary">Отправить</button></form><form class="row" onsubmit="sendChatAttachment(event)"><input id="chatAttachment" type="file" accept="image/jpeg,image/png,image/webp,video/mp4" required><button class="btn secondary">Прикрепить</button></form><small class="muted">Фото или MP4-видео, до 25 МБ.</small><button id="chatLeaveButton" class="btn secondary hidden" onclick="leaveCurrentChat()">Покинуть группу</button></div>
+</section>
+<section id="socialProfileView" class="view">
+      <button class="back" onclick="openView('social')">← К ленте</button>
+      <div id="socialProfileContent"><div class="empty">Загрузка профиля…</div></div>
     </section>
 
     <section id="parliamentView" class="view">
@@ -223,8 +278,15 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
     <section id="adminView" class="view">
       <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Администрация</h3><button class="btn secondary" onclick="loadAdmin()">Обновить</button></div>
       <div id="adminStatus" class="notice">Проверка прав…</div>
+
       <div id="claimBox" class="card hidden"><h3 style="margin-top:0">Первичная активация администратора</h3><p class="muted small">Введите одноразовый код, выданный владельцем системы.</p><form class="form" onsubmit="claimAdmin(event)"><div class="field"><label>Код активации</label><input id="adminCode" type="password" minlength="8" required autocomplete="off"></div><button class="btn primary">Активировать</button></form></div>
       <div id="adminTools" class="hidden">
+      <section id="adminSocialModeration" class="card" style="margin-top:12px">
+        <div class="section-head"><h3>Модерация социальной сети</h3><button class="btn secondary" type="button" onclick="loadSocialModeration()">Обновить</button></div>
+        <div class="row"><select id="socialReportStatus" onchange="loadSocialModeration()" aria-label="Статус жалоб"><option value="open">Новые</option><option value="reviewing">На рассмотрении</option><option value="resolved">Решённые</option><option value="dismissed">Отклонённые</option><option value="all">Все</option></select></div>
+        <div id="socialModerationQueue" class="list"><div class="empty">Очередь жалоб загружается…</div></div>
+      </section>
+
         <div class="card form" style="margin-top:12px">
           <h4 style="margin:0">Вход в отдельное Android-приложение</h4>
           <p class="muted small" style="margin:0">Введите Telegram ID участника. Код действует 15 минут и используется один раз. Передайте его владельцу аккаунта лично.</p>
@@ -325,8 +387,9 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 </div>
 <nav class="bottom"><div class="nav">
   <button class="active" data-view="home" onclick="openView('home')"><span>⌂</span>Главная</button>
-  <button data-view="documents" onclick="openView('documents')"><span>▤</span>Документы</button>
-  <button data-view="elections" onclick="openView('elections')"><span>◉</span>Выборы</button>
+  <button data-view="social" onclick="openView('social')"><span>▤</span>Лента</button>
+<button data-view="chats" onclick="openView('chats')"><span>✉</span>Чаты</button>
+  <button data-view="elections" onclick="openView('elections')"><span>◉</span>Государство</button>
   <button data-view="profile" onclick="openView('profile')"><span>○</span>Профиль</button>
 </div></nav>
 <div id="toast" style="position:fixed;left:15px;right:15px;bottom:90px;z-index:10;display:none"></div>
@@ -342,11 +405,15 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 const tg = window.Telegram?.WebApp;
 if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0d1024'); tg.setBackgroundColor('#0d1024'); } catch(e) {} }
 const initData = tg?.initData || (window.AndroidDKD?.hasSession?.() ? 'native-session' : '');
-const state = {profile:null, isAdmin:false, isPresident:false, isDeputy:false, docs:null, apps:[], avatarCategory:'Все', pendingAvatar:'👤'};
+const state = {profile:null, isAdmin:false, isPresident:false, isDeputy:false, docs:null, apps:[], socialBeforeId:null, socialHasMore:false, socialProfileId:null, socialCommentsOpen:{}, currentChatId:null, currentChat:null, avatarCategory:'Все', pendingAvatar:'👤'};
 const AVATAR_GROUPS = {'Все':'👤 👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️ 👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬 😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽 🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄 🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹 💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩 🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬'.split(' '), 'Государство':'👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️', 'Профессии':'👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬', 'Настроение':'😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽', 'Животные':'🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄', 'Фэнтези':'🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹', 'Стиль':'💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩', 'Космос':'🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬 👾 👽'};
 function renderAvatarPicker(){const cats=Object.keys(AVATAR_GROUPS);$('avatarCategories').innerHTML=cats.map(c=>`<button type="button" class="${state.avatarCategory===c?'active':''}" onclick="setAvatarCategory('${esc(c)}')">${esc(c)}</button>`).join('');const list=AVATAR_GROUPS[state.avatarCategory]||AVATAR_GROUPS['Все'];$('avatarGrid').innerHTML=[...new Set(list)].map(e=>`<button type="button" aria-label="Выбрать ${e}" class="avatar-option ${state.pendingAvatar===e?'selected':''}" onclick="pickAvatar('${e}')">${e}</button>`).join('');$('avatarCurrent').textContent=state.pendingAvatar;}
 function setAvatarCategory(c){state.avatarCategory=c;renderAvatarPicker()}
 function pickAvatar(e){state.pendingAvatar=e;renderAvatarPicker()}
+async function saveProfileGender(gender){
+ try{const d=await api('/api/profile/gender',{method:'PATCH',body:{gender}});state.profile=d.profile||state.profile;notify('Пол в профиле обновлён')}
+ catch(e){notify(e.message,'error');$('profileGender').value=state.profile?.gender||''}
+}
 async function saveAvatar(){try{const d=await api('/api/profile/avatar',{method:'PATCH',body:{avatar_emoji:state.pendingAvatar}});state.profile=d.profile||state.profile;notify('Аватарка сохранена');await loadProfile();await loadDocuments()}catch(e){notify(e.message,'error')}}
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -409,7 +476,11 @@ async function api(url, opts={}) {
 }
 function showError(target,err){if(target)target.innerHTML=`<div class="notice error">${esc(err.message||err)}</div>`}
 let notificationUnreadPrevious=null;
+let notificationPollInFlight=false;
 async function refreshNotifications(showNew=true){
+  if(notificationPollInFlight)return;
+  if(document.visibilityState==='hidden'&&!$('notificationPanel')?.classList.contains('hidden'))return;
+  notificationPollInFlight=true;
   try{
     const data=await api('/api/notifications'),items=data.notifications||[],count=Number(data.unread_count||0);
     const badge=$('notificationCount');badge.textContent=count>99?'99+':String(count);badge.classList.toggle('hidden',count===0);
@@ -421,6 +492,7 @@ async function refreshNotifications(showNew=true){
     const list=$('notificationList');
     if(list)list.innerHTML=items.length?items.map(n=>'<article class="notification-item '+(!n.is_read?'unread':'')+'"><div class="row"><strong>'+esc(n.title||'Уведомление')+'</strong>'+(!n.is_read?'<span class="status">Новое</span>':'')+'</div><p>'+esc(n.message||'')+'</p><small>'+fmtDate(n.created_at)+'</small>'+(!n.is_read?'<button class="btn secondary" type="button" onclick="readNotification('+Number(n.id)+')">Отметить прочитанным</button>':'')+'</article>').join(''):'<div class="empty">Уведомлений пока нет</div>';
   }catch(e){const list=$('notificationList');if(list)showError(list,e)}
+  finally{notificationPollInFlight=false}
 }
 function toggleNotifications(){const panel=$('notificationPanel');panel.classList.toggle('hidden');if(!panel.classList.contains('hidden'))refreshNotifications(false)}
 async function readNotification(id){try{await api('/api/notifications/read',{method:'POST',body:{notification_id:id}});await refreshNotifications(false)}catch(e){notify(e.message,'error')}}
@@ -472,12 +544,380 @@ async function openDumaSession(e){e.preventDefault();try{await api('/api/duma/se
 async function closeDumaSession(id){if(!confirm('Закрыть заседание? Голосования по законопроектам этого заседания завершатся.'))return;try{await api('/api/duma/sessions/'+id+'/close',{method:'POST'});notify('Заседание закрыто');await loadParliament()}catch(e){notify(e.message,'error')}}
 async function submitDumaLaw(e,id){e.preventDefault();const f=e.target;try{await api('/api/duma/sessions/'+id+'/laws',{method:'POST',body:{title:new FormData(f).get('title'),description:new FormData(f).get('description')}});notify('Законопроект подан на рассмотрение');await loadParliament()}catch(err){notify(err.message,'error')}}
 async function voteDumaLaw(id,vote){try{const d=await api('/api/duma/laws/'+id+'/vote',{method:'POST',body:{vote}});notify(d.status==='awaiting_president'?'Закон принят Думой и отправлен Президенту':d.status==='rejected_by_duma'?'Законопроект отклонён':'Голос учтён');await loadParliament()}catch(e){notify(e.message,'error')}}
+const socialContentCache={};
+function renderSocialPost(post){
+ socialContentCache['post:'+Number(post.id)]=String(post.body||'');
+ const author=post.author||{},name=author.full_name||author.username||'Гражданин ДКД';
+ const avatar=author.avatar_emoji||'👤',reacted=!!post.my_reaction;
+ const repostLabel=post.repost_of?'<div class="muted small" style="margin:0 0 9px">↻ '+esc(name)+' поделился публикацией</div>':'';
+ const original=post.repost_of?'<div class="card" style="padding:12px;margin:10px 0;border:1px solid var(--line)"><div class="row"><span style="font-size:22px">'+esc(post.repost_of.author?.avatar_emoji||'👤')+'</span><strong>'+esc(post.repost_of.author?.full_name||'Гражданин ДКД')+'</strong><span class="spacer"></span><span class="muted small">'+fmtDate(post.repost_of.created_at)+'</span></div><p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0">'+esc(post.repost_of.body||'')+'</p>'+(post.repost_of.media||[]).map(m=>m.media_type==='video'?'<video controls playsinline preload="metadata" style="width:100%;max-height:360px;background:#080b18;border-radius:12px;margin:6px 0" src="'+esc(m.url)+'"></video>':'<img loading="lazy" alt="Вложение исходной публикации" style="width:100%;max-height:360px;object-fit:contain;border-radius:12px;margin:6px 0" src="'+esc(m.url)+'">').join('')+'</div>':(post.repost_unavailable?'<div class="muted small">Исходная публикация больше недоступна.</div>':'');
+ const own=Number(author.user_id||post.author_user_id)===Number(state.profile?.user_id||state.profile?.telegram_id);
+ return '<article class="card" style="padding:15px">'+repostLabel+
+  '<div class="row" style="align-items:center"><button type="button" onclick="openSocialProfile('+Number(author.user_id||post.author_user_id)+')" style="font-size:28px;border:0;background:none;padding:0">'+esc(avatar)+'</button><div style="flex:1;min-width:0"><button type="button" onclick="openSocialProfile('+Number(author.user_id||post.author_user_id)+')" style="border:0;background:none;padding:0;font-weight:700">'+esc(name)+'</button><div class="muted small">'+(author.username?'@'+esc(author.username)+' · ':'')+fmtDate(post.created_at)+'</div></div></div>'+
+  (post.body?'<p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:13px 0">'+esc(post.body)+'</p>':'')+original+
+  (post.media||[]).map(m=>m.media_type==='video'?'<video controls playsinline preload="metadata" style="width:100%;max-height:420px;background:#080b18;border-radius:12px;margin:8px 0" src="'+esc(m.url)+'"></video>':'<img loading="lazy" alt="Вложение публикации" style="width:100%;max-height:420px;object-fit:contain;border-radius:12px;margin:8px 0" src="'+esc(m.url)+'">').join('')+
+  '<div class="row"><button class="btn '+(reacted?'primary':'secondary')+'" type="button" onclick="toggleSocialReaction('+Number(post.id)+')">'+(reacted?'♥':'♡')+' '+Number(post.reaction_count||0)+'</button><button class="btn secondary" type="button" onclick="toggleSocialSave('+Number(post.id)+')">'+(post.is_saved?'★ Сохранено':'☆ Сохранить')+'</button><button class="btn secondary" type="button" onclick="toggleSocialComments('+Number(post.id)+')">Комментарии · '+Number(post.comment_count||0)+'</button><button class="btn secondary" type="button" onclick="repostSocialPost('+Number(post.id)+')">↻ Репост</button><button class="btn secondary" type="button" onclick="reportSocialPost('+Number(post.id)+')">Пожаловаться</button>'+(own?'<button class="btn secondary" type="button" onclick="editSocialPost('+Number(post.id)+')">Изменить</button><button class="btn danger" type="button" onclick="deleteSocialPost('+Number(post.id)+')">Удалить</button>':'')+'</div>'+
+  '<div id="socialComments'+Number(post.id)+'" class="hidden" style="margin-top:12px"></div>'+
+ '</article>';
+}
+async function openSocialProfile(userId){
+ if(!userId){notify('Не удалось определить пользователя','error');return}
+ state.socialProfileId=Number(userId);openView('socialProfile');
+ const el=$('socialProfileContent');el.innerHTML='<div class="empty">Загружаем профиль…</div>';
+ try{
+  const d=await api('/api/social/profiles/'+state.socialProfileId),p=d.profile||{},own=!!p.is_me;window.__dkdSocialProfile=p;
+  const postItems=(p.posts||[]).map(x=>renderSocialPost({...x,author:{user_id:p.user_id,full_name:p.full_name,username:p.username,avatar_emoji:p.avatar_emoji},my_reaction:null})).join('');
+  el.innerHTML='<div class="card" style="padding:18px"><div id="socialCover" style="height:150px;border-radius:12px;background:linear-gradient(135deg,#222b3a,#11151c);background-size:cover;background-position:center;margin:-2px -2px 16px;display:flex;align-items:flex-end;justify-content:flex-end;padding:8px">'+(own?'<label class="btn secondary" style="cursor:pointer">Изменить обложку<input type="file" accept="image/jpeg,image/png,image/webp" style="display:none" onchange="uploadSocialCover(this)"></label>':'')+'</div><div class="row" style="align-items:center"><div class="profile-avatar" style="font-size:42px;width:76px;height:76px">'+esc(p.avatar_emoji||'👤')+'</div><div style="flex:1;min-width:0"><h2 style="margin:0">'+esc(p.full_name||'Гражданин ДКД')+'</h2><div class="muted">'+(p.username?'@'+esc(p.username):'Профиль гражданина')+'</div></div></div><p style="white-space:pre-wrap;margin:16px 0">'+esc(p.bio||'Пока нет описания профиля.')+'</p><div class="row" style="justify-content:space-around;text-align:center;margin:12px 0"><div><strong>'+Number(p.posts_count||0)+'</strong><div class="muted small">Публикации</div></div><button type="button" onclick="showSocialConnections(&#39;followers&#39;)" style="border:0;background:none;color:inherit"><strong>'+Number(p.followers_count||0)+'</strong><div class="muted small">Подписчики</div></button><button type="button" onclick="showSocialConnections(&#39;following&#39;)" style="border:0;background:none;color:inherit"><strong>'+Number(p.following_count||0)+'</strong><div class="muted small">Подписки</div></button></div>'+(own?'<form class="form" onsubmit="saveSocialBio(event)"><div class="field"><label for="socialBio">О себе · до 280 символов</label><textarea id="socialBio" maxlength="280" rows="3" placeholder="Расскажите о себе…">'+esc(p.bio||'')+'</textarea></div><label class="row" style="gap:8px;align-items:center"><input id="socialShowConnections" type="checkbox" '+(p.show_connections!==false?'checked':'')+'> Показывать списки подписчиков и подписок</label><label class="row" style="gap:8px;align-items:center"><input id="socialPrivateAccount" type="checkbox" '+(p.is_private?'checked':'')+'> Закрытый профиль — публикации видят только одобренные подписчики</label><button type="button" class="btn secondary" onclick="loadSocialFollowRequests()">Заявки на подписку</button><div id="socialFollowRequests" class="list"></div><button class="btn primary">Сохранить профиль</button></form>':'<button class="btn '+(p.is_following?'secondary':'primary')+'" style="width:100%" onclick="toggleSocialFollow('+Number(p.user_id)+')">'+(p.is_following?'Вы подписаны · Отписаться':(p.follow_requested?'Запрос отправлен · Отменить':'Подписаться'))+'</button>'+'<button class="btn danger" style="width:100%;margin-top:8px" onclick="toggleSocialBlock('+Number(p.user_id)+')">Заблокировать</button>')+'</div><h3 style="margin:18px 0 10px">Публикации</h3><div class="list">'+(p.posts_hidden?'<div class="empty">Это закрытый профиль. Отправьте запрос на подписку, чтобы увидеть публикации.</div>':(postItems||'<div class="empty">Публикаций пока нет.</div>'))+'</div>';
+  await loadSocialCover(p.user_id);
+ }catch(e){showError(el,e)}
+}
+function showSocialConnections(kind){
+ const p=window.__dkdSocialProfile;if(!p)return;
+ const list=kind==='followers'?(p.followers||[]):(p.following||[]);
+ const title=kind==='followers'?'Подписчики':'Подписки';
+ if(p.connections_hidden){const el=$('socialProfileContent');el.querySelector('#socialConnectionsPanel')?.remove();const box=document.createElement('div');box.id='socialConnectionsPanel';box.className='card';box.style.padding='14px';box.innerHTML='<div class="row"><strong>'+title+'</strong><button class="btn secondary" onclick="openSocialProfile(state.socialProfileId)">Назад</button></div><div class="empty">Владелец профиля скрыл эти списки.</div>';el.prepend(box);return}
+ const html=list.length?list.map(x=>'<button type="button" class="card row" style="width:100%;padding:10px;text-align:left" onclick="openSocialProfile('+Number(x.user_id)+')"><span style="font-size:25px">'+esc(x.avatar_emoji||'👤')+'</span><span style="flex:1"><strong>'+esc(x.full_name||'Гражданин ДКД')+'</strong><small class="muted" style="display:block">'+(x.username?'@'+esc(x.username):'')+'</small></span></button>').join(''):'<div class="empty">Пока никого нет.</div>';
+ const el=$('socialProfileContent');el.querySelector('#socialConnectionsPanel')?.remove();const box=document.createElement('div');box.id='socialConnectionsPanel';box.className='card';box.style.padding='14px';box.innerHTML='<div class="row"><strong>'+title+'</strong><button class="btn secondary" onclick="openSocialProfile(state.socialProfileId)">Назад</button></div>'+html;el.prepend(box);
+}
+async function uploadSocialCover(input){
+ const file=input.files?.[0];if(!file)return;
+ if(file.size>8*1024*1024){notify('Обложка должна быть не больше 8 МБ','error');input.value='';return}
+ const form=new FormData();form.append('file',file);
+ const headers={};if(initData==='native-session'&&window.AndroidDKD?.hasSession?.())headers['X-Telegram-Init-Data']='native-session';else if(initData)headers['X-Telegram-Init-Data']=initData;
+ try{const response=await fetch('/api/social/profile/cover',{method:'POST',headers,body:form,cache:'no-store'});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||data.message||'Не удалось загрузить обложку');notify('Обложка профиля обновлена');await openSocialProfile(state.socialProfileId)}catch(e){notify(e.message,'error')}finally{input.value=''}
+}
+async function loadSocialCover(userId){
+ const headers={};if(initData==='native-session'&&window.AndroidDKD?.hasSession?.())headers['X-Telegram-Init-Data']='native-session';else if(initData)headers['X-Telegram-Init-Data']=initData;
+ try{const response=await fetch('/api/social/profiles/'+Number(userId)+'/cover',{headers,cache:'no-store'});if(!response.ok)return;const blob=await response.blob(),url=URL.createObjectURL(blob),el=$('socialCover');if(el){if(el.dataset.objectUrl)URL.revokeObjectURL(el.dataset.objectUrl);el.style.backgroundImage='url("'+url+'")';el.dataset.objectUrl=url}}catch(e){console.warn('Social cover unavailable',e)}
+}
+async function saveSocialBio(e){e.preventDefault();try{await api('/api/social/profile',{method:'PATCH',body:{bio:$('socialBio').value,show_connections:$('socialShowConnections').checked,is_private:$('socialPrivateAccount').checked}});notify('Настройки профиля сохранены');await openSocialProfile(state.socialProfileId)}catch(err){notify(err.message,'error')}}
+async function loadSocialFollowRequests(){
+ const el=$('socialFollowRequests');if(!el)return;
+ try{
+  const d=await api('/api/social/follow-requests'),items=d.requests||[];
+  el.innerHTML=items.length?items.map(x=>'<div class="card row" style="padding:10px;gap:8px"><button class="row" style="flex:1;border:0;background:none;color:inherit;text-align:left" onclick="openSocialProfile('+Number(x.requester.user_id)+')"><span>'+esc(x.requester.avatar_emoji||'👤')+'</span><span><strong>'+esc(x.requester.full_name||'Гражданин ДКД')+'</strong><small class="muted" style="display:block">Запрос на подписку</small></span></button><button class="btn primary" onclick="reviewSocialFollowRequest('+Number(x.requester_user_id)+',true)">Одобрить</button><button class="btn secondary" onclick="reviewSocialFollowRequest('+Number(x.requester_user_id)+',false)">Отклонить</button></div>').join(''):'<div class="empty">Новых запросов нет.</div>';
+ }catch(e){showError(el,e)}
+}
+async function reviewSocialFollowRequest(id,approve){
+ try{await api('/api/social/follow-requests/'+id+'/'+(approve?'approve':'reject'),{method:'POST'});notify(approve?'Запрос одобрен':'Запрос отклонён');await loadSocialFollowRequests();await openSocialProfile(state.socialProfileId)}catch(e){notify(e.message,'error')}
+}
+async function toggleSocialBlock(id){
+ if(!confirm('Заблокировать пользователя? Вы перестанете видеть его публикации и сможете снять блокировку позже.'))return;
+ try{const d=await api('/api/social/profiles/'+id+'/block',{method:'POST'});notify(d.blocked?'Пользователь заблокирован':'Блокировка снята');await loadSocialFeed(true);openView('social')}catch(e){notify(e.message,'error')}
+}
+async function toggleSocialFollow(id){try{const d=await api('/api/social/profiles/'+id+'/follow',{method:'POST'});notify(d.requested?'Запрос на подписку отправлен':(d.following?'Вы подписались':'Подписка или запрос отменены'));await openSocialProfile(id)}catch(e){notify(e.message,'error')}}
+let chatPeopleSearchTimer=null;
+async function loadChats(){const el=$('chatList');try{const d=await api('/api/chats');el.innerHTML=(d.chats||[]).map(x=>{const p=(x.participants||[]).find(v=>Number(v.user_id)!==Number(state.profile?.user_id));const title=x.type==='group'?(x.title||'Группа'):(p?.profile?.full_name||'Личный чат');return '<button class="card row" onclick="openChat('+Number(x.id)+')"><strong>'+esc(title)+'</strong><span>'+Number(x.unread_count||0)+'</span></button>'}).join('')||'<div class="empty">Пока нет чатов.</div>'}catch(e){showError(el,e)}}
+async function searchChatPeople(){clearTimeout(chatPeopleSearchTimer);chatPeopleSearchTimer=setTimeout(async()=>{const q=$('chatPeopleSearch').value.trim(),el=$('chatPeopleResults');if(q.length<2){el.innerHTML='';return}try{const d=await api('/api/chats/people?search='+encodeURIComponent(q));el.innerHTML=(d.people||[]).map(p=>'<button class="card row" onclick="startDirectChat('+Number(p.user_id)+')">'+esc(p.avatar_emoji||'👤')+' '+esc(p.full_name||'Гражданин')+'</button>').join('')||'Никого не найдено'}catch(e){showError(el,e)}},250)}
+async function startDirectChat(id){try{const d=await api('/api/chats/direct',{method:'POST',body:{target_user_id:id}});await openChat(d.conversation.id)}catch(e){notify(e.message,'error')}}
+const chatPeopleSelections={create:[],add:[]};
+async function searchGroupPeople(mode){
+ const input=$(mode==='create'?'chatGroupPeopleSearch':'chatAddPeopleSearch');
+ const results=$(mode==='create'?'chatGroupPeopleResults':'chatAddPeopleResults');
+ const q=input.value.trim();
+ if(q.length<2){results.innerHTML='';return}
+ try{
+  const d=await api('/api/chats/people?search='+encodeURIComponent(q));
+  results.innerHTML=(d.people||[]).map(p=>{
+   const id=Number(p.user_id),selected=chatPeopleSelections[mode].includes(id);
+   return '<button type="button" class="card row" onclick="toggleGroupPerson(\''+mode+'\', '+id+')">'+(selected?'✓ ':'＋ ')+esc(p.avatar_emoji||'👤')+' '+esc(p.full_name||'Гражданин')+(p.username?' · @'+esc(p.username):'')+'</button>';
+  }).join('')||'<div class="muted small">Граждане не найдены</div>';
+ }catch(e){showError(results,e)}
+}
+function toggleGroupPerson(mode,id){
+ const list=chatPeopleSelections[mode],idx=list.indexOf(id);
+ if(idx>=0)list.splice(idx,1);else if(list.length<20)list.push(id);else{notify('Можно выбрать не более 20 человек','error');return}
+ const target=$(mode==='create'?'chatGroupPeopleSelected':'chatAddPeopleSelected');
+ target.textContent=list.length?'Выбрано граждан: '+list.length:'Никого не выбрано';
+ searchGroupPeople(mode);
+}
+async function createChatGroup(e){
+ e.preventDefault();
+ const ids=chatPeopleSelections.create;
+ try{
+  const d=await api('/api/chats/groups',{method:'POST',body:{title:$('chatGroupTitle').value,member_ids:ids}});
+  chatPeopleSelections.create=[];$('chatGroupPeopleSelected').textContent='';$('chatGroupPeopleResults').innerHTML='';$('chatGroupPeopleSearch').value='';
+  await openChat(d.conversation.id);
+ }catch(e){notify(e.message,'error')}
+}
+async function openChat(id){state.currentChatId=Number(id);chatSearchQuery="";$('chatMessageSearch').value="";$('chatListPane').classList.add('hidden');$('chatRoomPane').classList.remove('hidden');try{const [list,msgs]=await Promise.all([api('/api/chats'),api('/api/chats/'+id+'/messages')]);state.currentChat=(list.chats||[]).find(x=>Number(x.id)===Number(id));if(!state.currentChat)throw new Error('Чат не найден');const other=(state.currentChat.participants||[]).find(p=>Number(p.user_id)!==Number(state.profile?.user_id));$('chatRoomTitle').textContent=state.currentChat.title||other?.profile?.full_name||'Личный чат';$('chatParticipants').textContent=(state.currentChat.participants||[]).map(p=>p.profile?.full_name||'Гражданин').join(' · ');renderChatMembers();$('chatLeaveButton').classList.toggle('hidden',state.currentChat.type!=='group'||state.currentChat.my_role==='owner');renderChatMessages(msgs.messages||[]);await api('/api/chats/'+id+'/read',{method:'POST',body:{}});startChatPolling()}catch(e){showError($('chatMessages'),e)}}
+
+let chatPollTimer=null;
+let chatReplyToMessageId=null;
+let chatSearchTimer=null;
+let chatSearchRequestId=0;
+let chatSearchQuery="";
+function setChatReply(id,body){
+ chatReplyToMessageId=Number(id);
+ $('chatReplyPreviewText').textContent='Ответ на сообщение: '+String(body||'').slice(0,180);
+ $('chatReplyPreview').classList.remove('hidden');
+ $('chatMessageBody').focus();
+}
+function cancelChatReply(){
+ chatReplyToMessageId=null;
+ $('chatReplyPreview').classList.add('hidden');
+ $('chatReplyPreviewText').textContent='';
+}
+function searchCurrentChatMessages(){
+ clearTimeout(chatSearchTimer);
+ chatSearchTimer=setTimeout(async()=>{
+  const id=state.currentChatId;
+  if(!id)return;
+  const query=$('chatMessageSearch').value.trim();
+  chatSearchQuery=query;
+  const requestId=++chatSearchRequestId;
+  try{
+   const d=await api('/api/chats/'+id+'/messages?search='+encodeURIComponent(query));
+   if(id===state.currentChatId&&requestId===chatSearchRequestId)renderChatMessages(d.messages||[]);
+  }catch(e){if(requestId===chatSearchRequestId)showError($('chatMessages'),e)}
+ },250);
+}
+function startChatPolling(){
+ if(chatPollTimer)clearInterval(chatPollTimer);
+ chatPollTimer=setInterval(async()=>{
+  const id=state.currentChatId;
+  if(!id||document.visibilityState==='hidden'||!document.getElementById('chatsView')?.classList.contains('active'))return;
+  try{
+   const pane=$('chatMessages'),nearBottom=pane.scrollHeight-pane.scrollTop-pane.clientHeight<100;
+   const d=await api('/api/chats/'+id+'/messages?search='+encodeURIComponent(chatSearchQuery));
+   if(id===state.currentChatId){
+    renderChatMessages(d.messages||[]);
+    if(nearBottom)pane.scrollTop=pane.scrollHeight;
+    await api('/api/chats/'+id+'/read',{method:'POST',body:{}});
+    await loadChats();
+   }
+  }catch(e){console.warn('Chat refresh failed',e)}
+ },10000);
+}
+function stopChatPolling(){if(chatPollTimer){clearInterval(chatPollTimer);chatPollTimer=null}}
+
+function renderChatMembers(){
+ const chat=state.currentChat,el=$('chatMemberTools'),list=$('chatMemberList');
+ if(!chat||chat.type!=='group'){el.classList.add('hidden');return}
+ el.classList.remove('hidden');
+ const owner=chat.my_role==='owner',admin=chat.my_role==='admin';
+ list.innerHTML=(chat.participants||[]).map(p=>{
+  const id=Number(p.user_id),role=p.member_role||'member',profile=p.profile||{};
+  let actions='';
+  if(owner&&role==='member')actions='<button class="btn secondary" onclick="changeChatRole('+id+',&#39;admin&#39;)">Сделать админом</button><button class="btn secondary" onclick="transferChatOwner('+id+')">Передать владение</button>';
+  if(owner&&role==='admin')actions='<button class="btn secondary" onclick="changeChatRole('+id+',&#39;member&#39;)">Снять админа</button><button class="btn secondary" onclick="transferChatOwner('+id+')">Передать владение</button>';
+  if((owner||admin)&&role!=='owner'&&(owner||role==='member'))actions+='<button class="btn secondary" onclick="removeChatMemberUI('+id+')">Удалить</button>';
+  return '<div class="card"><strong>'+esc(profile.avatar_emoji||'👤')+' '+esc(profile.full_name||profile.username||'Гражданин')+'</strong><small class="muted" style="display:block">'+(role==='owner'?'Владелец':role==='admin'?'Администратор':'Участник')+'</small><div class="row wrap">'+actions+'</div></div>';
+ }).join('');
+ $('chatAddMemberIds').parentElement.classList.toggle('hidden',!(owner||admin));
+}
+async function addChatMembersUI(){
+ const ids=chatPeopleSelections.add;
+ if(!ids.length){notify('Сначала выберите граждан','error');return}
+ try{
+  await api('/api/chats/'+state.currentChatId+'/members',{method:'POST',body:{member_ids:ids}});
+  chatPeopleSelections.add=[];$('chatAddPeopleSelected').textContent='';$('chatAddPeopleResults').innerHTML='';$('chatAddPeopleSearch').value='';
+  await openChat(state.currentChatId);notify('Участники добавлены');
+ }catch(e){notify(e.message,'error')}
+}
+async function changeChatRole(id,role){
+ try{await api('/api/chats/'+state.currentChatId+'/members/role',{method:'PATCH',body:{user_id:id,role}});await openChat(state.currentChatId);notify('Роль участника изменена')}
+ catch(e){notify(e.message,'error')}
+}
+async function removeChatMemberUI(id){
+ if(!confirm('Удалить участника из группы?'))return;
+ try{await api('/api/chats/'+state.currentChatId+'/members',{method:'DELETE',body:{user_id:id}});await openChat(state.currentChatId);notify('Участник удалён')}
+ catch(e){notify(e.message,'error')}
+}
+async function transferChatOwner(id){
+ if(!confirm('Передать этому участнику права владельца? Вы станете администратором.'))return;
+ try{await api('/api/chats/'+state.currentChatId+'/ownership',{method:'POST',body:{new_owner_user_id:id}});await openChat(state.currentChatId);notify('Владение передано')}
+ catch(e){notify(e.message,'error')}
+}
+const chatMessageCache={};
+function renderChatMessages(items){
+ Object.keys(chatMessageCache).forEach(k=>delete chatMessageCache[k]);
+ $('chatMessages').innerHTML=items.map(m=>{
+  chatMessageCache[Number(m.id)]=String(m.body||'');
+  const media=(m.media||[]).map(x=>{
+   const url=esc(x.url||'');
+   if(x.media_type==='video')return '<video controls playsinline preload="metadata" style="width:100%;max-height:360px;border-radius:12px" src="'+url+'"></video>';
+   return '<a href="'+url+'" target="_blank" rel="noopener"><img loading="lazy" alt="Вложение" src="'+url+'" style="max-width:100%;max-height:360px;object-fit:contain;border-radius:12px"></a>';
+  }).join('');
+  const own=!!m.can_edit;
+  const quoted=m.reply_to?'<div class="notice small" style="margin:7px 0;padding:8px;border-left:3px solid var(--accent)"><strong>'+esc(m.reply_to.author?.full_name||'Ответ на сообщение')+'</strong><div>'+esc(m.reply_to.body||'')+'</div></div>':'';
+  const controls='<div class="row" style="gap:8px;margin-top:8px"><button class="btn secondary" type="button" onclick="setChatReply('+Number(m.id)+',chatMessageCache['+Number(m.id)+'])">Ответить</button>'+(own?'<button class="btn secondary" type="button" onclick="editChatMessage('+Number(m.id)+')">Изменить</button><button class="btn danger" type="button" onclick="deleteChatMessage('+Number(m.id)+')">Удалить</button>':'')+'</div>';
+  return '<article class="card"><small>'+esc(m.author?.full_name||'Гражданин')+' · '+fmtDate(m.created_at)+(m.updated_at&&m.updated_at!==m.created_at?' · изменено':'')+'</small>'+quoted+'<p style="white-space:pre-wrap">'+esc(m.body)+'</p>'+media+controls+'</article>';
+ }).join('')||'<div class="empty">Сообщений пока нет.</div>';
+}
+async function editChatMessage(messageId){
+ const next=prompt('Изменить сообщение',chatMessageCache[Number(messageId)]||'');if(next===null)return;
+ if(!next.trim()){notify('Сообщение не может быть пустым','error');return}
+ try{await api('/api/chats/'+state.currentChatId+'/messages/'+messageId,{method:'PATCH',body:{body:next.trim()}});await refreshCurrentChatMessages()}catch(e){notify(e.message,'error')}
+}
+async function deleteChatMessage(messageId){
+ if(!confirm('Удалить это сообщение?'))return;
+ try{await api('/api/chats/'+state.currentChatId+'/messages/'+messageId,{method:'DELETE'});await refreshCurrentChatMessages()}catch(e){notify(e.message,'error')}
+}
+async function refreshCurrentChatMessages(){
+ if(!state.currentChatId)return;
+ const d=await api('/api/chats/'+state.currentChatId+'/messages?search='+encodeURIComponent(chatSearchQuery));renderChatMessages(d.messages||[]);await loadChats();
+}
+async function sendChatAttachment(e){
+ e.preventDefault();
+ const file=$('chatAttachment').files?.[0];
+ if(!file||!state.currentChatId)return;
+ if(file.size>25*1024*1024){notify('Файл больше 25 МБ','error');return}
+ const data=new FormData();data.append('file',file);data.append('body',$('chatMessageBody').value.trim());
+ const headers={};if(initData==='native-session'&&window.AndroidDKD?.hasSession?.())headers['X-Telegram-Init-Data']='native-session';else if(initData)headers['X-Telegram-Init-Data']=initData;
+ try{
+  const res=await fetch('/api/chats/'+state.currentChatId+'/media',{method:'POST',headers,body:data,cache:'no-store'});
+  let result={};try{result=await res.json()}catch{}
+  if(!res.ok)throw new Error(typeof result.detail==='string'?result.detail:'Не удалось отправить вложение');
+  $('chatAttachment').value='';$('chatMessageBody').value='';cancelChatReply();
+  const d=await api('/api/chats/'+state.currentChatId+'/messages');renderChatMessages(d.messages||[]);await loadChats();
+ }catch(err){notify(err.message,'error')}
+}
+async function sendChatMessage(e){e.preventDefault();const body=$('chatMessageBody').value.trim();if(!body||!state.currentChatId)return;try{await api('/api/chats/'+state.currentChatId+'/messages',{method:'POST',body:{body,reply_to_message_id:chatReplyToMessageId}});$('chatMessageBody').value='';cancelChatReply();const d=await api('/api/chats/'+state.currentChatId+'/messages');renderChatMessages(d.messages||[]);await loadChats()}catch(e){notify(e.message,'error')}}
+function closeChatRoom(){stopChatPolling();clearTimeout(chatSearchTimer);chatSearchRequestId++;chatSearchQuery="";state.currentChatId=null;$('chatRoomPane').classList.add('hidden');$('chatListPane').classList.remove('hidden');loadChats()}
+async function leaveCurrentChat(){if(!state.currentChatId||!confirm('Покинуть группу?'))return;try{await api('/api/chats/'+state.currentChatId+'/leave',{method:'POST',body:{}});closeChatRoom()}catch(e){notify(e.message,'error')}}
+
+let socialFeedSearchTimer=null,socialPeopleSearchTimer=null,socialPeopleSearchRequestId=0;
+let socialFeedFollowingOnly=false,socialFeedSavedOnly=false;
+function setSocialFeedMode(following){
+ socialFeedFollowingOnly=!!following;socialFeedSavedOnly=false;
+ $('socialFeedAll').className='btn '+(!following?'primary':'secondary');
+ $('socialFeedFollowing').className='btn '+(following?'primary':'secondary');
+ $('socialFeedSaved').className='btn secondary';
+ loadSocialFeed(true);
+}
+function setSocialSavedMode(){
+ socialFeedFollowingOnly=false;socialFeedSavedOnly=true;
+ $('socialFeedAll').className='btn secondary';$('socialFeedFollowing').className='btn secondary';$('socialFeedSaved').className='btn primary';
+ loadSocialFeed(true);
+}
+function scheduleSocialFeedSearch(){
+ socialFeedRequestId++;
+ clearTimeout(socialFeedSearchTimer);
+ socialFeedSearchTimer=setTimeout(()=>loadSocialFeed(true),300);
+}
+async function searchSocialPeople(){
+ const requestId=++socialPeopleSearchRequestId;
+ clearTimeout(socialPeopleSearchTimer);
+ const input=$('socialPeopleSearch'),box=$('socialPeopleResults'),q=input.value.trim();
+ if(q.length<2){box.innerHTML='';return}
+ box.innerHTML='<div class="muted small">Поиск граждан…</div>';
+ socialPeopleSearchTimer=setTimeout(async()=>{
+  try{
+   const d=await api('/api/chats/people?search='+encodeURIComponent(q));
+   if(requestId!==socialPeopleSearchRequestId)return;
+   box.innerHTML=(d.people||[]).map(p=>'<button type="button" class="card row" style="width:100%;text-align:left" onclick="openSocialProfile('+Number(p.user_id)+')"><span style="font-size:24px">'+esc(p.avatar_emoji||'👤')+'</span><span style="flex:1"><strong>'+esc(p.full_name||'Гражданин ДКД')+'</strong><small class="muted" style="display:block">'+(p.username?'@'+esc(p.username):'')+'</small></span></button>').join('')||'<div class="empty">Граждане не найдены.</div>';
+  }catch(e){if(requestId===socialPeopleSearchRequestId)showError(box,e)}
+ },250);
+}
+let socialFeedRequestId=0;
+async function loadSocialFeed(reset=true){
+ const requestId=++socialFeedRequestId;
+ const el=$('socialFeed'),more=$('socialMore');
+ if(reset){state.socialBeforeId=null;state.socialHasMore=false;el.innerHTML='<div class="empty">Загрузка ленты…</div>'}
+ try{
+  const params=new URLSearchParams({limit:'20'});const search=$('socialFeedSearch')?.value.trim()||'';if(search)params.set('search',search);if(socialFeedFollowingOnly)params.set('following_only','true');if(socialFeedSavedOnly)params.set('saved_only','true');if(!reset&&state.socialBeforeId)params.set('before_id',String(state.socialBeforeId));
+  const d=await api('/api/social/feed?'+params.toString());
+  if(requestId!==socialFeedRequestId)return;
+  const posts=d.posts||[];
+  if(reset)el.innerHTML='';
+  if(posts.length){el.insertAdjacentHTML('beforeend',posts.map(renderSocialPost).join(''));state.socialBeforeId=Number(posts[posts.length-1].id);state.socialHasMore=posts.length===20}
+  else if(reset)el.innerHTML='<div class="empty">Пока нет публикаций. Станьте первым, кто поделится новостью!</div>';
+  more.classList.toggle('hidden',!state.socialHasMore);
+ }catch(e){if(requestId!==socialFeedRequestId)return;if(reset)showError(el,e);else notify(e.message,'error');more.classList.add('hidden')}
+}
+async function submitSocialPost(e){
+ e.preventDefault();const field=$('socialPostBody'),body=field.value.trim(),file=$('socialPostFile').files?.[0];
+ if(!body&&!file){notify('Добавьте текст или файл публикации','error');return}
+ try{
+  if(file){const form=new FormData();form.append('body',body);form.append('file',file);const headers={};if(initData==='native-session'&&window.AndroidDKD?.hasSession?.())headers['X-Telegram-Init-Data']='native-session';else if(initData)headers['X-Telegram-Init-Data']=initData;const response=await fetch('/api/social/posts/media',{method:'POST',headers,body:form});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.detail||data.message||'Не удалось опубликовать файл')}
+  else await api('/api/social/posts',{method:'POST',body:{body}});
+  field.value='';$('socialPostFile').value='';notify('Публикация добавлена');await loadSocialFeed(true)
+ }catch(err){notify(err.message,'error')}
+}
+function renderSocialCommentTree(comments,postId,parentId=null,depth=0){
+ const children=comments.filter(x=>(x.parent_comment_id==null?null:Number(x.parent_comment_id))===parentId);
+ if(!children.length||depth>12)return '';
+ return children.map(x=>{
+  socialContentCache['comment:'+Number(x.id)]=String(x.body||'');
+  const own=Number(x.author_user_id)===Number(state.profile?.user_id||state.profile?.telegram_id);
+  const indent=Math.min(depth,5)*14;
+  return '<div class="card" style="padding:10px;margin:8px 0 8px '+indent+'px"><div class="row"><strong>'+esc(x.author?.full_name||'Гражданин ДКД')+'</strong><span class="spacer"></span><button class="btn secondary" type="button" onclick="setSocialReply('+postId+','+Number(x.id)+')">Ответить</button><button class="btn secondary" type="button" onclick="reportSocialComment('+Number(x.id)+')">Жалоба</button>'+(own?'<button class="btn secondary" type="button" onclick="editSocialComment('+Number(x.id)+','+postId+')">Изменить</button><button class="btn danger" type="button" onclick="deleteSocialComment('+Number(x.id)+','+postId+')">Удалить</button>':'')+'</div><p style="white-space:pre-wrap;margin:6px 0">'+esc(x.body)+'</p>'+renderSocialCommentTree(comments,postId,Number(x.id),depth+1)+'</div>';
+ }).join('');
+}
+function setSocialReply(postId,commentId){
+ const box=$('socialComments'+postId),form=box?.querySelector('form');
+ if(!form)return;
+ form.querySelector('[name="parent_comment_id"]').value=commentId;
+ form.querySelector('.social-reply-label').textContent='Вы отвечаете на комментарий';
+ form.querySelector('.social-reply-cancel').classList.remove('hidden');
+ const input=form.querySelector('[name="body"]');input.placeholder='Написать ответ…';input.focus();
+}
+function clearSocialReply(form){
+ form.querySelector('[name="parent_comment_id"]').value='';
+ form.querySelector('.social-reply-label').textContent='';
+ form.querySelector('.social-reply-cancel').classList.add('hidden');
+ form.querySelector('[name="body"]').placeholder='Написать комментарий…';
+}
+async function toggleSocialComments(id){
+ const box=$('socialComments'+id);if(!box)return;
+ if(!box.classList.contains('hidden')){box.classList.add('hidden');return}
+ box.classList.remove('hidden');box.innerHTML='<div class="empty">Загрузка комментариев…</div>';
+ try{
+  const d=await api('/api/social/posts/'+id+'/comments'),list=d.comments||[];
+  box.innerHTML='<div class="list">'+(list.length?renderSocialCommentTree(list,id):'<div class="empty">Комментариев пока нет.</div>')+'</div><form class="row" onsubmit="submitSocialComment(event,'+id+')" style="margin-top:10px;flex-wrap:wrap"><input type="hidden" name="parent_comment_id" value=""><div class="muted small social-reply-label" style="width:100%"></div><input name="body" maxlength="2000" placeholder="Написать комментарий…" required style="flex:1;min-width:140px"><button class="btn primary">Отправить</button><button class="btn secondary social-reply-cancel hidden" type="button" onclick="clearSocialReply(this.form)">Отмена</button></form>';
+ }catch(e){showError(box,e)}
+}
+async function submitSocialComment(e,id){e.preventDefault();const form=e.target;try{await api('/api/social/posts/'+id+'/comments',{method:'POST',body:{body:new FormData(form).get('body'),parent_comment_id:form.querySelector('[name="parent_comment_id"]').value||null}});notify('Комментарий добавлен');form.reset();clearSocialReply(form);const box=$('socialComments'+id);box.classList.add('hidden');await toggleSocialComments(id);await loadSocialFeed()}catch(err){notify(err.message,'error')}}
+async function editSocialPost(id){
+ const next=prompt('Изменить публикацию',socialContentCache['post:'+Number(id)]||'');if(next===null)return;
+ if(!next.trim()){notify('Текст публикации не может быть пустым','error');return}
+ try{await api('/api/social/posts/'+id,{method:'PATCH',body:{body:next.trim()}});notify('Публикация изменена');await loadSocialFeed(true);if(state.socialProfileId)await openSocialProfile(state.socialProfileId)}
+ catch(e){notify(e.message||'Не удалось изменить публикацию','error')}
+}
+async function editSocialComment(id,postId){
+ const next=prompt('Изменить комментарий',socialContentCache['comment:'+Number(id)]||'');if(next===null)return;
+ if(!next.trim()){notify('Комментарий не может быть пустым','error');return}
+ try{await api('/api/social/comments/'+id,{method:'PATCH',body:{body:next.trim()}});notify('Комментарий изменён');const box=$('socialComments'+postId);if(box&&!box.classList.contains('hidden')){box.classList.add('hidden');await toggleSocialComments(postId)}}
+ catch(e){notify(e.message||'Не удалось изменить комментарий','error')}
+}
+async function deleteSocialPost(id){
+ if(!confirm('Удалить эту публикацию? Она исчезнет из ленты.'))return;
+ try{await api('/api/social/posts/'+id,{method:'DELETE'});notify('Публикация удалена');await loadSocialFeed(true);if(state.socialProfileId)await openSocialProfile(state.socialProfileId)}
+ catch(e){notify(e.message||'Не удалось удалить публикацию','error')}
+}
+async function deleteSocialComment(id,postId){
+ if(!confirm('Удалить этот комментарий?'))return;
+ try{await api('/api/social/comments/'+id,{method:'DELETE'});notify('Комментарий удалён');const box=$('socialComments'+postId);if(box){box.classList.add('hidden');await toggleSocialComments(postId)}await loadSocialFeed(true)}
+ catch(e){notify(e.message||'Не удалось удалить комментарий','error')}
+}
+async function reportSocialComment(id){
+ const details=prompt('Опишите причину жалобы на комментарий (до 2000 символов):');if(details===null)return;
+ try{await api('/api/social/comments/'+id+'/report',{method:'POST',body:{reason:'other',details}});notify('Жалоба отправлена модераторам')}
+ catch(e){notify(e.message||'Не удалось отправить жалобу','error')}
+}
+async function reportSocialPost(id){const details=prompt('Опишите причину жалобы (до 2000 символов):');if(details===null)return;try{await api('/api/social/posts/'+id+'/report',{method:'POST',body:{reason:'other',details}});notify('Жалоба отправлена модераторам')}catch(e){notify(e.message,'error')}}
+
+async function repostSocialPost(id){
+ const caption=prompt('Добавить подпись к репосту (необязательно):','');
+ if(caption===null)return;
+ try{await api('/api/social/posts/'+id+'/repost',{method:'POST',body:{caption}});notify('Публикация добавлена в вашу ленту');await loadSocialFeed(true)}
+ catch(e){notify(e.message,'error')}
+}
+async function toggleSocialReaction(id){
+ try{await api('/api/social/posts/'+id+'/reaction',{method:'POST'});await loadSocialFeed(true)}
+ catch(e){notify(e.message,'error')}
+}
+async function toggleSocialSave(id){
+ try{const d=await api('/api/social/posts/'+id+'/save',{method:'POST'});notify(d.saved?'Публикация сохранена':'Публикация удалена из сохранённого');await loadSocialFeed(true)}
+ catch(e){notify(e.message,'error')}
+}
 function openView(name){
   if(name==='parliament'&&!canOpenParliament()){notify('Панель парламента доступна только администратору и депутатам.','error');return}
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   const target=$(name+'View');if(target)target.classList.add('active');
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
-  if(name==='parliament')loadParliament();if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='admin')loadAdmin();if(name==='president'){checkPresident();loadPresidentLaws()};
+  if(name==='family')loadFamilyCourt();if(name==='chats')loadChats();if(name==='social')loadSocialFeed(true);if(name==='parliament')loadParliament();if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='admin')loadAdmin();if(name==='president'){checkPresident();loadPresidentLaws()};
   window.scrollTo({top:0,behavior:'smooth'});
 }
 function statusPill(s){const val=String(s||'');let cls=/approved|active|citizen|опублик/i.test(val)?'good':/rejected|отклон|denied/i.test(val)?'bad':'';return `<span class="status ${cls}">${esc(val||'Не указан')}</span>`}
@@ -511,7 +951,20 @@ async function init(){
     if(presidentResult.status==='rejected') throw presidentResult.reason;
 
     if(!window.notificationPoller){
-      window.notificationPoller=setInterval(()=>refreshNotifications(true).catch(()=>{}),30000);
+      window.notificationPoller=setInterval(()=>{
+        if(document.visibilityState!=='visible')return;
+        refreshNotifications(true).catch(()=>{});
+        if($('socialView')?.classList.contains('active')){
+          const feed=$('socialFeed');
+          if(feed&&feed.scrollTop===0&&window.scrollY<250)loadSocialFeed(true).catch(()=>{});
+        }
+      },30000);
+      document.addEventListener('visibilitychange',()=>{
+        if(document.visibilityState==='visible'){
+          refreshNotifications(false).catch(()=>{});
+          if($('socialView')?.classList.contains('active'))loadSocialFeed(true).catch(()=>{});
+        }
+      });
     }
 
     const p=presidentResult.value||{};
@@ -530,7 +983,7 @@ async function init(){
 async function loadProfile(){
   try{const d=await api('/api/profile');state.profile=d.profile||{};const p=state.profile;
     $('welcome').textContent=p.full_name?`Здравствуйте, ${p.full_name.trim().split(/\s+/)[1] || p.full_name.trim().split(/\s+/)[0]}!`:'Добро пожаловать в ДКД';
-    $('fullName').value=p.full_name||'';state.pendingAvatar=p.avatar_emoji||'👤';renderAvatarPicker();
+    $('fullName').value=p.full_name||'';$('profileGender').value=p.gender||'';state.pendingAvatar=p.avatar_emoji||'👤';renderAvatarPicker();
     $('profileContent').innerHTML=`<div class="card"><div class="row"><div><div class="muted small">Пользователь</div><h2 style="margin:4px 0 0">${esc(p.full_name||'Без имени')}</h2></div><div class="profile-avatar">${esc(p.avatar_emoji||'👤')}</div></div><hr style="border:0;border-top:1px solid var(--line);margin:15px 0"><div class="row"><span class="muted">Гражданство</span>${statusPill(p.is_citizen?'Гражданин':'Нет гражданства')}</div><div class="row" style="margin-top:12px"><span class="muted">Telegram ID</span><strong>${esc(p.telegram_id??'Скрыт')}</strong></div><div class="row" style="margin-top:12px"><span class="muted">Роли</span><strong>${esc((p.roles||[]).map(r=>typeof r==='string'?r:r.name).join(', ')||'Нет ролей')}</strong></div><hr style="border:0;border-top:1px solid var(--line);margin:15px 0"><label class="row" style="align-items:center;gap:12px;cursor:pointer"><span><strong>Уведомления о важных новостях</strong><small class="muted" style="display:block">Срочные и важные публикации в Telegram</small></span><input id="newsNotificationsToggle" type="checkbox" style="width:22px;height:22px" ${p.news_notifications_enabled!==false?'checked':''} onchange="saveNewsNotificationPreference(this.checked)"></label></div>`;
     return p;
   }catch(e){showError($('profileContent'),e);throw e}
@@ -572,6 +1025,46 @@ function showDocTab(tab){
 }
 function renderItems(items,titleKey,bodyKey){if(!items.length)return '<div class="empty">Пока ничего не опубликовано</div>';return `<div class="list">${items.map(x=>`<div class="card"><h4 class="item-title">${esc(x[titleKey]||'Документ')}</h4><p class="muted" style="white-space:pre-wrap">${esc(x[bodyKey]||x.text||'')}</p><small class="muted">${fmtDate(x.created_at||x.published_at)}</small></div>`).join('')}</div>`}
 async function submitApplication(e){e.preventDefault();try{await api('/api/applications',{method:'POST',body:{kind:$('appKind').value,full_name:$('appFullName').value.trim(),details:$('appDetails').value.trim()}});notify('Заявление отправлено');await loadDocuments();showDocTab('applications')}catch(err){notify(err.message,'error')}}
+function marriageStatusLabel(s){
+ const labels={proposed:'Ожидает согласия',active:'Брак зарегистрирован',rejected:'Предложение отклонено',divorce_pending:'Ожидает согласия на развод',divorced:'Брак расторгнут'};
+ return labels[s]||s||'Неизвестно';
+}
+function courtStatusLabel(s){
+ const labels={awaiting_response:'Ожидает ответа ответчика',awaiting_ai_judge:'Ожидает рассмотрения ИИ-судьёй',decided:'Решение вынесено',appealed:'Подана апелляция',closed:'Закрыто',awaiting_ai_appeal_judge:'Ожидает рассмотрения апелляции'};
+ return labels[s]||s||'Неизвестно';
+}
+async function loadFamilyCourt(){
+ const marriages=$('marriagesList'),cases=$('courtCasesList'),archive=$('courtArchive');
+ marriages.innerHTML=cases.innerHTML=archive.innerHTML='<div class="empty">Загрузка…</div>';
+ try{
+  const [f,c,a]=await Promise.all([api('/api/family'),api('/api/court/cases'),api('/api/court/archive')]);
+  const list=f.marriages||[];
+  marriages.innerHTML=list.length?list.map(m=>{
+   const partner=m.partner||{},status=marriageStatusLabel(m.status);
+   let actions='';
+   if(m.status==='proposed'&&!m.is_my_proposal)actions='<div class="row"><button class="btn primary" onclick="decideMarriage('+m.id+',true)">Согласиться</button><button class="btn secondary" onclick="decideMarriage('+m.id+',false)">Отказать</button></div>';
+   if(m.status==='active')actions='<button class="btn secondary" onclick="requestDivorce('+m.id+')">Подать заявление о разводе</button>';
+   if(m.status==='divorce_pending'&&!m.is_divorce_requester)actions='<div class="row"><button class="btn primary" onclick="decideDivorce('+m.id+',true)">Согласиться на развод</button><button class="btn secondary" onclick="decideDivorce('+m.id+',false)">Отказать</button></div>';
+   return '<article class="card"><div class="row"><strong>💍 '+esc(partner.full_name||'Гражданин')+'</strong>'+statusPill(status)+'</div><p class="muted small">Запись №'+m.id+' · '+fmtDate(m.created_at)+'</p>'+actions+(m.status==='active'?'<div class="passport" style="margin-top:12px"><div class="passport-top"><b>ДКД · СВИДЕТЕЛЬСТВО О ЗАКЛЮЧЕНИИ БРАКА</b><small>ОФИЦИАЛЬНЫЙ ЭЛЕКТРОННЫЙ ДОКУМЕНТ</small></div><div class="passport-body"><div class="photo">💍</div><div class="passport-data"><div><small>Супруг / супруга</small><strong>'+esc(partner.full_name||'—')+'</strong></div><div><small>Номер записи</small><strong>ДКД-БР-'+String(m.id).padStart(6,'0')+'</strong></div><div><small>Дата регистрации</small><strong>'+esc(fmtDate(m.accepted_at||m.created_at))+'</strong></div><div><small>Статус</small><strong>Брак зарегистрирован</strong></div></div></div></div>':'')+(m.status==='divorced'?'<div class="passport" style="margin-top:12px"><div class="passport-top"><b>ДКД · СВИДЕТЕЛЬСТВО О РАСТОРЖЕНИИ БРАКА</b><small>ОФИЦИАЛЬНЫЙ ЭЛЕКТРОННЫЙ ДОКУМЕНТ</small></div><div class="passport-body"><div class="photo">⚖️</div><div class="passport-data"><div><small>Сторона брака</small><strong>'+esc(partner.full_name||'—')+'</strong></div><div><small>Номер записи</small><strong>ДКД-РБ-'+String(m.id).padStart(6,'0')+'</strong></div><div><small>Дата расторжения</small><strong>'+esc(fmtDate(m.ended_at))+'</strong></div><div><small>Статус</small><strong>Брак расторгнут</strong></div></div></div></div>':'')+'</article>';
+  }).join(''):'<div class="empty">Семейных документов пока нет.</div>';
+  const caseItems=c.cases||[];
+  cases.innerHTML=caseItems.length?caseItems.map(x=>{
+   let actions='';
+   if(x.my_role==='respondent'&&x.status==='awaiting_response')actions='<form class="form" onsubmit="respondCourtCase(event,'+x.id+')"><label>Ваш ответ (20–8000 символов)</label><textarea name="response_text" minlength="20" maxlength="8000" required></textarea><button class="btn primary">Представить ответ</button></form>';
+   if(x.status==='decided')actions='<form class="form" onsubmit="appealCourtCase(event,'+x.id+')"><label>Основания апелляции</label><textarea name="grounds" minlength="20" maxlength="5000" required></textarea><button class="btn secondary">Подать апелляцию</button></form>';
+   return '<article class="card"><div class="row"><strong>Дело №'+x.id+' · '+esc(x.title)+'</strong>' +statusPill(courtStatusLabel(x.status))+'</div><p style="white-space:pre-wrap">'+esc(x.claim)+'</p>'+(x.response_text?'<h4>Ответ стороны</h4><p style="white-space:pre-wrap">'+esc(x.response_text)+'</p>':'')+(x.decision_text?'<h4>Решение</h4><p style="white-space:pre-wrap">'+esc(x.decision_text)+'</p>':'')+'<small class="muted">Истец: '+esc(x.plaintiff?.full_name||'—')+' · Ответчик: '+esc(x.respondent?.full_name||'—')+'</small>'+actions+'</article>';
+  }).join(''):'<div class="empty">Судебных дел пока нет.</div>';
+  const decisions=a.decisions||[];
+  archive.innerHTML=decisions.length?decisions.map(x=>'<article class="card"><strong>Дело №'+x.id+' · '+esc(x.title)+'</strong><p style="white-space:pre-wrap">'+esc(x.decision_text||'')+'</p><small class="muted">'+fmtDate(x.decided_at)+'</small></article>').join(''):'<div class="empty">Открытых решений пока нет.</div>';
+ }catch(e){showError(marriages,e);cases.innerHTML=archive.innerHTML='<div class="empty">Не удалось загрузить судебные данные.</div>'}
+}
+async function proposeMarriage(e){e.preventDefault();const id=Number($('marriagePartnerId').value);if(!Number.isSafeInteger(id)||id<1)return;try{await api('/api/family/proposals',{method:'POST',body:{partner_user_id:id}});$('marriagePartnerId').value='';notify('Предложение отправлено');await loadFamilyCourt()}catch(err){notify(err.message,'error')}}
+async function decideMarriage(id,accept){try{await api('/api/family/proposals/'+id+'/decision',{method:'POST',body:{accept}});notify(accept?'Брак зарегистрирован':'Предложение отклонено');await loadFamilyCourt()}catch(e){notify(e.message,'error')}}
+async function requestDivorce(id){if(!confirm('Подать заявление о расторжении брака? Второй супруг должен будет подтвердить его.'))return;try{await api('/api/family/'+id+'/divorce',{method:'POST'});notify('Заявление отправлено');await loadFamilyCourt()}catch(e){notify(e.message,'error')}}
+async function decideDivorce(id,accept){try{await api('/api/family/'+id+'/divorce/decision',{method:'POST',body:{accept}});notify(accept?'Брак расторгнут':'Заявление отклонено');await loadFamilyCourt()}catch(e){notify(e.message,'error')}}
+async function fileCourtCase(e){e.preventDefault();try{await api('/api/court/cases',{method:'POST',body:{respondent_user_id:Number($('courtRespondent').value),title:$('courtTitle').value.trim(),claim:$('courtClaim').value.trim()}});$('courtTitle').value=$('courtClaim').value='';notify('Иск зарегистрирован');await loadFamilyCourt()}catch(err){notify(err.message,'error')}}
+async function respondCourtCase(e,id){e.preventDefault();const response_text=new FormData(e.target).get('response_text');try{await api('/api/court/cases/'+id+'/response',{method:'POST',body:{response_text}});notify('Ответ принят');await loadFamilyCourt()}catch(err){notify(err.message,'error')}}
+async function appealCourtCase(e,id){e.preventDefault();const grounds=new FormData(e.target).get('grounds');try{await api('/api/court/cases/'+id+'/appeals',{method:'POST',body:{grounds}});notify('Апелляция зарегистрирована');await loadFamilyCourt()}catch(err){notify(err.message,'error')}}
 async function loadParties(){
   loadDumaPartyLists();
   const el=$('partiesContent');el.innerHTML='<div class="empty">Загрузка партий…</div>';
@@ -751,9 +1244,37 @@ async function createAndroidLoginCode(){
   notify('Одноразовый код создан');
  }catch(e){notify(e.message||'Не удалось создать код','error')}
 }
+
+async function loadSocialModeration(){
+ const el=$('socialModerationQueue');if(!el)return;
+ el.innerHTML='<div class="empty">Загрузка жалоб…</div>';
+ try{
+  const status=$('socialReportStatus')?.value||'open';
+  const d=await api('/api/admin/social/reports?status='+encodeURIComponent(status));
+  const reports=d.reports||[];
+  const reasonLabels={spam:'Спам',harassment:'Травля',violence:'Насилие',sexual_content:'Недопустимый контент',illegal_content:'Незаконный контент',other:'Другое'};
+  if(!reports.length){el.innerHTML='<div class="empty">Жалоб с таким статусом нет.</div>';return}
+  el.innerHTML=reports.map(r=>{
+   const target=r.target||{},isPost=!!r.post_id,content=target.body||'[Содержимое удалено или недоступно]';
+   const author=target.author_user_id?' · ID автора '+Number(target.author_user_id):'';
+   const reporter=r.reporter?.full_name||('ID '+Number(r.reporter_user_id));
+   const stateLabels={open:'Новая',reviewing:'На рассмотрении',resolved:'Решена',dismissed:'Отклонена'};
+   const targetLabel=isPost?'Публикация #'+Number(r.post_id):'Комментарий #'+Number(r.comment_id);
+   const safeContent=esc(content.slice(0,700));
+   return '<article class="card" style="padding:13px"><div class="row"><strong>Жалоба #'+Number(r.id)+'</strong>'+statusPill(stateLabels[r.status]||r.status)+'</div><p class="muted small">'+esc(targetLabel)+' · '+esc(reasonLabels[r.reason]||r.reason)+' · '+fmtDate(r.created_at)+'</p><p class="small">Отправитель: <strong>'+esc(reporter)+'</strong></p><div class="notice" style="white-space:pre-wrap;overflow-wrap:anywhere">'+safeContent+'</div><p class="small muted">Причина / пояснение: '+esc(r.details||'Не указано')+author+'</p><div class="row" style="flex-wrap:wrap"><button class="btn secondary" onclick="reviewSocialReport('+Number(r.id)+',\'reviewing\',\'none\')">В работу</button><button class="btn primary" onclick="reviewSocialReport('+Number(r.id)+',\'resolved\',\'none\')">Решено</button><button class="btn danger" onclick="reviewSocialReport('+Number(r.id)+',\'resolved\',\'hide\')">Скрыть материал</button><button class="btn secondary" onclick="reviewSocialReport('+Number(r.id)+',\'dismissed\',\'none\')">Отклонить</button></div></article>';
+  }).join('');
+ }catch(e){showError(el,e)}
+}
+async function reviewSocialReport(id,status,action){
+ const promptText=action==='hide'?'Скрыть материал для всех граждан и закрыть жалобу?':'Изменить статус жалобы?';
+ if(!confirm(promptText))return;
+ try{await api('/api/admin/social/reports/'+id,{method:'PATCH',body:{status,action}});notify('Решение модератора сохранено');await loadSocialModeration()}
+ catch(e){notify(e.message||'Не удалось обработать жалобу','error')}
+}
+
 async function loadAdmin(){
   loadAdminPresidentialCandidates();
-  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory(),loadAdminDumaLaws(),loadAdminDumaManualVotes()])}}
+  try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory(),loadAdminDumaLaws(),loadAdminDumaManualVotes(),loadSocialModeration()])}}
   catch(e){$('adminStatus').textContent=e.message;$('claimBox').classList.remove('hidden');$('adminTools').classList.add('hidden')}
 }
 async function claimAdmin(e){e.preventDefault();try{await api('/api/admin/claim',{method:'POST',body:{code:$('adminCode').value}});notify('Администратор активирован');$('adminCode').value='';await loadAdmin()}catch(err){notify(err.message,'error')}}

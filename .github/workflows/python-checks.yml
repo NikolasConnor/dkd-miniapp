@@ -16,5 +16,24 @@ jobs:
           python-version: "3.12"
       - name: Compile Python files
         run: python -m compileall -q app.py core.py
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check inline JavaScript syntax
+        shell: bash
+        run: |
+          python - <<'PY'
+          import pathlib, re
+          html = pathlib.Path("index.html").read_text(encoding="utf-8")
+          blocks = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", html, re.I | re.S)
+          inline = [block for block in blocks if block.strip()]
+          if not inline:
+              raise SystemExit("No inline JavaScript found")
+          for index, block in enumerate(inline):
+              pathlib.Path(f"/tmp/dkd-inline-{index}.js").write_text(block, encoding="utf-8")
+          print(f"Extracted {len(inline)} inline script blocks")
+          PY
+          for file in /tmp/dkd-inline-*.js; do node --check "$file"; done
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
