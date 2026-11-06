@@ -759,17 +759,21 @@ async function searchSocialPeople(){
   }catch(e){showError(box,e)}
  },250);
 }
+let socialFeedRequestId=0;
 async function loadSocialFeed(reset=true){
+ const requestId=++socialFeedRequestId;
  const el=$('socialFeed'),more=$('socialMore');
  if(reset){state.socialBeforeId=null;state.socialHasMore=false;el.innerHTML='<div class="empty">Загрузка ленты…</div>'}
  try{
   const params=new URLSearchParams({limit:'20'});const search=$('socialFeedSearch')?.value.trim()||'';if(search)params.set('search',search);if(socialFeedFollowingOnly)params.set('following_only','true');if(!reset&&state.socialBeforeId)params.set('before_id',String(state.socialBeforeId));
-  const d=await api('/api/social/feed?'+params.toString()),posts=d.posts||[];
+  const d=await api('/api/social/feed?'+params.toString());
+  if(requestId!==socialFeedRequestId)return;
+  const posts=d.posts||[];
   if(reset)el.innerHTML='';
   if(posts.length){el.insertAdjacentHTML('beforeend',posts.map(renderSocialPost).join(''));state.socialBeforeId=Number(posts[posts.length-1].id);state.socialHasMore=posts.length===20}
   else if(reset)el.innerHTML='<div class="empty">Пока нет публикаций. Станьте первым, кто поделится новостью!</div>';
   more.classList.toggle('hidden',!state.socialHasMore);
- }catch(e){if(reset)showError(el,e);else notify(e.message,'error');more.classList.add('hidden')}
+ }catch(e){if(requestId!==socialFeedRequestId)return;if(reset)showError(el,e);else notify(e.message,'error');more.classList.add('hidden')}
 }
 async function submitSocialPost(e){
  e.preventDefault();const field=$('socialPostBody'),body=field.value.trim(),file=$('socialPostFile').files?.[0];
@@ -893,10 +897,18 @@ async function init(){
 
     if(!window.notificationPoller){
       window.notificationPoller=setInterval(()=>{
-        if(document.visibilityState==='visible')refreshNotifications(true).catch(()=>{});
+        if(document.visibilityState!=='visible')return;
+        refreshNotifications(true).catch(()=>{});
+        if($('socialView')?.classList.contains('active')){
+          const feed=$('socialFeed');
+          if(feed&&feed.scrollTop===0&&window.scrollY<250)loadSocialFeed(true).catch(()=>{});
+        }
       },30000);
       document.addEventListener('visibilitychange',()=>{
-        if(document.visibilityState==='visible')refreshNotifications(false).catch(()=>{});
+        if(document.visibilityState==='visible'){
+          refreshNotifications(false).catch(()=>{});
+          if($('socialView')?.classList.contains('active'))loadSocialFeed(true).catch(()=>{});
+        }
       });
     }
 
