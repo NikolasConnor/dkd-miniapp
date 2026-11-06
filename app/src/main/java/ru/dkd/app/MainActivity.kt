@@ -494,7 +494,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         onError = { toast = it })
                     chatId > 0 -> ChatConversationScreen(token, chatId, currentUserId,
                         onBack = { chatId = 0 }, onError = { toast = it })
-                    tab == 0 -> PortalHomeScreen(
+                    tab == 0 -> PortalHomeScreen(token,
                         onOpen = { detail = it },
                         onFeed = { tab = 1 },
                         onGovernment = { tab = 3 }
@@ -516,50 +516,60 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
 
 @Composable
 private fun PortalHomeScreen(
+    token: String,
     onOpen: (String) -> Unit,
     onFeed: () -> Unit,
     onGovernment: () -> Unit
 ) {
+    var passport by remember { mutableStateOf<JSONObject?>(null) }
+    var news by remember { mutableStateOf<org.json.JSONArray?>(null) }
+    var greetingName by remember { mutableStateOf("гражданин") }
+    LaunchedEffect(token) {
+        val profile = apiCall(token, "GET", "/api/profile")
+        val p = profile.data?.optJSONObject("profile") ?: profile.data
+        val fullName = p?.optString("full_name").orEmpty()
+        if (fullName.isNotBlank() && fullName != "null") greetingName = fullName.trim().split(Regex("\\s+")).first()
+        val pass = apiCall(token, "GET", "/api/passport")
+        passport = pass.data
+        val newsResult = apiCall(token, "GET", "/api/news")
+        news = newsResult.data?.optJSONArray("news") ?: newsResult.data?.optJSONArray("items")
+    }
+    val hasPassport = passport?.optBoolean("has_passport") == true
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
         Spacer(Modifier.height(18.dp))
-        Text("ДОБРО ПОЖАЛОВАТЬ", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
-        Text("Привет!", color = White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-        Text("Ваше цифровое пространство ДКД", color = Muted, fontSize = 13.sp)
+        Text("NEXORA GROUP  /  ДКД", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 2.sp)
+        Text("Привет, $greetingName!", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
+        Text("Рады видеть тебя в цифровом государстве", color = Muted, fontSize = 12.sp)
         Spacer(Modifier.height(18.dp))
-        Surface(
-            color = Color(0xFF17243B), shape = RoundedCornerShape(24.dp),
-            modifier = Modifier.fillMaxWidth().clickable { onOpen("Статус гражданина") }
-        ) {
+        Surface(color = Color(0xFF17243B), shape = RoundedCornerShape(24.dp),
+            modifier = Modifier.fillMaxWidth().clickable { onOpen("Статус гражданина") }) {
             Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("ВАШ СТАТУС", color = Blue, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                    Text("Гражданин ДКД", color = White, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Посмотреть профиль и документы", color = Muted, fontSize = 11.sp)
+                    Text(if (hasPassport) "Гражданин ДКД" else "Статус участника", color = White, fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
+                    Text(if (hasPassport) "Паспорт доступен в документах" else "Посмотреть статус и подать заявление", color = Muted, fontSize = 11.sp)
                 }
-                Text("→", color = Blue, fontSize = 30.sp)
+                Text(if (hasPassport) "✓" else "→", color = Blue, fontSize = 28.sp)
             }
         }
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(23.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Государственные услуги", color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             TextButton(onClick = onGovernment) { Text("Все →", color = Blue) }
         }
         val services = listOf(
-            Triple("Выборы", "☑", "Выборы и голосования"),
-            Triple("Документы", "▤", "Цифровые документы"),
-            Triple("Государство", "▥", "Органы власти и должности"),
+            Triple("Выборы", "☑", "Голосования и результаты"),
+            Triple("Документы", "▤", "Паспорт, мандат, указы"),
+            Triple("Государство", "▥", "Органы власти"),
             Triple("Партии", "♟", "Политические объединения"),
-            Triple("Обращения", "✉", "Заявления и обращения"),
+            Triple("Обращения", "✉", "Заявления и запросы"),
             Triple("Законы", "§", "Законодательство ДКД")
         )
         services.chunked(2).forEach { pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
                 pair.forEach { item ->
-                    Surface(
-                        color = Color(0xFF151C2A), shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier.weight(1f).padding(bottom = 10.dp)
-                            .clickable { onOpen(item.first) }
-                    ) {
+                    Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(18.dp),
+                        modifier = Modifier.weight(1f).padding(bottom = 10.dp).clickable { onOpen(item.first) }) {
                         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                             Text(item.second, color = Blue, fontSize = 27.sp)
                             Text(item.first, color = White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -570,10 +580,31 @@ private fun PortalHomeScreen(
             }
         }
         Spacer(Modifier.height(12.dp))
-        Surface(
-            color = Color(0xFF121A29), shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.fillMaxWidth().clickable { onFeed() }
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Последние новости", color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            TextButton(onClick = { onOpen("Новости") }) { Text("Все →", color = Blue) }
+        }
+        val newsItems = news
+        if (newsItems == null || newsItems.length() == 0) {
+            Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                Text("Здесь появятся официальные новости ДКД.", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(16.dp))
+            }
+        } else {
+            for (i in 0 until minOf(3, newsItems.length())) {
+                val item = newsItems.optJSONObject(i) ?: continue
+                Surface(color = Color(0xFF151C2A), shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).clickable { onOpen("Новости") }) {
+                    Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(item.optString("title").ifBlank { "Новость ДКД" }, color = White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text(item.optString("text").ifBlank { item.optString("body") }, color = Muted, fontSize = 11.sp, maxLines = 3)
+                        Text(item.optString("created_at"), color = Blue, fontSize = 9.sp)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Surface(color = Color(0xFF121A29), shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.fillMaxWidth().clickable { onFeed() }) {
             Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Сообщество ДКД", color = White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
