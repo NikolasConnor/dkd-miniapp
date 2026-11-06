@@ -445,6 +445,7 @@ def social_toggle_save(post_id: int, user: dict = Depends(auth_user)):
 class SocialProfileUpdate(BaseModel):
     bio: str = Field(default="", max_length=280)
     show_connections: bool | None = None
+    is_private: bool | None = None
 
 
 @app.get("/api/social/profiles/{target_user_id}")
@@ -455,13 +456,28 @@ def social_get_profile(target_user_id: int, user: dict = Depends(auth_user)):
 @app.patch("/api/social/profile")
 def social_update_profile(payload: SocialProfileUpdate, user: dict = Depends(auth_user)):
     return {"ok": True, "profile": core.update_social_profile(
-        user, payload.bio, payload.show_connections
+        user, payload.bio, payload.show_connections, payload.is_private
     )}
 
 
 @app.post("/api/social/profiles/{target_user_id}/follow")
 def social_toggle_follow(target_user_id: int, user: dict = Depends(auth_user)):
     return core.toggle_social_follow(user, target_user_id)
+
+
+@app.get("/api/social/follow-requests")
+def social_follow_requests(user: dict = Depends(auth_user)):
+    return {"requests": core.list_social_follow_requests(user)}
+
+
+@app.post("/api/social/follow-requests/{requester_user_id}/approve")
+def social_approve_follow_request(requester_user_id: int, user: dict = Depends(auth_user)):
+    return core.review_social_follow_request(user, requester_user_id, True)
+
+
+@app.post("/api/social/follow-requests/{requester_user_id}/reject")
+def social_reject_follow_request(requester_user_id: int, user: dict = Depends(auth_user)):
+    return core.review_social_follow_request(user, requester_user_id, False)
 
 
 @app.post("/api/social/profile/cover")
