@@ -153,6 +153,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
     <section id="socialView" class="view">
       <button class="back" onclick="openView('home')">← На главную</button>
       <div class="section-head"><h3>Сообщество ДКД</h3><div class="row"><button class="btn secondary" onclick="openSocialProfile(state.profile?.telegram_id)">Мой профиль</button><button class="btn secondary" onclick="loadSocialFeed(true)">Обновить</button></div></div>
+      <div class="row wrap" style="margin:10px 0"><button id="socialFeedAll" class="btn primary" onclick="setSocialFeedMode(false)">Все публикации</button><button id="socialFeedFollowing" class="btn secondary" onclick="setSocialFeedMode(true)">Мои подписки</button><button id="socialFeedSaved" class="btn secondary" onclick="setSocialSavedMode()">Сохранённое</button></div>
       <form class="card form" onsubmit="submitSocialPost(event)">
         <h3 style="margin:0">Новая публикация</h3>
         <div class="field"><label for="socialPostBody">О чём хотите рассказать?</label><textarea id="socialPostBody" maxlength="5000" rows="4" placeholder="Поделитесь новостью или мыслью…"></textarea></div>
@@ -555,7 +556,7 @@ function renderSocialPost(post){
   '<div class="row" style="align-items:center"><button type="button" onclick="openSocialProfile('+Number(author.user_id||post.author_user_id)+')" style="font-size:28px;border:0;background:none;padding:0">'+esc(avatar)+'</button><div style="flex:1;min-width:0"><button type="button" onclick="openSocialProfile('+Number(author.user_id||post.author_user_id)+')" style="border:0;background:none;padding:0;font-weight:700">'+esc(name)+'</button><div class="muted small">'+(author.username?'@'+esc(author.username)+' · ':'')+fmtDate(post.created_at)+'</div></div></div>'+
   (post.body?'<p style="white-space:pre-wrap;overflow-wrap:anywhere;margin:13px 0">'+esc(post.body)+'</p>':'')+original+
   (post.media||[]).map(m=>m.media_type==='video'?'<video controls playsinline preload="metadata" style="width:100%;max-height:420px;background:#080b18;border-radius:12px;margin:8px 0" src="'+esc(m.url)+'"></video>':'<img loading="lazy" alt="Вложение публикации" style="width:100%;max-height:420px;object-fit:contain;border-radius:12px;margin:8px 0" src="'+esc(m.url)+'">').join('')+
-  '<div class="row"><button class="btn '+(reacted?'primary':'secondary')+'" type="button" onclick="toggleSocialReaction('+Number(post.id)+')">'+(reacted?'♥':'♡')+' '+Number(post.reaction_count||0)+'</button><button class="btn secondary" type="button" onclick="toggleSocialComments('+Number(post.id)+')">Комментарии · '+Number(post.comment_count||0)+'</button><button class="btn secondary" type="button" onclick="repostSocialPost('+Number(post.id)+')">↻ Репост</button><button class="btn secondary" type="button" onclick="reportSocialPost('+Number(post.id)+')">Пожаловаться</button>'+(own?'<button class="btn secondary" type="button" onclick="editSocialPost('+Number(post.id)+')">Изменить</button><button class="btn danger" type="button" onclick="deleteSocialPost('+Number(post.id)+')">Удалить</button>':'')+'</div>'+
+  '<div class="row"><button class="btn '+(reacted?'primary':'secondary')+'" type="button" onclick="toggleSocialReaction('+Number(post.id)+')">'+(reacted?'♥':'♡')+' '+Number(post.reaction_count||0)+'</button><button class="btn secondary" type="button" onclick="toggleSocialSave('+Number(post.id)+')">'+(post.is_saved?'★ Сохранено':'☆ Сохранить')+'</button><button class="btn secondary" type="button" onclick="toggleSocialComments('+Number(post.id)+')">Комментарии · '+Number(post.comment_count||0)+'</button><button class="btn secondary" type="button" onclick="repostSocialPost('+Number(post.id)+')">↻ Репост</button><button class="btn secondary" type="button" onclick="reportSocialPost('+Number(post.id)+')">Пожаловаться</button>'+(own?'<button class="btn secondary" type="button" onclick="editSocialPost('+Number(post.id)+')">Изменить</button><button class="btn danger" type="button" onclick="deleteSocialPost('+Number(post.id)+')">Удалить</button>':'')+'</div>'+
   '<div id="socialComments'+Number(post.id)+'" class="hidden" style="margin-top:12px"></div>'+
  '</article>';
 }
@@ -736,11 +737,17 @@ function closeChatRoom(){stopChatPolling();state.currentChatId=null;$('chatRoomP
 async function leaveCurrentChat(){if(!state.currentChatId||!confirm('Покинуть группу?'))return;try{await api('/api/chats/'+state.currentChatId+'/leave',{method:'POST',body:{}});closeChatRoom()}catch(e){notify(e.message,'error')}}
 
 let socialFeedSearchTimer=null,socialPeopleSearchTimer=null;
-let socialFeedFollowingOnly=false;
+let socialFeedFollowingOnly=false,socialFeedSavedOnly=false;
 function setSocialFeedMode(following){
- socialFeedFollowingOnly=!!following;
+ socialFeedFollowingOnly=!!following;socialFeedSavedOnly=false;
  $('socialFeedAll').className='btn '+(!following?'primary':'secondary');
  $('socialFeedFollowing').className='btn '+(following?'primary':'secondary');
+ $('socialFeedSaved').className='btn secondary';
+ loadSocialFeed(true);
+}
+function setSocialSavedMode(){
+ socialFeedFollowingOnly=false;socialFeedSavedOnly=true;
+ $('socialFeedAll').className='btn secondary';$('socialFeedFollowing').className='btn secondary';$('socialFeedSaved').className='btn primary';
  loadSocialFeed(true);
 }
 function scheduleSocialFeedSearch(){
@@ -765,7 +772,7 @@ async function loadSocialFeed(reset=true){
  const el=$('socialFeed'),more=$('socialMore');
  if(reset){state.socialBeforeId=null;state.socialHasMore=false;el.innerHTML='<div class="empty">Загрузка ленты…</div>'}
  try{
-  const params=new URLSearchParams({limit:'20'});const search=$('socialFeedSearch')?.value.trim()||'';if(search)params.set('search',search);if(socialFeedFollowingOnly)params.set('following_only','true');if(!reset&&state.socialBeforeId)params.set('before_id',String(state.socialBeforeId));
+  const params=new URLSearchParams({limit:'20'});const search=$('socialFeedSearch')?.value.trim()||'';if(search)params.set('search',search);if(socialFeedFollowingOnly)params.set('following_only','true');if(socialFeedSavedOnly)params.set('saved_only','true');if(!reset&&state.socialBeforeId)params.set('before_id',String(state.socialBeforeId));
   const d=await api('/api/social/feed?'+params.toString());
   if(requestId!==socialFeedRequestId)return;
   const posts=d.posts||[];
@@ -855,6 +862,10 @@ async function repostSocialPost(id){
 }
 async function toggleSocialReaction(id){
  try{await api('/api/social/posts/'+id+'/reaction',{method:'POST'});await loadSocialFeed(true)}
+ catch(e){notify(e.message,'error')}
+}
+async function toggleSocialSave(id){
+ try{const d=await api('/api/social/posts/'+id+'/save',{method:'POST'});notify(d.saved?'Публикация сохранена':'Публикация удалена из сохранённого');await loadSocialFeed(true)}
  catch(e){notify(e.message,'error')}
 }
 function openView(name){
