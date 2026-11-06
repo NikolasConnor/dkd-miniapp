@@ -3147,6 +3147,118 @@ def report_social_post(user: dict, post_id: int, reason: str, details: str = "")
     return {"ok": True, "report_id": int(created[0]["id"]) if created else None}
 
 
+
+def report_social_comment(user: dict, comment_id: int, reason: str, details: str = "") -> dict:
+    _require_social_citizen(user)
+    comment = one(db().table("social_comments").select(
+        "id,post_id,author_user_id,status,deleted_at"
+    ).eq("id", int(comment_id)).limit(1), "Не удалось проверить комментарий.")
+    if not comment or comment.get("status") != "published" or comment.get("deleted_at"):
+        raise DKDError(404, "Комментарий не найден.")
+    _social_visible_post(user, int(comment["post_id"]))
+    if int(comment["author_user_id"]) in _social_blocked_user_ids(int(user["id"])):
+        raise DKDError(404, "Комментарий не найден.")
+    allowed = {"spam", "harassment", "violence", "sexual_content", "illegal_content", "other"}
+    reason_value, details_value = str(reason or "other").strip(), str(details or "").strip()
+    if reason_value not in allowed or len(details_value) > 2000:
+        raise DKDError(422, "Проверьте причину и описание жалобы.")
+    created = execute(db().table("social_reports").insert({
+        "reporter_user_id": int(user["id"]), "comment_id": int(comment_id),
+        "reason": reason_value, "details": details_value,
+    }), "Не удалось отправить жалобу.")
+    return {"ok": True, "report_id": int(created[0]["id"]) if created else None}
+
+
+def delete_own_social_post(user: dict, post_id: int) -> dict:
+    _require_social_citizen(user)
+    post = one(db().table("social_posts").select("id,author_user_id,status,deleted_at")
+               .eq("id", int(post_id)).limit(1), "Не удалось проверить публикацию.")
+    if not post or int(post["author_user_id"]) != int(user["id"]):
+        raise DKDError(404, "Публикация не найдена.")
+    if post.get("deleted_at"):
+        return {"ok": True}
+    execute(db().table("social_posts").update({
+        "status": "removed", "deleted_at": now_iso(), "updated_at": now_iso()
+    }).eq("id", int(post_id)), "Не удалось удалить публикацию.")
+    audit(int(user["id"]), "social_post_deleted", None, f"post_id={int(post_id)}")
+    return {"ok": True}
+
+
+def delete_own_social_comment(user: dict, comment_id: int) -> dict:
+    _require_social_citizen(user)
+    comment = one(db().table("social_comments").select("id,author_user_id,deleted_at")
+                  .eq("id", int(comment_id)).limit(1), "Не удалось проверить комментарий.")
+    if not comment or int(comment["author_user_id"]) != int(user["id"]):
+        raise DKDError(404, "Комментарий не найден.")
+    if not comment.get("deleted_at"):
+        execute(db().table("social_comments").update({
+            "status": "removed", "deleted_at": now_iso(), "updated_at": now_iso()
+        }).eq("id", int(comment_id)), "Не удалось удалить комментарий.")
+    return {"ok": True}
+
+
+def admin_list_social_reports(user: dict, status: str = "open") -> list[dict]:
+    require_admin(user)
+    allowed = {"open", "reviewing", "resolved", "dismissed", "all"}
+    status_value = str(status or "open")
+    if status_value not in allowed:
+        raise DKDError(422, "Неизвестный статус жалоб.")
+    query = db().table("social_reports").select(
+        "id,reporter_user_id,post_id,comment_id,reason,details,status,reviewed_by,reviewed_at,created_at"
+    ).order("created_at", desc=True).limit(100)
+    if status_value != "all":
+        query = query.eq("status", status_value)
+    reports = rows(query, "Не удалось загрузить очередь жалоб.")
+    user_ids = sorted({int(x["reporter_user_id"]) for x in reports})
+    subjects = rows(db().table("subjects").select(
+        "user_id,full_name,username"
+    ).in_("user_id", user_ids), "Не удалось загрузить авторов жалоб.") if user_ids else []
+    subject_map = {int(x["user_id"]): x for x in subjects}
+    post_ids = sorted({int(x["post_id"]) for x in reports if x.get("post_id")})
+    comment_ids = sorted({int(x["comment_id"]) for x in reports if x.get("comment_id")})
+    posts = rows(db().table("social_posts").select("id,author_user_id,body,status,deleted_at")
+                 .in_("id", post_ids), "Не удалось загрузить публикации по жалобам.") if post_ids else []
+    comments = rows(db().table("social_comments").select(
+        "id,post_id,author_user_id,body,status,deleted_at"
+    ).in_("id", comment_ids), "Не удалось загрузить комментарии по жалобам.") if comment_ids else []
+    targets = {("post", int(x["id"])): x for x in posts}
+    targets.update({("comment", int(x["id"])): x for x in comments})
+    return [{**item,
+             "reporter": subject_map.get(int(item["reporter_user_id"]), {"full_name": "Гражданин ДКД"}),
+             "target": targets.get(("post", int(item["post_id"]))) if item.get("post_id")
+                       else targets.get(("comment", int(item["comment_id"])))}
+            for item in reports]
+
+
+def admin_review_social_report(user: dict, report_id: int, status: str,
+                               action: str = "none") -> dict:
+    require_admin(user)
+    if status not in {"reviewing", "resolved", "dismissed"}:
+        raise DKDError(422, "Недопустимый статус рассмотрения жалобы.")
+    if action not in {"none", "hide"}:
+        raise DKDError(422, "Недопустимое действие модерации.")
+    report = one(db().table("social_reports").select(
+        "id,post_id,comment_id,status"
+    ).eq("id", int(report_id)).limit(1), "Не удалось проверить жалобу.")
+    if not report:
+        raise DKDError(404, "Жалоба не найдена.")
+    if action == "hide":
+        if report.get("post_id"):
+            execute(db().table("social_posts").update({
+                "status": "hidden", "updated_at": now_iso()
+            }).eq("id", int(report["post_id"])), "Не удалось скрыть публикацию.")
+        elif report.get("comment_id"):
+            execute(db().table("social_comments").update({
+                "status": "hidden", "updated_at": now_iso()
+            }).eq("id", int(report["comment_id"])), "Не удалось скрыть комментарий.")
+    execute(db().table("social_reports").update({
+        "status": status, "reviewed_by": int(user["id"]),
+        "reviewed_at": now_iso(),
+    }).eq("id", int(report_id)), "Не удалось сохранить решение модератора.")
+    audit(int(user["id"]), "social_report_reviewed", None,
+          f"report_id={int(report_id)};status={status};action={action}")
+    return {"ok": True, "status": status, "action": action}
+
 def toggle_social_block(user: dict, target_user_id: int) -> dict:
     _require_social_citizen(user)
     target_id = int(target_user_id)
