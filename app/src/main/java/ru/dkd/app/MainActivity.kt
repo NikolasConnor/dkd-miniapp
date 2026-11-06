@@ -1,32 +1,53 @@
 package ru.dkd.app
 
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
 
+private const val API_BASE_URL = "https://dkd-miniapp-1.onrender.com"
+private const val APP_HOST = "dkd-miniapp-1.onrender.com"
 private val Navy = Color(0xFF101827)
 private val Panel = Color(0xFF1A2638)
 private val Blue = Color(0xFF8DBBFA)
@@ -42,74 +63,131 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private data class Destination(val title: String, val emoji: String, val subtitle: String)
-private data class ServerStatus(val online: Boolean, val message: String, val apiVersion: String? = null)
+private class SessionStore(context: Context) {
+    private val prefs = context.getSharedPreferences("dkd_android_session", Context.MODE_PRIVATE)
+    private val alias = "dkd_android_session_key"
 
-private suspend fun checkDkdServer(): ServerStatus = withContext(Dispatchers.IO) {
+    private fun secretKey(): SecretKey {
+        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (keyStore.getKey(alias, null) as? SecretKey)?.let { return it }
+        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        generator.init(
+            KeyGenParameterSpec.Builder(
+                alias,
+                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+            )
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setRandomizedEncryptionRequired(true)
+                .build()
+        )
+        return generator.generateKey()
+    }
+
+    fun save(token: String) {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+        val encrypted = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
+        prefs.edit()
+            .putString("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
+            .putString("value", Base64.encodeToString(encrypted, Base64.NO_WRAP))
+            .apply()
+    }
+
+    fun read(): String? {
+        return try {
+            val iv = prefs.getString("iv", null) ?: return null
+            val value = prefs.getString("value", null) ?: return null
+            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+            cipher.init(
+                Cipher.DECRYPT_MODE,
+                secretKey(),
+                GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP))
+            )
+            String(cipher.doFinal(Base64.decode(value, Base64.NO_WRAP)), Charsets.UTF_8)
+                .takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            clear()
+            null
+        }
+    }
+
+    fun clear() {
+        prefs.edit().clear().apply()
+    }
+}
+
+private data class ApiResult(val token: String? = null, val error: String? = null)
+
+private suspend fun redeemLoginCode(code: String): ApiResult = withContext(Dispatchers.IO) {
     var connection: HttpURLConnection? = null
     try {
-        connection = (URL("${BuildConfig.DKD_API_BASE_URL.trimEnd('/')}/api/config").openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 20_000
+        connection = (URL("$API_BASE_URL/api/android/auth/redeem").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 15_000
             readTimeout = 20_000
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json")
             setRequestProperty("Accept", "application/json")
         }
-        val code = connection.responseCode
-        if (code !in 200..299) {
-            ServerStatus(false, "Сервер ответил с ошибкой HTTP $code")
+        connection.outputStream.use {
+            it.write(JSONObject().put("code", code.trim()).toString().toByteArray(Charsets.UTF_8))
+        }
+        val status = connection.responseCode
+        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
+        val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        val json = runCatching { JSONObject(body) }.getOrNull()
+        if (status in 200..299) {
+            val token = json?.optString("session_token")?.takeIf { it.isNotBlank() }
+            if (token == null) ApiResult(error = "Сервер не вернул токен сессии.")
+            else ApiResult(token = token)
         } else {
-            val body = connection.inputStream.bufferedReader().use { it.readText() }
-            val version = runCatching { JSONObject(body).optString("api_version").takeIf { it.isNotBlank() } }.getOrNull()
-            ServerStatus(true, "Сервер ДКД доступен", version)
+            ApiResult(error = json?.optString("detail")?.takeIf { it.isNotBlank() }
+                ?: "Не удалось войти. Код ответа: HTTP $status.")
         }
     } catch (e: Exception) {
-        ServerStatus(false, when (e) {
-            is java.net.SocketTimeoutException -> "Сервер не ответил вовремя. Возможно, он просыпается."
-            is java.net.UnknownHostException -> "Не удалось найти адрес сервера. Проверьте интернет."
-            else -> "Нет соединения с сервером ДКД."
+        ApiResult(error = when (e) {
+            is java.net.UnknownHostException -> "Не удалось найти сервер ДКД. Проверьте интернет."
+            is java.net.SocketTimeoutException -> "Сервер не ответил вовремя. Попробуйте ещё раз."
+            else -> "Не удалось связаться с сервером ДКД. Проверьте подключение."
         })
     } finally {
         connection?.disconnect()
     }
 }
 
-private fun networkType(context: Context): String {
-    val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-    val network = manager.activeNetwork ?: return "Нет подключения к сети"
-    val capabilities = manager.getNetworkCapabilities(network) ?: return "Сеть недоступна"
-    return when {
-        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> "Wi-Fi"
-        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "Мобильный интернет"
-        capabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "Проводная сеть"
-        else -> "Другое подключение"
+private suspend fun revokeSession(token: String) = withContext(Dispatchers.IO) {
+    var connection: HttpURLConnection? = null
+    try {
+        connection = (URL("$API_BASE_URL/api/android/auth/logout").openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 5_000
+            readTimeout = 5_000
+            setRequestProperty("Authorization", "Bearer $token")
+            setRequestProperty("Accept", "application/json")
+        }
+        connection.responseCode
+    } catch (_: Exception) {
+        // Локальная сессия всё равно очищается; серверная истечёт по TTL.
+    } finally {
+        connection?.disconnect()
     }
+}
+
+private class AndroidSessionBridge(private val tokenProvider: () -> String?) {
+    @JavascriptInterface fun hasSession(): Boolean = !tokenProvider().isNullOrBlank()
+    @JavascriptInterface fun getSessionToken(): String = tokenProvider().orEmpty()
 }
 
 @Composable
 private fun DKDApp() {
-    var page by remember { mutableStateOf("Главная") }
-    var notice by remember { mutableStateOf<String?>(null) }
-    var serverStatus by remember { mutableStateOf(ServerStatus(false, "Проверяем соединение…")) }
-    var checking by remember { mutableStateOf(true) }
-    val context = LocalContext.current
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val store = remember { SessionStore(context) }
+    var token by remember { mutableStateOf(store.read()) }
+    var code by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
-
-    suspend fun refreshServer() {
-        checking = true
-        serverStatus = checkDkdServer()
-        checking = false
-    }
-
-    LaunchedEffect(Unit) { refreshServer() }
-
-    val destinations = listOf(
-        Destination("Мой профиль", "👤", "Личные сведения и статус"),
-        Destination("Государственная Дума", "🏛️", "Парламент и законопроекты"),
-        Destination("Правительство", "⚖️", "Государственное управление"),
-        Destination("Документы", "📄", "Удостоверения и решения"),
-        Destination("Новости", "📰", "События ДКД"),
-        Destination("Настройки", "⚙️", "Параметры приложения")
-    )
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -117,197 +195,187 @@ private fun DKDApp() {
             surface = Panel, onSurface = White, secondary = Muted
         )
     ) {
-        Scaffold(
-            containerColor = Navy,
-            bottomBar = {
-                NavigationBar(containerColor = Panel, contentColor = White) {
-                    listOf("Главная", "Документы", "Новости", "Профиль").forEach { item ->
-                        NavigationBarItem(
-                            selected = page == item || (item == "Профиль" && page == "Мой профиль"),
-                            onClick = { page = item },
-                            icon = { Text(when (item) {
-                                "Главная" -> "⌂"
-                                "Документы" -> "▤"
-                                "Новости" -> "▣"
-                                else -> "●"
-                            }, fontSize = 19.sp) },
-                            label = { Text(item, fontSize = 10.sp) },
-                            colors = NavigationBarItemDefaults.colors(
-                                selectedIconColor = Blue,
-                                selectedTextColor = Blue,
-                                indicatorColor = Color(0xFF293D58),
-                                unselectedIconColor = Muted,
-                                unselectedTextColor = Muted
-                            )
-                        )
-                    }
-                }
-            }
-        ) { padding ->
-            Column(
-                Modifier.fillMaxSize().padding(padding)
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 18.dp, vertical = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        Modifier.size(46.dp).background(Color(0xFF263B59), RoundedCornerShape(14.dp)),
-                        contentAlignment = Alignment.Center
-                    ) { Text("🏛️", fontSize = 24.sp) }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text("ДКД", fontSize = 21.sp, fontWeight = FontWeight.Bold, color = White)
-                        Text("Цифровое пространство государства", fontSize = 11.sp, color = Muted)
-                    }
-                    Surface(color = Color(0xFF254B3A), shape = RoundedCornerShape(50)) {
-                        Text("ANDROID", Modifier.padding(horizontal = 11.dp, vertical = 6.dp),
-                            color = Green, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                when (page) {
-                    "Главная" -> {
-                        Text("Добро пожаловать", fontSize = 27.sp, fontWeight = FontWeight.Bold, color = White)
-                        Text("Демократическая Конфедерация Дебилов", color = Muted, fontSize = 13.sp)
-                        ServerConnectionCard(
-                            network = networkType(context),
-                            status = serverStatus,
-                            checking = checking,
-                            onRefresh = { scope.launch { refreshServer() } }
-                        )
-                        Surface(color = Panel, shape = RoundedCornerShape(18.dp)) {
-                            Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                                Text("Цифровое пространство ДКД", color = White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                                Text("Самостоятельное приложение ДКД. Подключение проверяется напрямую, без Telegram.", color = Muted, fontSize = 12.sp)
-                                Text("Состояние сервера не означает, что пользователь уже авторизован.", color = Blue, fontSize = 11.sp)
-                            }
-                        }
-                        Text("Государственные разделы", color = White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        destinations.forEach { item ->
-                            DestinationCard(item) {
-                                page = item.title
-                                notice = null
-                            }
+        if (token.isNullOrBlank()) {
+            LoginScreen(
+                code = code,
+                onCodeChange = { code = it; error = null },
+                busy = busy,
+                error = error,
+                onLogin = {
+                    if (code.trim().length !in 8..64) {
+                        error = "Введите одноразовый код длиной от 8 до 64 символов."
+                    } else {
+                        scope.launch {
+                            busy = true
+                            error = null
+                            val result = redeemLoginCode(code)
+                            busy = false
+                            if (result.token != null) {
+                                store.save(result.token)
+                                token = result.token
+                                code = ""
+                            } else error = result.error ?: "Не удалось войти."
                         }
                     }
-                    "Мой профиль", "Профиль" -> ProfilePage()
-                    "Государственная Дума" -> InfoPage("🏛️", "Государственная Дума",
-                        "Парламент ДКД", listOf("Состав парламента", "Законопроекты", "Заседания", "Голосования"),
-                        onAction = { notice = "Подключение к реальным парламентским данным появится после реализации авторизации Android." })
-                    "Правительство" -> InfoPage("⚖️", "Правительство",
-                        "Исполнительная власть ДКД", listOf("Президент", "Премьер-министр", "Министерства", "Государственные решения"),
-                        onAction = { notice = "Подключение к реальным государственным данным появится после реализации авторизации Android." })
-                    "Документы" -> InfoPage("📄", "Мои документы",
-                        "Электронные документы ДКД", listOf("Удостоверение Президента", "Мандат депутата", "Паспорт гражданина", "Подписанные указы"),
-                        onAction = { notice = "Для загрузки личных документов требуется безопасный вход в аккаунт ДКД." })
-                    "Новости" -> InfoPage("📰", "Новости ДКД",
-                        "Лента государственных событий", listOf("Официальные сообщения", "Решения Правительства", "Работа парламента"),
-                        onAction = { notice = "Для загрузки персонализированной ленты требуется авторизация." })
-                    "Настройки" -> {
-                        Text("Настройки", fontSize = 26.sp, color = White, fontWeight = FontWeight.Bold)
-                        ServerConnectionCard(networkType(context), serverStatus, checking) {
-                            scope.launch { refreshServer() }
-                        }
-                        InfoPage("⚙️", "Приложение", "Сведения о версии",
-                            listOf("Версия: 0.2.0", "Подключение: прямая проверка API", "Авторизация: ещё не подключена"),
-                            onAction = { scope.launch { refreshServer() } })
-                    }
-                    else -> ProfilePage()
                 }
-                notice?.let {
-                    Surface(color = Color(0xFF293D58), shape = RoundedCornerShape(12.dp)) {
-                        Text(it, Modifier.fillMaxWidth().padding(13.dp), color = White, fontSize = 12.sp)
+            )
+        } else {
+            AuthenticatedApp(
+                token = token!!,
+                onLogout = {
+                    val old = token!!
+                    scope.launch {
+                        revokeSession(old)
+                        store.clear()
+                        token = null
                     }
                 }
-                Text("ДКД · Android 0.2.0", color = Muted, fontSize = 10.sp,
-                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(vertical = 8.dp))
-            }
+            )
         }
     }
 }
 
 @Composable
-private fun ServerConnectionCard(
-    network: String,
-    status: ServerStatus,
-    checking: Boolean,
-    onRefresh: () -> Unit
+private fun LoginScreen(
+    code: String,
+    onCodeChange: (String) -> Unit,
+    busy: Boolean,
+    error: String?,
+    onLogin: () -> Unit
 ) {
-    Surface(color = Panel, shape = RoundedCornerShape(16.dp)) {
-        Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Связь с ДКД", color = White, fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
-                    modifier = Modifier.weight(1f))
-                Surface(color = if (status.online) Color(0xFF254B3A) else Color(0xFF57432A), shape = RoundedCornerShape(50)) {
-                    Text(if (checking) "ПРОВЕРКА" else if (status.online) "НА СВЯЗИ" else "НЕТ СВЯЗИ",
-                        Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        color = if (status.online) Green else Amber, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            Text("Сеть телефона: $network", color = Muted, fontSize = 12.sp)
-            Text(status.message, color = if (status.online) Green else Amber, fontSize = 12.sp)
-            status.apiVersion?.let { Text("API: $it", color = Muted, fontSize = 10.sp) }
-            OutlinedButton(onClick = onRefresh, enabled = !checking, modifier = Modifier.fillMaxWidth()) {
-                Text(if (checking) "Проверяем…" else "Проверить соединение")
-            }
-        }
-    }
-}
-
-@Composable
-private fun DestinationCard(item: Destination, onClick: () -> Unit) {
-    Surface(
-        color = Panel, shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+    Box(
+        Modifier.fillMaxSize().background(Navy).padding(22.dp),
+        contentAlignment = Alignment.Center
     ) {
-        Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(43.dp).background(Color(0xFF263B59), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center) { Text(item.emoji, fontSize = 22.sp) }
-            Spacer(Modifier.width(13.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(item.title, color = White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                Text(item.subtitle, color = Muted, fontSize = 11.sp)
+        Column(
+            Modifier.fillMaxWidth().widthIn(max = 440.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                Modifier.size(76.dp).background(Color(0xFF263B59), RoundedCornerShape(22.dp)),
+                contentAlignment = Alignment.Center
+            ) { Text("🏛️", fontSize = 38.sp) }
+            Text("ДКД", color = White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+            Text("Самостоятельное приложение государства", color = Muted, fontSize = 13.sp)
+            Surface(color = Panel, shape = RoundedCornerShape(20.dp)) {
+                Column(
+                    Modifier.fillMaxWidth().padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(13.dp)
+                ) {
+                    Text("Вход в аккаунт", color = White, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Введите одноразовый код привязки, который выдал администратор ДКД. Код действует 15 минут и используется один раз.",
+                        color = Muted, fontSize = 13.sp
+                    )
+                    OutlinedTextField(
+                        value = code,
+                        onValueChange = onCodeChange,
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Код привязки") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                        enabled = !busy
+                    )
+                    error?.let {
+                        Text(it, color = Color(0xFFFFA6B5), fontSize = 12.sp)
+                    }
+                    Button(
+                        onClick = onLogin,
+                        modifier = Modifier.fillMaxWidth().height(50.dp),
+                        enabled = !busy && code.isNotBlank()
+                    ) {
+                        if (busy) CircularProgressIndicator(
+                            modifier = Modifier.size(19.dp), strokeWidth = 2.dp,
+                            color = Navy
+                        ) else Text("Войти в ДКД")
+                    }
+                }
             }
-            Text("›", color = Blue, fontSize = 27.sp)
+            Text(
+                "Для первого входа администратор создаёт код в панели управления Mini App. Telegram после привязки не требуется.",
+                color = Muted, fontSize = 11.sp
+            )
         }
     }
 }
 
 @Composable
-private fun ProfilePage() {
-    Text("Мой профиль", fontSize = 26.sp, color = White, fontWeight = FontWeight.Bold)
-    Surface(color = Panel, shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("👤", fontSize = 48.sp)
-            Spacer(Modifier.height(8.dp))
-            Text("Вход не выполнен", color = White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
-            Text("Личные сведения появятся после авторизации", color = Muted, fontSize = 11.sp)
-        }
-    }
-}
+private fun AuthenticatedApp(token: String, onLogout: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var progress by remember { mutableIntStateOf(0) }
+    var loadError by remember { mutableStateOf(false) }
+    val webView = remember(token) {
+        WebView(context).apply {
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = false
+            settings.allowContentAccess = false
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.setSupportMultipleWindows(false)
+            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+            addJavascriptInterface(AndroidSessionBridge { token }, "AndroidDKD")
+            webChromeClient = object : WebChromeClient() {
+                override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                    progress = newProgress
+                    if (newProgress >= 100) loadError = false
+                }
+            }
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val uri = request?.url ?: return true
+                    if (uri.scheme == "https" && uri.host == APP_HOST) return false
+                    return try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                        true
+                    } catch (_: Exception) {
+                        true
+                    }
+                }
 
-@Composable
-private fun InfoPage(
-    emoji: String, title: String, description: String,
-    items: List<String>, onAction: () -> Unit
-) {
-    Text(title, fontSize = 26.sp, color = White, fontWeight = FontWeight.Bold)
-    Surface(color = Panel, shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(emoji, fontSize = 35.sp)
-            Text(description, color = White, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-            Text("Раздел подготовлен. Реальные данные будут подключены через защищённый API ДКД.",
-                color = Muted, fontSize = 12.sp)
+                override fun onReceivedError(
+                    view: WebView?, request: WebResourceRequest?, error: WebResourceError?
+                ) {
+                    if (request?.isForMainFrame == true) loadError = true
+                }
+            }
+            loadUrl(API_BASE_URL)
         }
     }
-    items.forEach { item ->
-        Surface(color = Panel, shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().clickable(onClick = onAction)) {
-            Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(item, color = White, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                Text("›", color = Blue, fontSize = 24.sp)
+
+    BackHandler(enabled = webView.canGoBack()) { webView.goBack() }
+
+    Column(Modifier.fillMaxSize().background(Navy)) {
+        Row(
+            Modifier.fillMaxWidth().background(Panel).padding(horizontal = 16.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("ДКД", color = White, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                Text("Самостоятельное приложение", color = Muted, fontSize = 10.sp)
+            }
+            TextButton(onClick = { webView.reload() }) { Text("Обновить") }
+            TextButton(onClick = onLogout) { Text("Выйти", color = Amber) }
+        }
+        if (progress in 1..99) LinearProgressIndicator(
+            progress = { progress / 100f },
+            modifier = Modifier.fillMaxWidth(),
+            color = Blue,
+            trackColor = Panel
+        )
+        if (loadError) {
+            Surface(color = Color(0xFF4A2B35), modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    "Не удалось загрузить ДКД. Проверьте Wi-Fi или мобильный интернет и нажмите «Обновить».",
+                    Modifier.padding(12.dp), color = White, fontSize = 12.sp
+                )
             }
         }
+        AndroidView(
+            factory = { webView },
+            modifier = Modifier.fillMaxSize(),
+            update = { }
+        )
     }
 }
