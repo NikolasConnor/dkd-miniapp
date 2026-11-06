@@ -483,6 +483,20 @@ def chats_send_message(conversation_id: int, payload: ChatMessageCreate,
     return core.send_chat_message(user, conversation_id, payload.body)
 
 
+class ChatMessageEdit(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+@app.patch("/api/chats/{conversation_id}/messages/{message_id}")
+def chats_edit_message(conversation_id: int, message_id: int,
+                       payload: ChatMessageEdit, user: dict = Depends(auth_user)):
+    return core.edit_chat_message(user, conversation_id, message_id, payload.body)
+
+@app.delete("/api/chats/{conversation_id}/messages/{message_id}")
+def chats_delete_message(conversation_id: int, message_id: int,
+                         user: dict = Depends(auth_user)):
+    return core.delete_chat_message(user, conversation_id, message_id)
+
+
 @app.post("/api/chats/{conversation_id}/media")
 async def chats_send_media(
     conversation_id: int,
