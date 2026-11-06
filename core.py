@@ -3672,6 +3672,33 @@ def create_social_comment(user: dict, post_id: int, body: str,
     return created[0]
 
 
+def list_social_comments(user: dict, post_id: int) -> list[dict]:
+    _require_social_citizen(user)
+    _social_visible_post(user, post_id)
+    comments = rows(db().table("social_comments").select(
+        "id,post_id,author_user_id,parent_comment_id,body,created_at"
+    ).eq("post_id", int(post_id)).eq("status", "published")
+      .is_("deleted_at", "null").order("created_at"),
+      "Не удалось загрузить комментарии.")
+    hidden_ids = _social_blocked_user_ids(int(user["id"]))
+    visible_ids = {int(x["id"]) for x in comments if int(x["author_user_id"]) not in hidden_ids}
+    comments = [x for x in comments if int(x["author_user_id"]) not in hidden_ids]
+    # Replies to a hidden/blocked parent remain visible as top-level comments;
+    # the hidden parent's text is never returned to this user.
+    for item in comments:
+        parent_id = item.get("parent_comment_id")
+        if parent_id is not None and int(parent_id) not in visible_ids:
+            item["parent_comment_id"] = None
+    author_ids = sorted({int(x["author_user_id"]) for x in comments})
+    authors = rows(db().table("subjects").select(
+        "user_id,full_name,username,avatar_emoji"
+    ).in_("user_id", author_ids), "Не удалось загрузить авторов комментариев.") if author_ids else []
+    author_map = {int(x["user_id"]): x for x in authors}
+    return [{**item, "author": author_map.get(int(item["author_user_id"]), {
+        "full_name": "Гражданин ДКД", "avatar_emoji": "👤"
+    })} for item in comments]
+
+
 SOCIAL_EDIT_WINDOW = 15 * 60
 
 def _owned_social_content(user: dict, table: str, content_id: int, select: str) -> dict:
