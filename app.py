@@ -312,6 +312,27 @@ def social_create_comment(post_id: int, payload: SocialCommentCreate,
     return {"ok": True, "comment": core.create_social_comment(user, post_id, payload.body)}
 
 
+class SocialReportCreate(BaseModel):
+    reason: str = Field(default="other", max_length=32)
+    details: str = Field(default="", max_length=2000)
+
+
+@app.get("/api/social/posts/{post_id}/comments")
+def social_list_comments(post_id: int, user: dict = Depends(auth_user)):
+    return {"comments": core.list_social_comments(user, post_id)}
+
+
+@app.post("/api/social/posts/{post_id}/report")
+def social_report_post(post_id: int, payload: SocialReportCreate,
+                       user: dict = Depends(auth_user)):
+    return core.report_social_post(user, post_id, payload.reason, payload.details)
+
+
+@app.post("/api/social/profiles/{target_user_id}/block")
+def social_toggle_block(target_user_id: int, user: dict = Depends(auth_user)):
+    return core.toggle_social_block(user, target_user_id)
+
+
 @app.post("/api/social/posts/{post_id}/reaction")
 def social_toggle_reaction(post_id: int, user: dict = Depends(auth_user)):
     return core.toggle_social_reaction(user, post_id)
