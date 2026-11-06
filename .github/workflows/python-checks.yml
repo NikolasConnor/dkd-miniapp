@@ -26,7 +26,7 @@ jobs:
           python - <<'PY'
           import pathlib, re
           html = pathlib.Path("index.html").read_text(encoding="utf-8")
-          blocks = re.findall(r"<script(?:\\s[^>]*)?>(.*?)</script>", html, re.I | re.S)
+          blocks = re.findall(r"<script(?:\s[^>]*)?>(.*?)</script>", html, re.I | re.S)
           inline = [block for block in blocks if block.strip()]
           if not inline:
               raise SystemExit("No inline JavaScript found")
