@@ -12,10 +12,7 @@ create table if not exists public.social_posts (
     updated_at timestamptz not null default now(),
     edited_at timestamptz,
     deleted_at timestamptz,
-    constraint social_posts_body_length check (char_length(body) <= 5000),
-    constraint social_posts_body_or_media check (char_length(btrim(body)) > 0 or exists (
-        select 1 from public.social_post_media m where m.post_id = id
-    ))
+    constraint social_posts_body_length check (char_length(body) <= 5000)
 );
 
 create index if not exists social_posts_feed_idx
