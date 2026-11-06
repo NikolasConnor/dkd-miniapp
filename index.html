@@ -223,6 +223,13 @@
       <div id="adminStatus" class="notice">Проверка прав…</div>
       <div id="claimBox" class="card hidden"><h3 style="margin-top:0">Первичная активация администратора</h3><p class="muted small">Введите одноразовый код, выданный владельцем системы.</p><form class="form" onsubmit="claimAdmin(event)"><div class="field"><label>Код активации</label><input id="adminCode" type="password" minlength="8" required autocomplete="off"></div><button class="btn primary">Активировать</button></form></div>
       <div id="adminTools" class="hidden">
+        <div class="card form" style="margin-top:12px">
+          <h4 style="margin:0">Вход в отдельное Android-приложение</h4>
+          <p class="muted small" style="margin:0">Введите Telegram ID участника. Код действует 15 минут и используется один раз. Передайте его владельцу аккаунта лично.</p>
+          <div class="field"><label for="androidLoginTelegramId">Telegram ID участника</label><input id="androidLoginTelegramId" type="number" min="1" inputmode="numeric" placeholder="Например, 123456789"></div>
+          <button type="button" class="btn primary" onclick="createAndroidLoginCode()">Выдать код входа</button>
+          <div id="androidLoginCodeResult" class="notice hidden" style="overflow-wrap:anywhere"></div>
+        </div>
 
         <div class="section-head"><h3>Управление партиями</h3></div>
         <form class="card form" onsubmit="adminCreateParty(event)">
@@ -734,6 +741,16 @@ async function decidePresidentLaw(id,status){const label=status==='signed'?'по
 function readLocalDateTime(dateId,timeId,required=true){const date=$(dateId)?.value||'',time=$(timeId)?.value||'';if(!date&&!time&&!required)return null;if(!date||!time)throw new Error('Укажите и дату, и время.');return date+'T'+time+':00'}
 async function presidentCreateElection(e){e.preventDefault();try{const starts_at=readLocalDateTime('presidentElectionStartDate','presidentElectionStartTime');const ends_at=readLocalDateTime('presidentElectionEndDate','presidentElectionEndTime');if(new Date(ends_at)<=new Date(starts_at))throw new Error('Окончание выборов должно быть позже начала.');await api('/api/president/elections/duma',{method:'POST',body:{title:'Выборы в Государственную думу',starts_at,ends_at}});notify('Сроки выборов в Госдуму назначены');e.target.reset();await loadElections()}catch(err){notify(err.message,'error')}}
 
+async function createAndroidLoginCode(){
+ const input=$('androidLoginTelegramId'),result=$('androidLoginCodeResult'),telegramId=Number(input?.value);
+ if(!Number.isSafeInteger(telegramId)||telegramId<=0){notify('Укажите корректный Telegram ID','error');return}
+ try{
+  const data=await api('/api/admin/android/login-code',{method:'POST',body:{telegram_id:telegramId}});
+  result.textContent='Код входа: '+data.code+' · действует 15 минут. Передайте его участнику лично.';
+  result.classList.remove('hidden');
+  notify('Одноразовый код создан');
+ }catch(e){notify(e.message||'Не удалось создать код','error')}
+}
 async function loadAdmin(){
   loadAdminPresidentialCandidates();
   try{const d=await api('/api/admin/status');state.isAdmin=!!(d.is_admin||d.admin);$('adminStatus').textContent=state.isAdmin?'Права администратора подтверждены.':(d.bootstrap_available?'Введите одноразовый код для активации панели.':'Панель администратора недоступна.');$('claimBox').classList.toggle('hidden',state.isAdmin||!d.bootstrap_available);$('adminTools').classList.toggle('hidden',!state.isAdmin);$('adminTile').classList.toggle('hidden',!(state.isAdmin||d.bootstrap_available));if(state.isAdmin){await Promise.all([loadAdminApplications(),loadAdminSubjects(),loadAdminPartiesAndHistory(),loadAdminDumaLaws(),loadAdminDumaManualVotes()])}}
