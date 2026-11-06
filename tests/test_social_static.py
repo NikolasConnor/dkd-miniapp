@@ -96,7 +96,7 @@ class SocialApiStaticTests(unittest.TestCase):
         core = (ROOT / "core.py").read_text(encoding="utf-8")
         html = (ROOT / "index.html").read_text(encoding="utf-8")
         self.assertIn('comments = [x for x in comments if int(x["author_user_id"]) not in hidden_ids]', core)
-        self.assertIn('"followers_count": len(follower_list)', core)
+        self.assertIn('"followers_count": len(follower_ids)', core)
         self.assertIn('async function deleteSocialPost(id)', html)
         self.assertIn('async function deleteSocialComment(id,postId)', html)
         self.assertIn('async function reportSocialComment(id)', html)
