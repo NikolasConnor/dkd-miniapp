@@ -316,6 +316,18 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn('connections_hidden', core)
         self.assertIn('id="socialShowConnections"', html)
         self.assertIn('p.connections_hidden', html)
+        self.assertIn('social_follow_requests', core)
+        self.assertIn('def list_social_follow_requests(', core)
+        self.assertIn('def review_social_follow_request(', core)
+        self.assertIn('is_private: bool | None = None', app)
+        self.assertIn('@app.get("/api/social/follow-requests")', app)
+        self.assertIn('@app.post("/api/social/follow-requests/{requester_user_id}/approve")', app)
+        self.assertIn('@app.post("/api/social/follow-requests/{requester_user_id}/reject")', app)
+        self.assertIn('id="socialPrivateAccount"', html)
+        self.assertIn('p.posts_hidden', html)
+        self.assertIn('function loadSocialFollowRequests()', html)
+        self.assertIn('function reviewSocialFollowRequest(id,approve)', html)
+        self.assertIn('def _social_can_view_profile(', core)
 
 
 if __name__ == "__main__":
