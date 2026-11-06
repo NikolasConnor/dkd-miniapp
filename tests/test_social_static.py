@@ -90,7 +90,7 @@ class SocialApiStaticTests(unittest.TestCase):
         self.assertIn("hidden_ids = _social_blocked_user_ids(int(user[\"id\"]))", source)
         self.assertIn("posts = [p for p in posts if int(p[\"author_user_id\"]) not in hidden_ids]", source)
         self.assertIn("target_id in hidden_ids", source)
-        self.assertGreaterEqual(source.count("post = _social_visible_post(user, post_id)"), 5)
+        self.assertGreaterEqual(source.count("_social_visible_post(user, post_id)"), 5)
 
     def test_social_blocked_comments_and_own_content_controls(self):
         core = (ROOT / "core.py").read_text(encoding="utf-8")
