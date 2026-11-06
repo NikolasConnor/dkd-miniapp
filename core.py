@@ -2880,6 +2880,259 @@ def list_news() -> list:
 # Социальная лента (первый серверный этап)
 # ----------------------------------------------------------------------------
 
+# ----------------------------------------------------------------------------
+# Direct and group chats
+# ----------------------------------------------------------------------------
+CHAT_MESSAGE_MAX_LENGTH = 4000
+CHAT_GROUP_MAX_MEMBERS = 50
+
+def _chat_participant(conversation_id: int, user_id: int) -> dict:
+    row = one(db().table("chat_participants").select(
+        "conversation_id,user_id,member_role,joined_at,left_at,last_read_at"
+    ).eq("conversation_id", int(conversation_id)).eq("user_id", int(user_id))
+      .is_("left_at", "null").limit(1), "Не удалось проверить доступ к чату.")
+    if not row:
+        raise DKDError(404, "Чат не найден.")
+    return row
+
+def list_chat_people(user: dict, search: str = "") -> list[dict]:
+    _require_social_citizen(user)
+    uid = int(user["id"])
+    hidden = _social_blocked_user_ids(uid)
+    query = db().table("subjects").select("user_id,username,full_name,avatar_emoji").eq(
+        "is_citizen", True).neq("user_id", uid).order("full_name").limit(100)
+    value = str(search or "").strip()
+    if value:
+        if len(value) > 80:
+            raise DKDError(422, "Слишком длинный поисковый запрос.")
+        safe = value.replace("%", "").replace("*", "")
+        query = query.or_(f"username.ilike.%{safe}%,full_name.ilike.%{safe}%")
+    return [p for p in rows(query, "Не удалось загрузить список граждан.")
+            if int(p["user_id"]) not in hidden][:50]
+
+def create_direct_chat(user: dict, target_user_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, target_id = int(user["id"]), int(target_user_id)
+    if uid == target_id:
+        raise DKDError(422, "Нельзя создать чат с самим собой.")
+    target = get_subject(target_id)
+    if not target or not target.get("is_citizen"):
+        raise DKDError(404, "Гражданин не найден.")
+    if target_id in _social_blocked_user_ids(uid):
+        raise DKDError(403, "Личный чат недоступен из-за блокировки.")
+    key = ":".join(map(str, sorted((uid, target_id))))
+    conv = one(db().table("chat_conversations").select(
+        "id,type,title,created_by,created_at,last_message_at"
+    ).eq("direct_key", key).limit(1))
+    if not conv:
+        try:
+            created = execute(db().table("chat_conversations").insert({
+                "type": "direct", "direct_key": key, "created_by": uid,
+            }).select("id,type,title,created_by,created_at,last_message_at"),
+                "Не удалось создать личный чат.")
+            conv = created[0] if created else None
+        except DKDError:
+            conv = one(db().table("chat_conversations").select(
+                "id,type,title,created_by,created_at,last_message_at"
+            ).eq("direct_key", key).limit(1))
+            if not conv:
+                raise
+    if not conv:
+        raise DKDError(502, "База данных не подтвердила создание чата.")
+    cid = int(conv["id"])
+    current = rows(db().table("chat_participants").select("user_id")
+                   .eq("conversation_id", cid), "Не удалось проверить участников чата.")
+    present = {int(x["user_id"]) for x in current}
+    missing = [x for x in (uid, target_id) if x not in present]
+    if missing:
+        execute(db().table("chat_participants").insert([
+            {"conversation_id": cid, "user_id": x,
+             "member_role": "owner" if x == uid else "member"} for x in missing
+        ]), "Не удалось добавить участников личного чата.")
+    _chat_participant(cid, uid)
+    return {"ok": True, "conversation": conv}
+
+def create_group_chat(user: dict, title: str, member_ids: list[int]) -> dict:
+    _require_social_citizen(user)
+    uid = int(user["id"])
+    name = clean_name(title)
+    if not 2 <= len(name) <= 80:
+        raise DKDError(422, "Название группы должно содержать от 2 до 80 символов.")
+    ids = list(dict.fromkeys(int(x) for x in (member_ids or []) if int(x) > 0))
+    if uid not in ids:
+        ids.insert(0, uid)
+    if len(ids) < 3:
+        raise DKDError(422, "В группе должно быть не менее трёх участников вместе с вами.")
+    if len(ids) > CHAT_GROUP_MAX_MEMBERS:
+        raise DKDError(422, f"В группе может быть не более {CHAT_GROUP_MAX_MEMBERS} участников.")
+    hidden = _social_blocked_user_ids(uid)
+    if any(x in hidden for x in ids if x != uid):
+        raise DKDError(403, "Нельзя добавить в группу пользователя, с которым есть блокировка.")
+    subjects = rows(db().table("subjects").select("user_id,is_citizen").in_("user_id", ids))
+    citizens = {int(x["user_id"]) for x in subjects if x.get("is_citizen")}
+    if citizens != set(ids):
+        raise DKDError(422, "Все участники группы должны быть гражданами ДКД.")
+    created = execute(db().table("chat_conversations").insert({
+        "type": "group", "title": name, "created_by": uid,
+    }).select("id,type,title,created_by,created_at,last_message_at"),
+       "Не удалось создать группу.")
+    if not created:
+        raise DKDError(502, "База данных не подтвердила создание группы.")
+    cid = int(created[0]["id"])
+    execute(db().table("chat_participants").insert([
+        {"conversation_id": cid, "user_id": x,
+         "member_role": "owner" if x == uid else "member"} for x in ids
+    ]), "Не удалось добавить участников группы.")
+    audit(uid, "chat_group_created", None, f"conversation_id={cid};members={len(ids)}")
+    return {"ok": True, "conversation": created[0]}
+
+def list_chats(user: dict) -> list[dict]:
+    _require_social_citizen(user)
+    uid = int(user["id"])
+    memberships = rows(db().table("chat_participants").select(
+        "conversation_id,member_role,last_read_at"
+    ).eq("user_id", uid).is_("left_at", "null").order("joined_at", desc=True).limit(100))
+    ids = [int(x["conversation_id"]) for x in memberships]
+    if not ids:
+        return []
+    conversations = rows(db().table("chat_conversations").select(
+        "id,type,title,created_by,created_at,last_message_at"
+    ).in_("id", ids).order("last_message_at", desc=True).limit(100))
+    member_map = {int(x["conversation_id"]): x for x in memberships}
+    participants = rows(db().table("chat_participants").select(
+        "conversation_id,user_id,member_role"
+    ).in_("conversation_id", ids).is_("left_at", "null"))
+    subject_ids = sorted({int(x["user_id"]) for x in participants})
+    subjects = rows(db().table("subjects").select(
+        "user_id,username,full_name,avatar_emoji"
+    ).in_("user_id", subject_ids)) if subject_ids else []
+    subject_map = {int(x["user_id"]): x for x in subjects}
+    by_chat: dict[int, list[dict]] = {}
+    for p in participants:
+        by_chat.setdefault(int(p["conversation_id"]), []).append(
+            {**p, "profile": subject_map.get(int(p["user_id"]), {})})
+    result = []
+    for conv in conversations:
+        cid = int(conv["id"])
+        latest = one(db().table("chat_messages").select(
+            "id,sender_user_id,body,created_at"
+        ).eq("conversation_id", cid).is_("deleted_at", "null").order("id", desc=True).limit(1))
+        q = db().table("chat_messages").select("id", count="exact").eq(
+            "conversation_id", cid).neq("sender_user_id", uid).is_("deleted_at", "null")
+        read_at = member_map[cid].get("last_read_at")
+        if read_at:
+            q = q.gt("created_at", read_at)
+        unread = q.execute()
+        result.append({**conv, "my_role": member_map[cid]["member_role"],
+                       "participants": by_chat.get(cid, []), "last_message": latest,
+                       "unread_count": int(getattr(unread, "count", 0) or 0)})
+    return result
+
+def list_chat_messages(user: dict, conversation_id: int, before_id: int | None = None,
+                       limit: int = 50) -> list[dict]:
+    _require_social_citizen(user)
+    cid = int(conversation_id)
+    _chat_participant(cid, int(user["id"]))
+    query = db().table("chat_messages").select(
+        "id,conversation_id,sender_user_id,body,created_at,updated_at"
+    ).eq("conversation_id", cid).is_("deleted_at", "null")
+    if before_id is not None:
+        query = query.lt("id", int(before_id))
+    messages = rows(query.order("id", desc=True).limit(max(1, min(int(limit), 100))))
+    if messages:
+        ids = sorted({int(x["sender_user_id"]) for x in messages})
+        authors = rows(db().table("subjects").select(
+            "user_id,username,full_name,avatar_emoji").in_("user_id", ids))
+        author_map = {int(x["user_id"]): x for x in authors}
+        messages = [{**x, "author": author_map.get(int(x["sender_user_id"]), {})} for x in messages]
+    return list(reversed(messages))
+
+def send_chat_message(user: dict, conversation_id: int, body: str) -> dict:
+    _require_social_citizen(user)
+    uid, cid = int(user["id"]), int(conversation_id)
+    _chat_participant(cid, uid)
+    value = str(body or "").strip()
+    if not value or len(value) > CHAT_MESSAGE_MAX_LENGTH:
+        raise DKDError(422, "Сообщение должно содержать от 1 до 4000 символов.")
+    conv = one(db().table("chat_conversations").select("id,type,title").eq("id", cid).limit(1))
+    if not conv:
+        raise DKDError(404, "Чат не найден.")
+    members = rows(db().table("chat_participants").select("user_id")
+                   .eq("conversation_id", cid).is_("left_at", "null"))
+    recipients = [int(x["user_id"]) for x in members if int(x["user_id"]) != uid]
+    if conv["type"] == "direct" and any(x in _social_blocked_user_ids(uid) for x in recipients):
+        raise DKDError(403, "Отправка сообщений недоступна из-за блокировки.")
+    created = execute(db().table("chat_messages").insert({
+        "conversation_id": cid, "sender_user_id": uid, "body": value,
+    }).select("id,conversation_id,sender_user_id,body,created_at"),
+       "Не удалось отправить сообщение.")
+    if not created:
+        raise DKDError(502, "База данных не подтвердила отправку сообщения.")
+    message = created[0]
+    execute(db().table("chat_conversations").update({
+        "last_message_at": message["created_at"]
+    }).eq("id", cid), "Не удалось обновить время последнего сообщения.")
+    for recipient in recipients:
+        try:
+            create_notification(recipient, "Новое сообщение",
+                                f"Вам написали в ДКД: {value[:180]}", send_telegram=False)
+        except Exception as exc:
+            log.warning("chat notification failed for %s: %s", recipient, exc)
+    return {"ok": True, "message": message}
+
+def mark_chat_read(user: dict, conversation_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, cid = int(user["id"]), int(conversation_id)
+    _chat_participant(cid, uid)
+    execute(db().table("chat_participants").update({"last_read_at": now_iso()})
+            .eq("conversation_id", cid).eq("user_id", uid).is_("left_at", "null"))
+    return {"ok": True}
+
+def leave_chat(user: dict, conversation_id: int) -> dict:
+    _require_social_citizen(user)
+    uid, cid = int(user["id"]), int(conversation_id)
+    member = _chat_participant(cid, uid)
+    conv = one(db().table("chat_conversations").select("id,type")
+               .eq("id", cid).limit(1))
+    if not conv or conv["type"] != "group":
+        raise DKDError(422, "Личный чат нельзя покинуть.")
+    if member["member_role"] == "owner":
+        raise DKDError(422, "Владелец группы должен передать управление перед выходом.")
+    execute(db().table("chat_participants").update({"left_at": now_iso()})
+            .eq("conversation_id", cid).eq("user_id", uid).is_("left_at", "null"))
+    return {"ok": True}
+
+def add_chat_members(user: dict, conversation_id: int, member_ids: list[int]) -> dict:
+    _require_social_citizen(user)
+    uid, cid = int(user["id"]), int(conversation_id)
+    actor = _chat_participant(cid, uid)
+    if actor["member_role"] not in {"owner", "admin"}:
+        raise DKDError(403, "Добавлять участников могут только владелец и администраторы.")
+    conv = one(db().table("chat_conversations").select("id,type").eq("id", cid).limit(1))
+    if not conv or conv["type"] != "group":
+        raise DKDError(422, "Участников можно добавлять только в группу.")
+    ids = list(dict.fromkeys(int(x) for x in (member_ids or []) if int(x) > 0))
+    if not ids or len(ids) > 20:
+        raise DKDError(422, "Можно добавить от 1 до 20 граждан за раз.")
+    hidden = _social_blocked_user_ids(uid)
+    if any(x in hidden for x in ids):
+        raise DKDError(403, "Нельзя добавить пользователя, с которым есть блокировка.")
+    subjects = rows(db().table("subjects").select("user_id,is_citizen").in_("user_id", ids))
+    if {int(x["user_id"]) for x in subjects if x.get("is_citizen")} != set(ids):
+        raise DKDError(422, "Все новые участники должны быть гражданами ДКД.")
+    current = rows(db().table("chat_participants").select("user_id")
+                   .eq("conversation_id", cid).is_("left_at", "null"))
+    existing = {int(x["user_id"]) for x in current}
+    new_ids = [x for x in ids if x not in existing]
+    if len(existing) + len(new_ids) > CHAT_GROUP_MAX_MEMBERS:
+        raise DKDError(422, "В группе может быть не более 50 участников.")
+    if new_ids:
+        execute(db().table("chat_participants").insert([
+            {"conversation_id": cid, "user_id": x, "member_role": "member"} for x in new_ids
+        ]), "Не удалось добавить участников.")
+    return {"ok": True, "added": len(new_ids)}
+
+
 def _social_blocked_user_ids(user_id: int) -> set[int]:
     """IDs hidden from this user because either side has blocked the other."""
     uid = int(user_id)
