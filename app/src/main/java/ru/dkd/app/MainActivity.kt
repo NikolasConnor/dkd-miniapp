@@ -12,6 +12,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -32,6 +33,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.KeyStore
@@ -618,11 +621,23 @@ private fun SocialPostCard(
                 if (post.int("repost_of_post_id") > 0) Text("РЕПОСТ", color = Blue, fontSize = 9.sp)
             }
             if (post.string("body").isNotBlank()) Text(post.string("body"), color = White, fontSize = 14.sp, lineHeight = 21.sp)
-            if (post.array("media").isNotEmpty()) {
-                Surface(color = Color(0xFF24344B), shape = RoundedCornerShape(10.dp)) {
-                    Text("📎 Вложений: " + post.array("media").size + " · " +
-                        post.array("media").joinToString { it.string("media_type", "файл") },
-                        color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(11.dp))
+            post.array("media").forEach { media ->
+                val mediaUrl = media.string("url")
+                val mime = media.string("mime_type")
+                if (mime.startsWith("image/") && mediaUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = ImageRequest.Builder(androidx.compose.ui.platform.LocalContext.current)
+                            .data(API_BASE_URL + mediaUrl)
+                            .addHeader("Authorization", "Bearer " + token)
+                            .crossfade(true).build(),
+                        contentDescription = "Медиа публикации",
+                        modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp)
+                    )
+                } else {
+                    Surface(color = Color(0xFF24344B), shape = RoundedCornerShape(10.dp)) {
+                        Text(if (mime.startsWith("video/")) "▶ Видеовложение" else "📎 Файл: " + media.string("media_type", "вложение"),
+                            color = Muted, fontSize = 11.sp, modifier = Modifier.fillMaxWidth().padding(11.dp))
+                    }
                 }
             }
             if (original.length() > 0) {
@@ -793,8 +808,8 @@ private fun PeopleScreen(
                             scope.launch {
                                 val r = apiCall(token, "POST", "/api/chats/direct",
                                     JSONObject().put("target_user_id", person.int("user_id")))
-                                val id = r.data?.optInt("conversation_id", 0)
-                                    ?: r.data?.optInt("id", 0) ?: 0
+                                val id = r.data?.optJSONObject("conversation")?.optInt("id", 0)
+                                    ?: r.data?.optInt("conversation_id", 0) ?: r.data?.optInt("id", 0) ?: 0
                                 if (r.error != null) onError(r.error)
                                 else if (id > 0) onOpenChat(id) else onError("Чат создан, но сервер не вернул его номер.")
                             }
@@ -981,7 +996,7 @@ private fun SocialProfileScreen(
             if (busy) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Blue) }
             else EmptyState("Профиль недоступен", "Возможно, пользователь закрыл доступ или удалил аккаунт.")
         } else {
-            val subject = p.obj("subject")
+            val subject = p
             val isOwn = targetId == currentUserId
             androidx.compose.foundation.lazy.LazyColumn(
                 modifier = Modifier.weight(1f), contentPadding = PaddingValues(16.dp),
@@ -994,7 +1009,7 @@ private fun SocialProfileScreen(
                             Text(subject.string("full_name", "Гражданин ДКД"), color = White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                             Text("@" + subject.string("username", "user"), color = Muted, fontSize = 12.sp)
                             Text(p.string("bio"), color = White, fontSize = 13.sp)
-                            Text("Подписчики: " + p.array("followers").size + " · Подписки: " + p.array("following").size,
+                            Text("Подписчики: " + p.optInt("followers_count", p.array("followers").size) + " · Подписки: " + p.optInt("following_count", p.array("following").size),
                                 color = Muted, fontSize = 11.sp)
                             if (!isOwn) Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Button(onClick = {
@@ -1002,11 +1017,11 @@ private fun SocialProfileScreen(
                                         val r = apiCall(token, "POST", "/api/social/profiles/" + targetId + "/follow")
                                         if (r.error != null) onError(r.error) else refresh++
                                     }
-                                }) { Text(if (p.bool("is_following")) "Отписаться" else if (p.bool("follow_pending")) "Запрос отправлен" else "Подписаться") }
+                                }) { Text(if (p.string("follow_status") == "following") "Отписаться" else if (p.string("follow_status") == "requested") "Запрос отправлен" else "Подписаться") }
                                 OutlinedButton(onClick = {
                                     scope.launch {
                                         val r = apiCall(token, "POST", "/api/chats/direct", JSONObject().put("target_user_id", targetId))
-                                        val id = r.data?.optInt("conversation_id", 0) ?: r.data?.optInt("id", 0) ?: 0
+                                        val id = r.data?.optJSONObject("conversation")?.optInt("id", 0) ?: r.data?.optInt("conversation_id", 0) ?: r.data?.optInt("id", 0) ?: 0
                                         if (r.error != null) onError(r.error) else if (id > 0) onOpenChat(id)
                                     }
                                 }) { Text("Написать") }
@@ -1021,7 +1036,7 @@ private fun SocialProfileScreen(
                         }
                     }
                 }
-                if (!p.bool("can_view_posts") && !isOwn) item { EmptyState("Профиль закрыт", "Подпишитесь, чтобы отправить запрос на просмотр публикаций.") }
+                if (p.bool("posts_hidden") && !isOwn) item { EmptyState("Профиль закрыт", "Подпишитесь, чтобы отправить запрос на просмотр публикаций.") }
                 items(p.array("posts"), key = { it.int("id") }) { post ->
                     SocialPostCard(token, post, currentUserId,
                         onAuthor = {}, onComments = { onOpenPost(post.int("id")) },
