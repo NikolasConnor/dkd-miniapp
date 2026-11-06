@@ -18,6 +18,7 @@ class SocialApiStaticTests(unittest.TestCase):
             'def social_toggle_block(',
             'def social_create_post_with_media(',
             'def social_get_post_media(',
+            'def update_profile_gender(',
         )
         for name in expected:
             self.assertIn(name, source)
