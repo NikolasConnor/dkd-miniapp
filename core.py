@@ -2906,7 +2906,6 @@ def list_chat_people(user: dict, search: str = "") -> list[dict]:
         if len(value) > 80:
             raise DKDError(422, "Слишком длинный поисковый запрос.")
         safe = re.sub(r"[^\w\s@.-]", " ", value, flags=re.UNICODE)
-        safe = re.sub(r"[%_\\\\]", " ", safe)
         safe = " ".join(safe.split())
         if not safe:
             return []
@@ -3452,7 +3451,6 @@ def list_social_feed(user: dict, before_id: int | None = None, limit: int = 20,
         raise DKDError(422, "Поисковый запрос не должен превышать 80 символов.")
     if search_value:
         safe_search = re.sub(r"[^\w\s@.-]", " ", search_value, flags=re.UNICODE)
-        safe_search = re.sub(r"[%_\\\\]", " ", safe_search)
         safe_search = " ".join(safe_search.split())
         if safe_search:
             query = query.ilike("body", f"%{safe_search}%")
