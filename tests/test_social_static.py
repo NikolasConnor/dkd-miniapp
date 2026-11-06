@@ -42,6 +42,39 @@ class SocialApiStaticTests(unittest.TestCase):
             self.assertIn(f"alter table public.{table} enable row level security", sql)
             self.assertIn(f"revoke all on public.{table} from anon, authenticated", sql)
 
+    def test_law3_family_and_court_routes_are_authenticated(self):
+        app = (ROOT / "app.py").read_text(encoding="utf-8")
+        core = (ROOT / "core.py").read_text(encoding="utf-8")
+        for route in (
+            'def family_list(', 'def family_propose(', 'def family_decide(',
+            'def family_divorce(', 'def family_divorce_decision(',
+            'def court_cases(', 'def court_file_case(', 'def court_respond(',
+            'def court_appeal(', 'def court_archive(',
+        ):
+            self.assertIn(route, app)
+        for function in (
+            'def propose_marriage(', 'def decide_marriage(', 'def request_divorce(',
+            'def decide_divorce(', 'def file_court_case(', 'def respond_court_case(',
+            'def appeal_court_case(', 'def list_public_court_decisions(',
+        ):
+            self.assertIn(function, core)
+        block = app.split('# Закон №3: регистрация брака, развод и Суд ДКД', 1)[1]
+        block = block.split('@app.get("/api/news")', 1)[0]
+        self.assertGreaterEqual(block.count('user: dict = Depends(auth_user)'), 10)
+
+    def test_law3_migration_is_private_and_constrained(self):
+        sql = (ROOT / "supabase/migrations/20261106180000_law3_family_and_court.sql").read_text(encoding="utf-8").lower()
+        for table in ('marriages','court_cases','court_appeals'):
+            self.assertIn(f'alter table public.{table} enable row level security', sql)
+            self.assertIn(f'revoke all on public.{table} from anon, authenticated', sql)
+        self.assertIn("partner_one_user_id <> partner_two_user_id", sql)
+        self.assertIn("status='decided' and decision_public=true", sql)
+
+    def test_law3_ui_has_family_and_court_workflows(self):
+        html = (ROOT / "index.html").read_text(encoding="utf-8")
+        for marker in ("id=\"familyView\"","proposeMarriage(event)","decideMarriage(","fileCourtCase(event)","respondCourtCase(","appealCourtCase(","courtArchive"):
+            self.assertIn(marker, html)
+
     def test_social_write_limits_are_enforced(self):
         source = (ROOT / "core.py").read_text(encoding="utf-8")
         self.assertIn('len(text_value) > 5000', source)
