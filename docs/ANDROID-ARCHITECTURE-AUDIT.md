@@ -205,3 +205,29 @@ Stage 1 is complete when:
 ## Next implementation stage
 
 Stage 2 is a controlled Android structural refactor: establish the Gradle wrapper, split the monolithic Activity into app shell/core/data/domain/features, add typed API contracts and tests, retain the existing pairing-code login, remove unused WebView-era remnants, and verify the APK before starting the visual port. The Mini App remains read-only as the design source.
+
+
+## Stage 2 implementation log — 2026-11-07
+
+Work completed on `android-dkd-portal-redesign` after the audit:
+
+- Extracted AES/GCM Android Keystore session persistence into `core/security/SessionStore.kt`.
+- Extracted login redemption, logout revocation, authenticated JSON requests, multipart upload, HTTP error mapping, and the API base URL into `core/network/ApiClient.kt`.
+- The API URL now comes from the existing `BuildConfig.DKD_API_BASE_URL` instead of a second Kotlin hard-coded constant.
+- Removed the unused `CookieManager` logout path and the unused JavaScript bridge. Logout now clears the local token only after server revocation succeeds.
+- Removed the Feed and Chats tabs from bottom navigation; navigation is now Home, State, Documents, Elections, Profile.
+- Removed unused social feed, people, chat, social profile, and account composables from the DKD Android app. The separate Messenger is not embedded in DKD.
+- Moved the one-time pairing-code login screen into `feature/auth/LoginScreen.kt`.
+- Added a unit test for API URL construction and made the CI workflow run unit tests before assembling the debug APK.
+
+### Remaining Stage 2 work / explicit limitations
+
+- Most government/service composables still reside in `MainActivity.kt`; the next refactor must split them into feature files and move screen state/network calls into ViewModels and repositories.
+- API transport is extracted, but still uses `HttpURLConnection` and `JSONObject`; typed DTOs and Retrofit/OkHttp remain future work.
+- Navigation is still the existing tab/detail state implementation; Navigation Compose has not yet been introduced.
+- No Room cache or offline synchronization has been added.
+- The Gradle wrapper is still absent; CI continues to use pinned Gradle 8.9 via setup-gradle.
+- The current Home/State/service screens still contain demonstration placeholders. This stage did not claim to make government services functional or redesign the visual system.
+- No production API, Render service, Mini App, or database was changed.
+
+The CI run triggered by these commits is the build verification gate. A successful APK build alone does not prove runtime behavior; install/device and two-account auth tests are still required.
