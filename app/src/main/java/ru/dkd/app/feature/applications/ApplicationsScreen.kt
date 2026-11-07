@@ -27,7 +27,7 @@ import ru.dkd.app.core.common.string
 import ru.dkd.app.core.design.*
 import ru.dkd.app.core.network.apiCall
 
-private data class ApplicationsState(
+internal data class ApplicationsState(
     val loading: Boolean = true,
     val sending: Boolean = false,
     val applications: List<JSONObject> = emptyList(),
