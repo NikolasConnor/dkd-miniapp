@@ -192,7 +192,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                     }
                     Box {
                         TextButton(onClick = { navController.navigate("notifications") }) {
-                            Text("♢", color = White, fontSize = 23.sp)
+                            Text("🔔", color = White, fontSize = 19.sp)
                         }
                         if (uiState.unreadCount > 0) {
                             Box(
