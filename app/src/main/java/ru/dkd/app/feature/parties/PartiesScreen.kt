@@ -27,6 +27,7 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
     val state by viewModel.state.collectAsState()
     var refresh by remember { mutableIntStateOf(0) }
     var confirmLeave by remember { mutableStateOf(false) }
+    var createOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(token, refresh) { viewModel.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -40,6 +41,16 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
             Text("ПОЛИТИЧЕСКАЯ СИСТЕМА", color = Pink, fontSize = 9.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
             Text("Партии ДКД", color = White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
             Text("Действующие политические объединения и их состав", color = Muted, fontSize = 12.sp)
+            if (state.isCitizen && state.myPartyId == null) {
+                Spacer(Modifier.height(5.dp))
+                Button(
+                    onClick = { createOpen = true },
+                    enabled = !state.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = Purple)
+                ) { Text("＋  Создать политическую партию", color = White, fontSize = 12.sp) }
+            }
         }
 
         if (state.loading && state.parties.isEmpty()) {
@@ -83,6 +94,49 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
                 Text("↻  Обновить список", color = Purple)
             }
         }
+    }
+
+    if (createOpen) {
+        var name by remember { mutableStateOf("") }
+        var emoji by remember { mutableStateOf("🎭") }
+        var description by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) createOpen = false },
+            containerColor = Panel,
+            title = { Text("Создать партию", color = White) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("Новая партия будет создана от имени вашего гражданского аккаунта.", color = Muted, fontSize = 11.sp)
+                    OutlinedTextField(
+                        value = name, onValueChange = { name = it.take(60) },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        label = { Text("Название партии") }
+                    )
+                    OutlinedTextField(
+                        value = emoji, onValueChange = { emoji = it.take(8) },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true,
+                        label = { Text("Эмодзи партии") }
+                    )
+                    OutlinedTextField(
+                        value = description, onValueChange = { description = it.take(1000) },
+                        modifier = Modifier.fillMaxWidth(), minLines = 2,
+                        label = { Text("Описание (необязательно)") }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = name.trim().length >= 2 && emoji.isNotBlank() && !state.busy,
+                    onClick = {
+                        viewModel.create(token, name, emoji, description)
+                        createOpen = false
+                    }
+                ) { Text("Создать", color = Purple) }
+            },
+            dismissButton = {
+                TextButton(onClick = { createOpen = false }, enabled = !state.busy) { Text("Отмена", color = Muted) }
+            }
+        )
     }
 
     if (confirmLeave) {
