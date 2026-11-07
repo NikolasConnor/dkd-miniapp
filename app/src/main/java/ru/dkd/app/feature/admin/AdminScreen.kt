@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -143,7 +144,7 @@ internal fun AdminScreen(token: String, onBack: () -> Unit, onError: (String) ->
             }
             val pending = state.applications.filter { it.string("status") == "pending" }
             if (pending.isEmpty()) item { AdminNotice("Новых заявлений нет", "Все поступившие заявления уже рассмотрены.") }
-            items(pending, key = { "app-${it.optInt("id")}" }) { application ->
+            itemsIndexed(pending, key = { index, _ -> "app-$index" }) { _, application ->
                 Surface(color = CardColor, shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(16.dp))) {
                     Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -184,7 +185,7 @@ internal fun AdminScreen(token: String, onBack: () -> Unit, onError: (String) ->
                 q.isBlank() || it.string("full_name").lowercase().contains(q) ||
                     it.string("username").lowercase().contains(q)
             }
-            items(filtered, key = { "user-${it.optInt("id")}" }) { subject ->
+            itemsIndexed(filtered, key = { index, _ -> "user-$index" }) { _, subject ->
                 val active = selected?.optInt("id") == subject.optInt("id")
                 Surface(color = if (active) Panel2 else CardColor, shape = RoundedCornerShape(15.dp),
                     modifier = Modifier.fillMaxWidth().border(1.dp, if (active) Purple else LineColor, RoundedCornerShape(15.dp))
