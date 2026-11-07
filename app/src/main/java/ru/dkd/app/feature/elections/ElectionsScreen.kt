@@ -163,7 +163,27 @@ private fun ElectionCard(election: JSONObject, kind: String, busy: Boolean, onVo
                             contentAlignment = Alignment.Center
                         ) { Text(candidate.string("avatar_emoji", "👤"), fontSize = 20.sp) }
                         Spacer(Modifier.width(10.dp))
-                        Text(candidate.string("full_name", candidate.string("name")), color = White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            candidate.string("full_name", candidate.string("name")),
+                            color = White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        if (isActive && !hasVoted && kind == "presidential") {
+                            TextButton(
+                                enabled = !busy,
+                                onClick = {
+                                    val option = candidate.string("name", candidate.string("full_name"))
+                                    if (option.isNotBlank()) {
+                                        onVote(
+                                            election.optInt("id"),
+                                            option,
+                                            candidate.string("full_name", option)
+                                        )
+                                    }
+                                },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                            ) { Text("Выбрать", color = Purple, fontSize = 10.sp) }
+                        }
                     }
                 }
             }
