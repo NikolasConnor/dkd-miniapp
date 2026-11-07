@@ -14,7 +14,7 @@ internal data class PartyCandidatesState(
     val loading: Boolean = true,
     val party: JSONObject? = null,
     val members: List<JSONObject> = emptyList(),
-    val selectedIds: Set<Long> = emptySet(),
+    val selectedIds: List<Long> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
     val message: String? = null
@@ -31,8 +31,11 @@ internal class PartyCandidatesViewModel : ViewModel() {
             val result = apiCall(token, "GET", "/api/elections/duma/party-template")
             val data = result.data
             val selected = data?.optJSONArray("selected_user_ids") ?: JSONArray()
-            val ids = buildSet {
-                for (index in 0 until selected.length()) add(selected.optLong(index))
+            val ids = buildList {
+                for (index in 0 until selected.length()) {
+                    val id = selected.optLong(index)
+                    if (id > 0 && id !in this) add(id)
+                }
             }
             mutable.value = PartyCandidatesState(
                 loading = false,
@@ -46,9 +49,20 @@ internal class PartyCandidatesViewModel : ViewModel() {
     }
 
     fun toggle(userId: Long, checked: Boolean) {
-        val selected = mutable.value.selectedIds.toMutableSet()
-        if (checked) selected.add(userId) else selected.remove(userId)
+        val selected = mutable.value.selectedIds.toMutableList()
+        if (checked && userId !in selected) selected.add(userId)
+        else if (!checked) selected.remove(userId)
         mutable.value = mutable.value.copy(selectedIds = selected, error = null)
+    }
+
+    fun move(userId: Long, offset: Int) {
+        val selected = mutable.value.selectedIds.toMutableList()
+        val from = selected.indexOf(userId)
+        val to = from + offset
+        if (from < 0 || to !in selected.indices) return
+        val value = selected.removeAt(from)
+        selected.add(to, value)
+        mutable.value = mutable.value.copy(selectedIds = selected)
     }
 
     fun save(token: String) {
@@ -60,7 +74,7 @@ internal class PartyCandidatesViewModel : ViewModel() {
                 return@launch
             }
             val payload = JSONObject().put("candidate_user_ids", JSONArray().apply {
-                current.selectedIds.sorted().forEach { put(it) }
+                current.selectedIds.forEach { put(it) }
             })
             mutable.value = current.copy(busy = true, error = null, message = null)
             val result = apiCall(token, "PUT", "/api/elections/duma/party-template", payload)
