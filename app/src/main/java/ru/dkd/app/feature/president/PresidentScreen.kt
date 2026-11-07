@@ -424,7 +424,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                     val label = when (event.string("action")) {
                         "role_assigned" -> "Кадровое назначение"
                         "role_removed" -> "Прекращение полномочий"
-                        "application_reviewed" -> "Решение по заявлению"
+                        "president_application_reviewed" -> "Решение по заявлению"
                         "duma_election_scheduled" -> "Назначение выборов в Госдуму"
                         "president_duma_election_closed" -> "Завершение думских выборов"
                         "president_parliament_dissolved" -> "Роспуск Государственной Думы"
