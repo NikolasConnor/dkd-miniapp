@@ -6,6 +6,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -126,7 +127,7 @@ internal fun StateScreen(token: String, onError: (String) -> Unit) {
 
                 if (members.isNotEmpty()) {
                     item { StateSectionTitle("Депутаты") }
-                    items(members, key = { "deputy-${it.optString("telegram_user_id", it.optString("full_name"))}" }) { member ->
+                    itemsIndexed(members, key = { index, _ -> "deputy-$index" }) { _, member ->
                         Row(
                             Modifier.fillMaxWidth().background(CardColor, RoundedCornerShape(14.dp))
                                 .border(1.dp, LineColor, RoundedCornerShape(14.dp)).padding(12.dp),
@@ -151,7 +152,7 @@ internal fun StateScreen(token: String, onError: (String) -> Unit) {
             if (parties.isEmpty()) {
                 item { StateNotice("Партии не найдены", "В настоящий момент нет доступных действующих партий.") }
             } else {
-                items(parties, key = { "party-${it.optInt("id")}" }) { party ->
+                itemsIndexed(parties, key = { index, _ -> "party-$index" }) { _, party ->
                     Surface(color = CardColor, shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(16.dp))) {
                         Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
