@@ -38,19 +38,21 @@ internal fun NotificationsScreen(
         onUnreadChanged(r.data?.optInt("unread_count", 0) ?: 0)
     }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = onBack) { Text("← Назад", color = Blue) }
-            Text("Уведомления", color = White, fontSize = 21.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 13.dp)) {
+            TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) { Text("←  Назад", color = Blue) }
+            DkdPageHeader("ЦЕНТР СОБЫТИЙ", "Уведомления", "Персональные сообщения и важные события ДКД", "♧")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = {
                 scope.launch {
                     val r = apiCall(token, "POST", "/api/notifications/read-all")
                     if (r.error != null) onError(r.error) else refresh++
                 }
             }) { Text("Прочитать всё", color = Blue, fontSize = 11.sp) }
+            }
         }
         if (notes.isEmpty()) EmptyState("Уведомлений нет", "Здесь появятся важные события и сообщения.")
         else androidx.compose.foundation.lazy.LazyColumn(
-            modifier = Modifier.weight(1f), contentPadding = PaddingValues(14.dp),
+            modifier = Modifier.weight(1f), contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 6.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(notes, key = { it.int("id") }) { item ->
