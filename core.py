@@ -1579,13 +1579,20 @@ def tally(kind: str, election_id: int) -> dict[str, int]:
 
 
 def _is_active_party_leader(user_id: int, subject: dict | None = None) -> bool:
-    """Определяет действующего председателя любой активной партии по Telegram ID."""
+    """Определяет председателя любой действующей партии по Telegram ID.
+
+    Не полагается на party_members: старые записи могли сохранить председателя
+    в parties, даже если его членство было повреждено или не мигрировало.
+    """
     uid = int(user_id)
-    membership, party = active_membership(uid)
-    if not membership or not party:
-        return False
     profile = subject or get_subject(uid) or {}
-    return _is_party_leader(party, {"id": uid, "username": profile.get("username")})
+    actor = {"id": uid, "username": profile.get("username")}
+    active_parties = rows(
+        db().table("parties")
+        .select("id,leader_username,leader_user_id,status")
+        .eq("status", "active")
+    )
+    return any(_is_party_leader(party, actor) for party in active_parties)
 
 
 def list_elections(user_id: int) -> dict:
