@@ -105,7 +105,7 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
             TextButton(onClick = { onOpen("Меню") }) { Text("Все разделы  →", color = Purple, fontSize = 10.sp) }
         }
         Spacer(Modifier.height(10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             HomeFeatureCard("Государство", "Органы власти и структура", "⌘",
                 Modifier.weight(1f), onState)
             HomeFeatureCard("Документы", "Паспорт и удостоверения", "▤",
@@ -133,7 +133,7 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("Панель администратора", color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Панель администратора", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                     Text("Управление участниками и системой", color = Muted, fontSize = 10.sp)
                 }
                 Text("›", color = Purple, fontSize = 24.sp)
@@ -152,17 +152,34 @@ private fun HomeFeatureCard(
     onClick: () -> Unit
 ) {
     Surface(
-        color = CardColor, shape = RoundedCornerShape(19.dp),
-        modifier = modifier.padding(bottom = 1.dp)
-            .border(1.dp, LineColor, RoundedCornerShape(19.dp)).clickable(onClick = onClick)
+        color = CardColor,
+        shape = RoundedCornerShape(22.dp),
+        modifier = modifier
+            .height(172.dp)
+            .border(1.dp, LineColor, RoundedCornerShape(22.dp))
+            .clickable(onClick = onClick)
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Box(Modifier.size(39.dp).background(Color(0x338B7CFF), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center) {
-                Text(icon, color = Pink, fontSize = 22.sp)
+        Column(
+            Modifier.fillMaxSize().padding(horizontal = 17.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            Box(
+                Modifier.size(49.dp)
+                    .background(Color(0x338B7CFF), RoundedCornerShape(16.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(icon, color = Pink, fontSize = 27.sp, fontWeight = FontWeight.Medium)
             }
-            Text(title, color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
-            Text(subtitle, color = Muted, fontSize = 10.sp, lineHeight = 14.sp, maxLines = 2)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    title, color = White, fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold, lineHeight = 19.sp, maxLines = 2
+                )
+                Text(
+                    subtitle, color = Muted, fontSize = 11.sp,
+                    lineHeight = 15.sp, maxLines = 2
+                )
+            }
         }
     }
 }
@@ -196,11 +213,11 @@ internal fun MenuScreen(name: String, role: String, unreadCount: Int, onOpen: (S
                     .border(1.dp, LineColor, RoundedCornerShape(17.dp))
                     .clickable { onOpen(item.first) }
             ) {
-                Row(Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
+                Row(Modifier.heightIn(min = 76.dp).padding(horizontal = 17.dp, vertical = 15.dp),
                     verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(42.dp).background(Color(0x338B7CFF), RoundedCornerShape(13.dp)),
+                    Box(Modifier.size(48.dp).background(Color(0x338B7CFF), RoundedCornerShape(13.dp)),
                         contentAlignment = Alignment.Center) {
-                        Text(item.third, color = Pink, fontSize = 21.sp)
+                        Text(item.third, color = Pink, fontSize = 24.sp)
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
