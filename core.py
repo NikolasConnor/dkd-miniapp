@@ -4943,6 +4943,18 @@ def _presidential_decree_events() -> tuple[dict[int, dict], dict[int, dict]]:
     return created, latest
 
 
+def _is_presidential_decree_record(item: dict) -> bool:
+    """Не принимает персональные удостоверения и мандаты за президентские указы."""
+    title = clean_name(item.get("title")).casefold()
+    if not title:
+        return False
+    if title == "удостоверение президента дкд":
+        return False
+    if title.startswith("мандат депутата госдумы"):
+        return False
+    return True
+
+
 def president_list_decrees(actor_id: int) -> dict:
     # Читаем документы из основного реестра: отсутствие записи аудита не должно
     # скрывать уже опубликованный указ.
@@ -4950,11 +4962,7 @@ def president_list_decrees(actor_id: int) -> dict:
     decree_rows = rows(db().table("decrees").select(
         "id,title,text,is_secret,secret_for_user_id,created_at"
     ).order("id", desc=True).limit(300))
-    decree_rows = [
-        item for item in decree_rows
-        if item.get("title") != "Удостоверение Президента ДКД"
-        and not str(item.get("title") or "").startswith("Мандат депутата Госдумы")
-    ]
+    decree_rows = [item for item in decree_rows if _is_presidential_decree_record(item)]
     result = []
     for decree in decree_rows:
         decree_id = int(decree["id"])
@@ -4975,7 +4983,8 @@ def president_update_decree_execution(actor_id: int, decree_id: int, status: str
     if len(note) > 2000:
         raise DKDError(422, "Комментарий не должен превышать 2000 символов.")
     decree_id = int(decree_id)
-    if not one(db().table("decrees").select("id").eq("id", decree_id).limit(1)):
+    decree = one(db().table("decrees").select("id,title").eq("id", decree_id).limit(1))
+    if not decree or not _is_presidential_decree_record(decree):
         raise DKDError(404, "Президентский указ не найден.")
     _, latest_events = _presidential_decree_events()
     current = latest_events.get(decree_id, {}).get("status", "issued")
@@ -4990,7 +4999,7 @@ def president_update_decree_execution(actor_id: int, decree_id: int, status: str
 
 
 PRESIDENT_ACTIVITY_ACTIONS = [
-    "role_assigned", "role_removed", "application_reviewed",
+    "role_assigned", "role_removed", "president_application_reviewed",
     "duma_election_scheduled", "president_duma_election_closed",
     "president_parliament_dissolved", "presidential_decree_created",
     "presidential_decree_execution_updated", "president_law_signed",
