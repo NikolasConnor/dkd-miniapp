@@ -32,6 +32,7 @@ import ru.dkd.app.core.security.ProfileCache
 import ru.dkd.app.core.security.SessionStore
 import ru.dkd.app.feature.auth.LoginScreen
 import ru.dkd.app.feature.documents.DocumentsScreen
+import ru.dkd.app.feature.elections.ElectionsScreen
 import ru.dkd.app.feature.home.StubGovernmentScreen
 import ru.dkd.app.feature.home.StubHomeScreen
 import ru.dkd.app.feature.home.StubProfileScreen
@@ -251,10 +252,9 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         )
                     }
                     composable("elections") {
-                        StubServiceScreen(
-                            "Выборы",
-                            onBack = { navController.popBackStack() },
-                            onInfo = { appViewModel.setError(it) }
+                        ElectionsScreen(
+                            token = token,
+                            onError = { appViewModel.setError(it) }
                         )
                     }
                     composable("profile") {
