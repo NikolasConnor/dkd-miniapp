@@ -109,7 +109,9 @@ internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
         }
 
         item { SectionHeading("Удостоверения и мандаты", mandates.size + presidentCertificates.size) }
-        if (mandates.isEmpty() && presidentCertificates.isEmpty()) {
+        if (documentsLoadFailed) {
+            item { EmptyDocumentNote("Список документов недоступен", "Проверьте подключение и обновите раздел. Пустой ответ сервера не считается подтверждением отсутствия документов.") }
+        } else if (mandates.isEmpty() && presidentCertificates.isEmpty()) {
             item { EmptyDocumentNote("Активных удостоверений нет", "Мандат отображается только у действующего депутата. Президентское удостоверение — только у действующего Президента.") }
         }
         items(mandates, key = { "mandate-${it.optInt("id")}" }) { doc ->
