@@ -43,44 +43,47 @@ private class PresidentViewModel : ViewModel() {
     val state = mutable.asStateFlow()
 
     fun refresh(token: String) {
-        viewModelScope.launch {
-            mutable.value = mutable.value.copy(loading = true, error = null, message = null)
-            val status = apiCall(token, "GET", "/api/president/status")
-            val statusJson = status.data
-            if (status.error != null || statusJson == null) {
-                mutable.value = PresidentUiState(loading = false, error = status.error ?: "Не удалось получить статус доступа.")
-                return@launch
-            }
-            val allowed = statusJson.bool("is_president")
-            if (!allowed) {
-                mutable.value = PresidentUiState(
-                    loading = false, authorized = false,
-                    isAdmin = statusJson.bool("is_admin"),
-                    term = statusJson.optJSONObject("term")
-                )
-                return@launch
-            }
-            val lawsResult = apiCall(token, "GET", "/api/president/laws")
-            mutable.value = PresidentUiState(
-                loading = false, authorized = true,
-                isAdmin = statusJson.bool("is_admin"),
-                term = statusJson.optJSONObject("term"),
-                laws = lawsResult.data?.array("laws") ?: emptyList(),
-                error = lawsResult.error
-            )
+        viewModelScope.launch { load(token, null) }
+    }
+
+    private suspend fun load(token: String, successMessage: String?) {
+        mutable.value = mutable.value.copy(loading = true, error = null, message = null)
+        val status = apiCall(token, "GET", "/api/president/status")
+        val statusJson = status.data
+        if (status.error != null || statusJson == null) {
+            mutable.value = PresidentUiState(loading = false, error = status.error ?: "Не удалось получить статус доступа.")
+            return
         }
+        val allowed = statusJson.bool("is_president")
+        if (!allowed) {
+            mutable.value = PresidentUiState(
+                loading = false, authorized = false,
+                isAdmin = statusJson.bool("is_admin"),
+                term = statusJson.optJSONObject("term")
+            )
+            return
+        }
+        val lawsResult = apiCall(token, "GET", "/api/president/laws")
+        mutable.value = PresidentUiState(
+            loading = false, authorized = true,
+            isAdmin = statusJson.bool("is_admin"),
+            term = statusJson.optJSONObject("term"),
+            laws = lawsResult.data?.array("laws") ?: emptyList(),
+            error = lawsResult.error,
+            message = successMessage
+        )
     }
 
     private fun submit(token: String, method: String, path: String, payload: JSONObject? = null, success: String) {
         viewModelScope.launch {
             mutable.value = mutable.value.copy(busy = true, error = null, message = null)
             val result = apiCall(token, method, path, payload)
-            mutable.value = mutable.value.copy(
-                busy = false,
-                error = result.error,
-                message = if (result.error == null) success else null
-            )
-            if (result.error == null) refresh(token)
+            if (result.error != null) {
+                mutable.value = mutable.value.copy(busy = false, error = result.error)
+            } else {
+                mutable.value = mutable.value.copy(busy = false)
+                load(token, success)
+            }
         }
     }
 
