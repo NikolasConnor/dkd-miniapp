@@ -38,6 +38,7 @@ import ru.dkd.app.feature.duma.DumaScreen
 import ru.dkd.app.feature.elections.ElectionsScreen
 import ru.dkd.app.feature.government.StateScreen
 import ru.dkd.app.feature.home.HomeScreen
+import ru.dkd.app.feature.home.MenuScreen
 import ru.dkd.app.feature.home.StubServiceScreen
 import ru.dkd.app.feature.notifications.NotificationsScreen
 import ru.dkd.app.feature.news.NewsScreen
@@ -146,13 +147,13 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                 ) {
                     val tabs = listOf(
                         Triple("Главная", "⌂", "home"),
-                        Triple("Государство", "⌘", "government"),
                         Triple("Документы", "▤", "documents"),
-                        Triple("Выборы", "☑", "elections"),
-                        Triple("Профиль", "◉", "profile")
+                        Triple("Уведомления", "◉", "notifications"),
+                        Triple("Меню", "☰", "menu")
                     )
                     tabs.forEach { (label, icon, route) ->
-                        val active = currentRoute == route
+                        val active = currentRoute == route ||
+                            (route == "menu" && currentRoute in setOf("government", "elections", "profile", "news", "duma", "admin", "president", "applications", "party-candidates", "detail/{title}"))
                         Column(
                             Modifier.weight(1f)
                                 .background(
@@ -260,6 +261,28 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                                 }
                             },
                             onState = { navController.navigate("government") }
+                        )
+                    }
+                    composable("menu") {
+                        MenuScreen(
+                            name = uiState.name,
+                            role = uiState.role,
+                            unreadCount = uiState.unreadCount,
+                            onOpen = {
+                                when (it) {
+                                    "Государство" -> navController.navigate("government")
+                                    "Выборы" -> navController.navigate("elections")
+                                    "Профиль" -> navController.navigate("profile")
+                                    "Новости" -> navController.navigate("news")
+                                    "Государственная Дума" -> navController.navigate("duma")
+                                    "Президентская администрация" -> navController.navigate("president")
+                                    "Панель администратора" -> navController.navigate("admin")
+                                    "Заявления" -> navController.navigate("applications")
+                                    "Партии" -> navController.navigate("detail/Партии")
+                                    "Уведомления" -> navController.navigate("notifications")
+                                    else -> navController.navigate("detail/${Uri.encode(it)}")
+                                }
+                            }
                         )
                     }
                     composable("duma") {
