@@ -222,8 +222,8 @@ Work completed on `android-dkd-portal-redesign` after the audit:
 
 ### Remaining Stage 2 work / explicit limitations
 
-- The app shell is now approximately 9.4 KB / 206 lines. Home/government screens, notifications, pairing login, palette, JSON helpers, network, and session storage live in separate packages/files.
-- API transport is extracted, but still uses `HttpURLConnection` and `JSONObject`; typed DTOs and Retrofit/OkHttp remain future work.
+- MainActivity now acts as the app shell; login, Home/State/Profile surfaces, notifications, palette, JSON helpers, network, session security, profile repository, and ViewModel state live in separate packages/files.
+- API transport is extracted, but still uses `HttpURLConnection` and `JSONObject`; typed endpoint DTOs and a Retrofit/OkHttp client remain future work. A typed `ProfileRepository` boundary now maps the legacy profile/notifications JSON into a small app model.
 - Navigation Compose is now installed and used by the app shell for the five main destinations, notifications, and detail routes.
 - A `DkdViewModel` exposes profile and unread-notification state through `StateFlow`; the Compose shell observes it.
 - An encrypted Android Keystore-backed last-known profile snapshot (name, role, unread count) is stored for offline startup. This is a limited profile cache, not a full offline data layer or sync engine.
@@ -232,7 +232,7 @@ Work completed on `android-dkd-portal-redesign` after the audit:
 - The current Home/State/service screens still contain demonstration placeholders. This work does not claim to make government services functional.
 - No production API, Render service, Mini App, or database was changed.
 
-The workflow runs `testDebugUnitTest assembleDebug`. API URL construction unit tests were added. GitHub Actions confirmed a successful test + debug APK build for commit `549f1db4b338f2de28bb765af832ad5230aa350f`. Subsequent commits introducing Navigation Compose, ViewModel, encrypted profile cache, and visual updates are undergoing their own CI verification; use the latest branch workflow before calling the current head build-verified. A successful APK build alone does not prove runtime behavior; install/device and two-account auth tests are still required.
+The workflow runs `testDebugUnitTest assembleDebug`. API URL construction unit tests were added. GitHub Actions confirmed a successful test + debug APK build for commit `549f1db4b338f2de28bb765af832ad5230aa350f`. Subsequent commits introducing Navigation Compose, ViewModel, encrypted profile cache, profile repository, and visual updates are undergoing their own CI verification; use the latest branch workflow before calling the current head build-verified. A successful APK build alone does not prove runtime behavior; install/device and two-account auth tests are still required.
 
 
 ## Stage 3 implementation log — 2026-11-07
