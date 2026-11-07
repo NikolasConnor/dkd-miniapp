@@ -52,14 +52,11 @@ internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 17.dp, end = 17.dp, top = 18.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         item {
-            Text("ЦИФРОВЫЕ ДОКУМЕНТЫ", color = Pink, fontSize = 9.sp, letterSpacing = 1.6.sp, fontWeight = FontWeight.Bold)
-            Text("Документы", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-            Text("Ваши удостоверения и официальные акты ДКД", color = Muted, fontSize = 12.sp)
-            Spacer(Modifier.height(5.dp))
+            DkdPageHeader("ЛИЧНЫЙ АРХИВ", "Документы", "Ваши удостоверения и официальные акты ДКД", "▤")
         }
 
         item {
