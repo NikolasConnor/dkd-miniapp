@@ -70,7 +70,7 @@ class DumaRulesTests(unittest.TestCase):
         at_expiry = datetime(2030, 1, 4, 12, 0, tzinfo=timezone.utc)
         self.assertFalse(core._duma_session_expired(events, 100, before_expiry))
         self.assertTrue(core._duma_session_expired(events, 100, at_expiry))
-        self.assertTrue(core._is_duma_session_closed(events, 100) is False)
+        self.assertFalse(core._is_duma_session_closed(events, 100))
         self.assertEqual(
             core._duma_session_expiry(events, 100),
             datetime(2030, 1, 4, 12, 0, tzinfo=timezone.utc),
@@ -78,8 +78,8 @@ class DumaRulesTests(unittest.TestCase):
 
     def test_duma_law_voting_requires_open_session(self):
         source = Path("core.py").read_text(encoding="utf-8")
-        self.assertIn('"and session_open"', source)
-        self.assertIn('"law["can_vote"] = ("', source)
+        self.assertIn("and session_open", source)
+        self.assertIn('law["can_vote"] = (', source)
 
 
 class PresidentApiPermissionTests(unittest.TestCase):
