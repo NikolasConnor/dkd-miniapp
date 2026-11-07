@@ -71,7 +71,7 @@ private class PresidentViewModel : ViewModel() {
         if (!allowed) {
             mutable.value = PresidentUiState(
                 loading = false, authorized = false,
-                isAdmin = isAdmin,
+                isAdmin = statusJson.bool("is_admin"),
                 term = statusJson.optJSONObject("term")
             )
             return
