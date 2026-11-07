@@ -33,6 +33,7 @@ private data class PresidentUiState(
     val isAdmin: Boolean = false,
     val term: JSONObject? = null,
     val laws: List<JSONObject> = emptyList(),
+    val applications: List<JSONObject> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
     val message: String? = null
@@ -64,12 +65,14 @@ private class PresidentViewModel : ViewModel() {
             return
         }
         val lawsResult = apiCall(token, "GET", "/api/president/laws")
+        val applicationsResult = apiCall(token, "GET", "/api/president/applications")
         mutable.value = PresidentUiState(
             loading = false, authorized = true,
             isAdmin = statusJson.bool("is_admin"),
             term = statusJson.optJSONObject("term"),
             laws = lawsResult.data?.array("laws") ?: emptyList(),
-            error = lawsResult.error,
+            applications = applicationsResult.data?.array("applications") ?: emptyList(),
+            error = lawsResult.error ?: applicationsResult.error,
             message = successMessage
         )
     }
@@ -85,6 +88,14 @@ private class PresidentViewModel : ViewModel() {
                 load(token, success)
             }
         }
+    }
+
+    fun reviewApplication(token: String, id: Int, status: String) {
+        submit(
+            token, "PATCH", "/api/president/applications/$id",
+            JSONObject().put("status", status).put("note", ""),
+            if (status == "approved") "Заявление одобрено." else "Заявление отклонено."
+        )
     }
 
     fun createDecree(token: String, title: String, text: String) {
@@ -124,6 +135,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
     var electionDialog by remember { mutableStateOf(false) }
     var dissolveDialog by remember { mutableStateOf(false) }
     var lawToDecide by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    var applicationToReview by remember { mutableStateOf<Pair<Int, String>?>(null) }
 
     LaunchedEffect(token, refresh) { vm.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -172,6 +184,42 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Bad),
                             modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                             Text("Рассмотреть роспуск")
+                        }
+                    }
+                }
+            }
+            item { Text("ЗАЯВЛЕНИЯ ГРАЖДАН", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
+            if (state.applications.isEmpty()) {
+                item { PresidentNotice("Новых заявлений нет", "Заявления граждан, ожидающие решения, появятся здесь.") }
+            }
+            items(state.applications, key = { "application-${it.optInt("id")}" }) { application ->
+                val applicationId = application.optInt("id")
+                val status = application.string("status")
+                Surface(color = CardColor, shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(16.dp))) {
+                    Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(application.string("full_name", "Заявитель"), color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(if (application.string("kind") == "citizenship") "Заявление на гражданство" else "Обращение гражданина",
+                            color = Pink, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text(application.string("details").ifBlank { "Дополнительная информация не указана." }, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+                        Text("Статус: " + when (status) {
+                            "pending" -> "На рассмотрении"
+                            "approved" -> "Одобрено"
+                            "rejected" -> "Отклонено"
+                            else -> status
+                        }, color = if (status == "approved") Good else if (status == "rejected") Bad else Pink, fontSize = 9.sp)
+                        if (status == "pending") {
+                            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Button(onClick = { applicationToReview = applicationId to "approved" }, enabled = !state.busy,
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Purple)) {
+                                    Text("Одобрить", color = White, fontSize = 10.sp)
+                                }
+                                OutlinedButton(onClick = { applicationToReview = applicationId to "rejected" }, enabled = !state.busy,
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp)) {
+                                    Text("Отклонить", color = Bad, fontSize = 10.sp)
+                                }
+                            }
                         }
                     }
                 }
@@ -265,6 +313,26 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                 TextButton(enabled = !state.busy, onClick = { vm.dissolve(token); dissolveDialog = false }) { Text("Да, распустить", color = Bad) }
             },
             dismissButton = { TextButton(onClick = { dissolveDialog = false }) { Text("Отмена", color = Muted) } }
+        )
+    }
+
+    applicationToReview?.let { decision ->
+        AlertDialog(
+            onDismissRequest = { applicationToReview = null },
+            containerColor = Panel,
+            title = { Text(if (decision.second == "approved") "Одобрить заявление?" else "Отклонить заявление?", color = White) },
+            text = { Text(
+                if (decision.second == "approved") "При одобрении заявления на гражданство сервер выдаст гражданство и паспорт заявителю."
+                else "Заявление будет отклонено, а заявитель получит уведомление.",
+                color = Muted, fontSize = 12.sp
+            ) },
+            confirmButton = {
+                TextButton(enabled = !state.busy, onClick = {
+                    vm.reviewApplication(token, decision.first, decision.second)
+                    applicationToReview = null
+                }) { Text("Подтвердить", color = Purple) }
+            },
+            dismissButton = { TextButton(onClick = { applicationToReview = null }) { Text("Отмена", color = Muted) } }
         )
     }
 
