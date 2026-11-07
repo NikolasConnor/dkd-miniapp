@@ -2,6 +2,7 @@ package ru.dkd.app.feature.government
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clip
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,6 +33,7 @@ internal fun StateScreen(token: String, onError: (String) -> Unit) {
     val parliament = state.parliament
     val members = parliament?.array("members") ?: emptyList()
     val parties = state.parties
+    val chamberParties = parliament?.array("parties") ?: emptyList()
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -86,6 +88,10 @@ internal fun StateScreen(token: String, onError: (String) -> Unit) {
                                 StateMetric("МЕСТ", total.toString(), Modifier.weight(1f))
                                 StateMetric("ЗАНЯТО", occupied.toString(), Modifier.weight(1f))
                                 StateMetric("ДЕПУТАТОВ", members.size.toString(), Modifier.weight(1f))
+                            }
+                            if (chamberParties.any { it.optInt("seats") > 0 }) {
+                                Text("РАСПРЕДЕЛЕНИЕ МЕСТ", color = Muted, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                PartyComposition(chamberParties)
                             }
                             val termStart = parliament.string("term_start")
                             val termEnd = parliament.string("term_end")
@@ -174,3 +180,43 @@ private fun StateNotice(title: String, body: String) {
         }
     }
 }
+
+@Composable
+private fun PartyComposition(parties: List<JSONObject>) {
+    val represented = parties.filter { it.optInt("seats") > 0 }
+    val totalSeats = represented.sumOf { it.optInt("seats").coerceAtLeast(0) }.coerceAtLeast(1)
+    Row(
+        Modifier.fillMaxWidth().height(17.dp).clip(RoundedCornerShape(9.dp)),
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        represented.forEach { party ->
+            val seats = party.optInt("seats").coerceAtLeast(1)
+            val color = runCatching {
+                Color(android.graphics.Color.parseColor(party.string("color", "#8B7CFF")))
+            }.getOrDefault(Purple)
+            Box(
+                Modifier.weight(seats.toFloat()).fillMaxHeight().background(color)
+            )
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+        represented.forEach { party ->
+            val color = runCatching {
+                Color(android.graphics.Color.parseColor(party.string("color", "#8B7CFF")))
+            }.getOrDefault(Purple)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(9.dp).background(color, RoundedCornerShape(3.dp)))
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    party.string("name", "Партия"),
+                    color = White, fontSize = 10.sp, modifier = Modifier.weight(1f)
+                )
+                Text(
+                    "${party.optInt("seats")} мест · ${(party.optInt("seats") * 100f / totalSeats).toInt()}%",
+                    color = Muted, fontSize = 9.sp, fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
+
