@@ -1,14 +1,15 @@
 package ru.dkd.app
 
-import android.content.Context
+import ru.dkd.app.core.network.API_BASE_URL
+import ru.dkd.app.core.network.apiCall
+import ru.dkd.app.core.network.apiUpload
+import ru.dkd.app.core.network.redeemLoginCode
+import ru.dkd.app.core.network.revokeSession
+import ru.dkd.app.core.security.SessionStore
+
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.security.keystore.KeyGenParameterSpec
-import android.security.keystore.KeyProperties
-import android.util.Base64
-import android.webkit.CookieManager
-import android.webkit.JavascriptInterface
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -31,23 +32,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.lifecycleScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
-import java.net.HttpURLConnection
-import java.net.URL
-import java.security.KeyStore
-import javax.crypto.Cipher
-import javax.crypto.KeyGenerator
-import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 
-private const val API_BASE_URL = "https://dkd-miniapp-1.onrender.com"
-private const val APP_HOST = "dkd-miniapp-1.onrender.com"
 private val Navy = Color(0xFF090A0D)
 private val Panel = Color(0xFF171A20)
 private val Blue = Color(0xFF9ABEFF)
@@ -61,121 +50,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent { DKDApp() }
     }
-}
-
-private class SessionStore(context: Context) {
-    private val prefs = context.getSharedPreferences("dkd_android_session", Context.MODE_PRIVATE)
-    private val alias = "dkd_android_session_key"
-
-    private fun secretKey(): SecretKey {
-        val keyStore = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
-        (keyStore.getKey(alias, null) as? SecretKey)?.let { return it }
-        val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
-        generator.init(
-            KeyGenParameterSpec.Builder(
-                alias,
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setRandomizedEncryptionRequired(true)
-                .build()
-        )
-        return generator.generateKey()
-    }
-
-    fun save(token: String) {
-        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-        cipher.init(Cipher.ENCRYPT_MODE, secretKey())
-        val encrypted = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
-        prefs.edit()
-            .putString("iv", Base64.encodeToString(cipher.iv, Base64.NO_WRAP))
-            .putString("value", Base64.encodeToString(encrypted, Base64.NO_WRAP))
-            .apply()
-    }
-
-    fun read(): String? {
-        return try {
-            val iv = prefs.getString("iv", null) ?: return null
-            val value = prefs.getString("value", null) ?: return null
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-            cipher.init(
-                Cipher.DECRYPT_MODE,
-                secretKey(),
-                GCMParameterSpec(128, Base64.decode(iv, Base64.NO_WRAP))
-            )
-            String(cipher.doFinal(Base64.decode(value, Base64.NO_WRAP)), Charsets.UTF_8)
-                .takeIf { it.isNotBlank() }
-        } catch (_: Exception) {
-            clear()
-            null
-        }
-    }
-
-    fun clear() {
-        prefs.edit().clear().apply()
-    }
-}
-
-private data class ApiResult(val token: String? = null, val error: String? = null)
-
-private suspend fun redeemLoginCode(code: String): ApiResult = withContext(Dispatchers.IO) {
-    var connection: HttpURLConnection? = null
-    try {
-        connection = (URL("$API_BASE_URL/api/android/auth/redeem").openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 15_000
-            readTimeout = 20_000
-            doOutput = true
-            setRequestProperty("Content-Type", "application/json")
-            setRequestProperty("Accept", "application/json")
-        }
-        connection.outputStream.use {
-            it.write(JSONObject().put("code", code.trim()).toString().toByteArray(Charsets.UTF_8))
-        }
-        val status = connection.responseCode
-        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-        val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        val json = runCatching { JSONObject(body) }.getOrNull()
-        if (status in 200..299) {
-            val token = json?.optString("session_token")?.takeIf { it.isNotBlank() }
-            if (token == null) ApiResult(error = "Сервер не вернул токен сессии.")
-            else ApiResult(token = token)
-        } else {
-            ApiResult(error = json?.optString("detail")?.takeIf { it.isNotBlank() }
-                ?: "Не удалось войти. Код ответа: HTTP $status.")
-        }
-    } catch (e: Exception) {
-        ApiResult(error = when (e) {
-            is java.net.UnknownHostException -> "Не удалось найти сервер ДКД. Проверьте интернет."
-            is java.net.SocketTimeoutException -> "Сервер не ответил вовремя. Попробуйте ещё раз."
-            else -> "Не удалось связаться с сервером ДКД. Проверьте подключение."
-        })
-    } finally {
-        connection?.disconnect()
-    }
-}
-
-private suspend fun revokeSession(token: String): Boolean = withContext(Dispatchers.IO) {
-    var connection: HttpURLConnection? = null
-    try {
-        connection = (URL("$API_BASE_URL/api/android/auth/logout").openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 8_000
-            readTimeout = 8_000
-            setRequestProperty("Authorization", "Bearer $token")
-            setRequestProperty("Accept", "application/json")
-        }
-        connection.responseCode in 200..299
-    } catch (_: Exception) {
-        false
-    } finally {
-        connection?.disconnect()
-    }
-}
-
-private class AndroidSessionBridge(private val tokenProvider: () -> String?) {
-    @JavascriptInterface fun hasSession(): Boolean = !tokenProvider().isNullOrBlank()
 }
 
 @Composable
@@ -228,14 +102,8 @@ private fun DKDApp() {
                     scope.launch {
                         logoutError = null
                         if (revokeSession(old)) {
-                            CookieManager.getInstance().setCookie(
-                                API_BASE_URL,
-                                "dkd_session=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax"
-                            ) {
-                                CookieManager.getInstance().flush()
-                                store.clear()
-                                token = null
-                            }
+                            store.clear()
+                            token = null
                         } else {
                             logoutError = "Не удалось связаться с сервером и отозвать сессию. Проверьте интернет и повторите выход."
                         }
@@ -314,83 +182,6 @@ private fun LoginScreen(
 
 
 
-private data class NetResult(val data: JSONObject? = null, val error: String? = null)
-private const val MAX_TEXT = 5000
-
-private suspend fun apiCall(token: String, method: String, path: String, payload: JSONObject? = null): NetResult =
-    withContext(Dispatchers.IO) {
-        var connection: HttpURLConnection? = null
-        try {
-            connection = (URL(API_BASE_URL + path).openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 15_000
-                readTimeout = 25_000
-                setRequestProperty("Authorization", "Bearer " + token)
-                setRequestProperty("Accept", "application/json")
-                if (payload != null) {
-                    doOutput = true
-                    setRequestProperty("Content-Type", "application/json; charset=utf-8")
-                }
-            }
-            if (payload != null) connection.outputStream.use {
-                it.write(payload.toString().toByteArray(Charsets.UTF_8))
-            }
-            val status = connection.responseCode
-            val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            val json = runCatching { JSONObject(body) }.getOrNull()
-            if (status in 200..299) NetResult(json, null)
-            else NetResult(error = json?.optString("detail")?.takeIf { it.isNotBlank() && it != "null" }
-                ?: if (status == 404) "Этот сервис ещё не опубликован на сервере ДКД." else "Ошибка сервера: HTTP " + status)
-        } catch (e: Exception) {
-            NetResult(error = when (e) {
-                is java.net.UnknownHostException -> "Нет соединения с сервером ДКД."
-                is java.net.SocketTimeoutException -> "Сервер не ответил вовремя."
-                else -> "Не удалось выполнить запрос. Проверьте интернет."
-            })
-        } finally { connection?.disconnect() }
-    }
-
-private suspend fun apiUpload(
-    token: String, path: String, context: Context, uri: Uri, body: String = ""
-): NetResult = withContext(Dispatchers.IO) {
-    var connection: HttpURLConnection? = null
-    try {
-        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-            ?: return@withContext NetResult(error = "Не удалось прочитать выбранный файл.")
-        if (bytes.size > 50 * 1024 * 1024) return@withContext NetResult(error = "Файл больше 50 МБ.")
-        val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
-        val boundary = "DKD-" + java.util.UUID.randomUUID().toString()
-        connection = (URL(API_BASE_URL + path).openConnection() as HttpURLConnection).apply {
-            requestMethod = "POST"
-            connectTimeout = 20_000
-            readTimeout = 60_000
-            doOutput = true
-            setRequestProperty("Authorization", "Bearer " + token)
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary)
-        }
-        connection.outputStream.use { raw ->
-            val out = raw.buffered()
-            fun write(value: String) { out.write(value.toByteArray(Charsets.UTF_8)) }
-            write("--" + boundary + "\r\nContent-Disposition: form-data; name=\"body\"\r\n\r\n" + body + "\r\n")
-            write("--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"upload\"\r\n")
-            write("Content-Type: " + mime + "\r\n\r\n")
-            out.write(bytes)
-            write("\r\n--" + boundary + "--\r\n")
-            out.flush()
-        }
-        val status = connection.responseCode
-        val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-        val response = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        val json = runCatching { JSONObject(response) }.getOrNull()
-        if (status in 200..299) NetResult(json)
-        else NetResult(error = json?.optString("detail")?.takeIf { it.isNotBlank() } ?: "Ошибка загрузки: HTTP " + status)
-    } catch (_: Exception) {
-        NetResult(error = "Не удалось загрузить файл. Проверьте соединение и разрешение на доступ к нему.")
-    } finally { connection?.disconnect() }
-}
-
 private fun JSONObject.string(key: String, fallback: String = ""): String =
     optString(key).takeIf { it.isNotBlank() && it != "null" } ?: fallback
 private fun JSONObject.int(key: String): Int = optInt(key, 0)
@@ -400,7 +191,6 @@ private fun JSONObject.array(key: String): List<JSONObject> {
     return (0 until value.length()).mapNotNull { value.optJSONObject(it) }
 }
 private fun JSONObject.obj(key: String): JSONObject = optJSONObject(key) ?: JSONObject()
-private fun safePathId(value: Int): String = value.toString()
 
 @Composable
 private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -> Unit) {
@@ -427,8 +217,8 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                 horizontalArrangement = Arrangement.SpaceAround,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                val labels = listOf("Главная", "Лента", "Чаты", "Государство", "Профиль")
-                val icons = listOf("⌂", "◈", "▤", "⌘", "◉")
+                val labels = listOf("Главная", "Государство", "Документы", "Выборы", "Профиль")
+                val icons = listOf("⌂", "⌘", "▤", "☑", "◉")
                 labels.forEachIndexed { i, label ->
                     val active = tab == i && detail == null
                     Column(
@@ -472,10 +262,10 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                 if (detail != null) {
                     StubServiceScreen(detail!!, onBack = { detail = null }, onInfo = { toast = it })
                 } else when (tab) {
-                    0 -> StubHomeScreen(name, role, onOpen = { detail = it }, onFeed = { tab = 1 }, onState = { tab = 3 })
-                    1 -> StubFeedScreen(onInfo = { toast = it })
-                    2 -> StubChatsScreen(onInfo = { toast = it })
-                    3 -> StubGovernmentScreen(onOpen = { detail = it })
+                    0 -> StubHomeScreen(name, role, onOpen = { detail = it }, onState = { tab = 1 })
+                    1 -> StubGovernmentScreen(onOpen = { detail = it })
+                    2 -> StubServiceScreen("Документы", onBack = { detail = null }, onInfo = { toast = it })
+                    3 -> StubServiceScreen("Выборы", onBack = { detail = null }, onInfo = { toast = it })
                     else -> StubProfileScreen(name, role, onLogout = onLogout, onOpen = { detail = it })
                 }
             }
@@ -498,7 +288,7 @@ private fun StubSectionTitle(title: String, action: String? = null, onAction: ((
 }
 
 @Composable
-private fun StubHomeScreen(name: String, role: String, onOpen: (String) -> Unit, onFeed: () -> Unit, onState: () -> Unit) {
+private fun StubHomeScreen(name: String, role: String, onOpen: (String) -> Unit, onState: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 18.dp)) {
         Spacer(Modifier.height(21.dp))
         Text("ВИРТУАЛЬНОЕ ГОСУДАРСТВО  ·  NEXORA", color = Blue, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
@@ -566,81 +356,9 @@ private fun StubHomeScreen(name: String, role: String, onOpen: (String) -> Unit,
                 Text("ОТКРЫТЬ НОВОСТИ  →", color = Blue, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             }
         }
-        Spacer(Modifier.height(15.dp))
-        Surface(color = CardAlt, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().clickable { onFeed() }) {
-            Row(Modifier.padding(17.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Сообщество ДКД", color = White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                    Text("Лента, обсуждения и граждане", color = Muted, fontSize = 10.sp)
-                }
-                Text("→", color = Blue, fontSize = 25.sp)
-            }
-        }
         Spacer(Modifier.height(25.dp))
         Text("NEXORA GROUP  ·  TECHNOLOGY. IDEAS. FUTURE.", color = Color(0xFF61718B), fontSize = 8.sp, letterSpacing = 1.2.sp)
         Spacer(Modifier.height(18.dp))
-    }
-}
-
-@Composable
-private fun StubFeedScreen(onInfo: (String) -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
-        Text("NEXORA  /  COMMUNITY", color = Blue, fontSize = 9.sp, letterSpacing = 2.sp)
-        Text("Лента", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-        Text("Голоса и истории граждан ДКД", color = Muted, fontSize = 12.sp)
-        Spacer(Modifier.height(17.dp))
-        Surface(color = CardColor, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                Text("Что нового?", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                Text("Создавайте публикации, делитесь новостями и участвуйте в жизни сообщества.", color = Muted, fontSize = 11.sp)
-                Button(onClick = { onInfo("Публикации подключим на следующем этапе.") }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(13.dp)) {
-                    Text("Создать публикацию")
-                }
-            }
-        }
-        Spacer(Modifier.height(17.dp))
-        listOf("Все публикации", "Подписки", "Сохранённое").forEach { label ->
-            Surface(color = CardAlt, shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
-                Text(label, color = White, fontSize = 12.sp, modifier = Modifier.padding(14.dp))
-            }
-        }
-        Spacer(Modifier.height(18.dp))
-        StubEmptyState("✦", "Ваше сообщество начинается здесь", "Пока это визуальный макет ленты. Реальные публикации подключим отдельно.")
-    }
-}
-
-@Composable
-private fun StubChatsScreen(onInfo: (String) -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
-        Text("NEXORA  /  MESSENGER", color = Blue, fontSize = 9.sp, letterSpacing = 2.sp)
-        Text("Сообщения", color = White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-        Text("Общайтесь с гражданами и командами", color = Muted, fontSize = 12.sp)
-        Spacer(Modifier.height(18.dp))
-        Surface(color = CardColor, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().clickable { onInfo("Поиск чатов появится в рабочей версии.") }) {
-            Text("⌕   Поиск диалогов", color = Muted, fontSize = 12.sp, modifier = Modifier.padding(15.dp))
-        }
-        Spacer(Modifier.height(13.dp))
-        listOf(
-            Triple("Общий чат ДКД", "Обсуждения граждан", "12"),
-            Triple("Государственная Дума", "Повестка заседания", "3"),
-            Triple("Единая Конфедерация", "Новые предложения", ""),
-            Triple("Друзья", "Будем на связи!", "1")
-        ).forEachIndexed { i, item ->
-            Row(Modifier.fillMaxWidth().clickable { onInfo("Раздел сообщений пока представлен макетом.") }.padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(48.dp).background(if (i % 2 == 0) Color(0xFF263B59) else Color(0xFF302B50), RoundedCornerShape(17.dp)), contentAlignment = Alignment.Center) {
-                    Text(listOf("◉", "⌘", "♟", "✦")[i], color = Blue, fontSize = 21.sp)
-                }
-                Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(item.first, color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                    Text(item.second, color = Muted, fontSize = 10.sp)
-                }
-                if (item.third.isNotBlank()) Box(Modifier.background(Color(0xFF284A7B), RoundedCornerShape(20.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
-                    Text(item.third, color = White, fontSize = 9.sp)
-                }
-            }
-            HorizontalDivider(color = LineColor)
-        }
     }
 }
 
@@ -700,7 +418,7 @@ private fun StubProfileScreen(name: String, role: String, onLogout: () -> Unit, 
             }
         }
         Spacer(Modifier.height(18.dp))
-        listOf("Мои документы", "Мои публикации", "Подписки и подписчики", "Настройки приложения", "О приложении Nexora Group").forEach { label ->
+        listOf("Мои документы", "Настройки приложения", "О приложении Nexora Group").forEach { label ->
             Surface(color = CardColor, shape = RoundedCornerShape(15.dp), modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).clickable { onOpen(label) }) {
                 Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(label, color = White, fontSize = 12.sp, modifier = Modifier.weight(1f))
