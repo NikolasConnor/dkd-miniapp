@@ -42,7 +42,7 @@ private fun exceptionMessage(error: Exception): String = when (error) {
 private fun responseJson(body: String): JSONObject? =
     runCatching { JSONObject(body) }.getOrNull()
 
-private fun errorFrom(status: Int, body: String): String {
+internal fun errorFrom(status: Int, body: String): String {
     val json = responseJson(body)
     val detail = json?.optString("detail")?.takeIf { it.isNotBlank() && it != "null" }
         ?: json?.optString("message")?.takeIf { it.isNotBlank() && it != "null" }
