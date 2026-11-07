@@ -5532,8 +5532,14 @@ def duma_list(user: dict) -> dict:
         law["votes_against"] = sum(v == "against" for v in votes.get(lid, {}).values())
         law["votes_abstain"] = sum(v == "abstain" for v in votes.get(lid, {}).values())
         law["has_voted"] = int(user["id"]) in votes.get(lid, {})
-        law["can_vote"] = law["status"] == "under_duma_review" and not law["has_voted"]
         session = by_session.get(meta["session_id"])
+        session_open = bool(session and not session["closed"])
+        law["session_closed"] = not session_open
+        law["can_vote"] = (
+            law["status"] == "under_duma_review"
+            and not law["has_voted"]
+            and session_open
+        )
         if session:
             session["laws"].append(law)
     return {"sessions": sessions[::-1], "laws": [law for law in laws if int(law["id"]) in submitted]}
