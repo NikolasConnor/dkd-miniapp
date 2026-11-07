@@ -158,7 +158,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                     Modifier.fillMaxWidth()
                         .background(Brush.verticalGradient(listOf(Panel, Navy)))
                         .navigationBarsPadding()
-                        .padding(start = 7.dp, end = 7.dp, top = 8.dp, bottom = 5.dp),
+                        .padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 7.dp),
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
