@@ -800,9 +800,41 @@ def update_profile_name(user: dict, full_name: str) -> dict:
 # Заявления
 # ----------------------------------------------------------------------------
 
-APPLICATION_KINDS = ("citizenship", "other")
+APPLICATION_KINDS = ("citizenship", "other", "party_creation")
 APP_COLS = "id,user_id,username,kind,full_name,details,status,created_at,reviewed_at,review_note"
 MAX_PENDING_OTHER = 5
+
+
+def create_party_application(user: dict, name: str, emoji: str = "🎭", description: str = "") -> dict:
+    """Сохраняет заявку на создание партии; сама партия появляется только после решения Президента."""
+    subject = _require_citizen(user)
+    uid = int(user["id"])
+    party_name = clean_name(name)
+    party_emoji = str(emoji or "🎭").strip()[:8] or "🎭"
+    party_description = str(description or "").strip()
+    if not 2 <= len(party_name) <= 60:
+        raise DKDError(422, "Название партии должно содержать от 2 до 60 символов.")
+    if len(party_description) > 1000:
+        raise DKDError(422, "Описание партии не должно превышать 1000 символов.")
+    if active_membership(uid)[0]:
+        raise DKDError(409, "Чтобы подать заявку на создание партии, сначала выйдите из действующей партии.")
+    purge_stale_memberships(uid)
+    existing = rows(db().table("parties").select("id,name").eq("status", "active"))
+    if any(clean_name(p.get("name", "")).casefold() == party_name.casefold() for p in existing):
+        raise DKDError(409, "Партия с таким названием уже существует.")
+    pending = rows(db().table("document_applications").select("id")
+                   .eq("user_id", uid).eq("kind", "party_creation").eq("status", "pending"))
+    if pending:
+        raise DKDError(409, "Ваша заявка на создание партии уже находится на рассмотрении.")
+    details = json.dumps({
+        "party_name": party_name, "emoji": party_emoji, "description": party_description
+    }, ensure_ascii=False)
+    created = execute(db().table("document_applications").insert({
+        "user_id": uid, "username": user.get("username"), "kind": "party_creation",
+        "full_name": subject.get("full_name") or tg_full_name(user),
+        "details": details, "status": "pending",
+    }), "Не удалось отправить заявку на создание партии.")
+    return created[0]
 
 
 def create_application(user: dict, kind: str, full_name: str, details: str = "") -> dict:
@@ -853,6 +885,21 @@ def review_application(actor_id: int, application_id: int, status: str, note: st
         # при сбое заявление остаётся «на рассмотрении», и его можно одобрить повторно.
         subject = ensure_subject(app_row["user_id"], None, app_row["full_name"])
         _, passport = grant_citizenship(subject, full_name=app_row["full_name"])
+    if status == "approved" and app_row["kind"] == "party_creation":
+        # Повторное одобрение после частичного сбоя не должно создавать дубликат партии.
+        try:
+            payload = json.loads(str(app_row.get("details") or "{}"))
+        except (TypeError, ValueError):
+            raise DKDError(422, "Данные заявки на создание партии повреждены.")
+        party_name = clean_name(payload.get("party_name") or "")
+        party_emoji = str(payload.get("emoji") or "🎭")
+        party_description = str(payload.get("description") or "")
+        existing_party = one(db().table("parties").select("id,name,leader_user_id,status")
+                             .eq("status", "active").eq("leader_user_id", int(app_row["user_id"]))
+                             .eq("name", party_name).limit(1))
+        if not existing_party:
+            applicant = {"id": int(app_row["user_id"]), "username": app_row.get("username")}
+            create_party(applicant, party_name, party_emoji, party_description)
     updated = execute(db().table("document_applications").update({
         "status": status, "review_note": note, "reviewed_by": int(actor_id), "reviewed_at": now_iso(),
     }).eq("id", application_id).eq("status", "pending"), "Не удалось обработать заявление.")
@@ -860,8 +907,17 @@ def review_application(actor_id: int, application_id: int, status: str, note: st
         raise DKDError(409, "Заявление уже рассмотрено.")
     audit(actor_id, "application_reviewed", app_row["user_id"], f"application:{application_id}:{status}")
     decision_text = "одобрено" if status == "approved" else "отклонено"
+    kind_label = {
+        "citizenship": "на гражданство",
+        "party_creation": "на создание партии",
+        "other": "обращение",
+    }.get(app_row.get("kind"), "обращение")
+    if app_row.get("kind") == "party_creation" and status == "approved":
+        decision_message = "Ваша заявка одобрена. Партия создана, вы назначены её председателем."
+    else:
+        decision_message = f"Ваше заявление {kind_label} {decision_text}."
     create_notification(int(app_row["user_id"]), "Рассмотрено ваше заявление",
-        f"Ваше заявление («{app_row.get('kind', 'документ')}») {decision_text}." + (f"\nКомментарий: {note}" if note else ""))
+        decision_message + (f"\nКомментарий: {note}" if note else ""))
     return {"ok": True, "status": status, "passport_number": passport["number"] if passport else None}
 
 
