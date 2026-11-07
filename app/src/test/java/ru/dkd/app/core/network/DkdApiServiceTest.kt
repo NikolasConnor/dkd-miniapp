@@ -156,6 +156,23 @@ class DkdApiServiceTest {
         assertEquals("photo", response.body()?.news?.firstOrNull()?.mediaType)
     }
 
+
+    @Test
+    fun presidentialVoteUsesTypedRequestAndReturnsServerConfirmation() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"ok":true,"message":"Your vote was saved."}"""
+        ))
+        val response = service.castVote(
+            "Bearer voter-token", "presidential", 12, CastVoteRequest("Candidate A")
+        )
+        val request = server.takeRequest(1, TimeUnit.SECONDS)
+        assertTrue(response.isSuccessful)
+        assertEquals("/api/votes/presidential/12/cast", request?.path)
+        assertEquals("Bearer voter-token", request?.getHeader("Authorization"))
+        assertEquals("""{"option":"Candidate A"}""", request?.body?.readUtf8())
+        assertEquals(true, response.body()?.ok)
+    }
+
     @Test
     fun postSendsJsonBodyWithoutAutomaticRetry() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(403).setBody("""{"detail":"Запрещено"}"""))
