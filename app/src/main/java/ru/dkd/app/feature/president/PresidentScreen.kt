@@ -42,6 +42,8 @@ private data class PresidentUiState(
     val dumaElectionsLoaded: Boolean = false,
     val decrees: List<JSONObject> = emptyList(),
     val decreesLoaded: Boolean = false,
+    val activity: List<JSONObject> = emptyList(),
+    val activityLoaded: Boolean = false,
     val assignableRoles: List<JSONObject> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
@@ -78,6 +80,7 @@ private class PresidentViewModel : ViewModel() {
         val subjectsResult = apiCall(token, "GET", "/api/president/subjects")
         val electionsResult = apiCall(token, "GET", "/api/votes")
         val decreesResult = apiCall(token, "GET", "/api/president/decrees")
+        val activityResult = apiCall(token, "GET", "/api/president/activity")
         val allowedRoleNames = setOf("Премьер-министр", "Министр иностранных дел")
         mutable.value = PresidentUiState(
             loading = false, authorized = true,
@@ -93,9 +96,11 @@ private class PresidentViewModel : ViewModel() {
             dumaElectionsLoaded = electionsResult.error == null && electionsResult.data?.has("duma") == true,
             decrees = decreesResult.data?.array("decrees") ?: emptyList(),
             decreesLoaded = decreesResult.error == null && decreesResult.data?.has("decrees") == true,
+            activity = activityResult.data?.array("activity") ?: emptyList(),
+            activityLoaded = activityResult.error == null && activityResult.data?.has("activity") == true,
             assignableRoles = (subjectsResult.data?.array("roles") ?: emptyList())
                 .filter { it.string("name") in allowedRoleNames },
-            error = lawsResult.error ?: applicationsResult.error ?: subjectsResult.error ?: electionsResult.error ?: decreesResult.error,
+            error = lawsResult.error ?: applicationsResult.error ?: subjectsResult.error ?: electionsResult.error ?: decreesResult.error ?: activityResult.error,
             message = successMessage
         )
     }
@@ -409,6 +414,36 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                     }
                 }
             }
+            item { Text("ИСТОРИЯ ПРЕЗИДЕНТСКИХ РЕШЕНИЙ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
+            if (!state.activityLoaded) {
+                item { PresidentNotice("История решений недоступна", "Не удалось загрузить журнал президентских действий.") }
+            } else if (state.activity.isEmpty()) {
+                item { PresidentNotice("История пока пуста", "Назначения, решения по заявлениям, указы, законы и выборы будут фиксироваться здесь.") }
+            } else {
+                items(state.activity, key = { "activity-${it.optInt("id")}" }) { event ->
+                    val label = when (event.string("action")) {
+                        "role_assigned" -> "Кадровое назначение"
+                        "role_removed" -> "Прекращение полномочий"
+                        "application_reviewed" -> "Решение по заявлению"
+                        "duma_election_scheduled" -> "Назначение выборов в Госдуму"
+                        "president_duma_election_closed" -> "Завершение думских выборов"
+                        "president_parliament_dissolved" -> "Роспуск Государственной Думы"
+                        "presidential_decree_created" -> "Издание президентского указа"
+                        "presidential_decree_execution_updated" -> "Контроль исполнения указа"
+                        "president_law_signed" -> "Подписание закона"
+                        "president_law_vetoed" -> "Вето на законопроект"
+                        else -> "Президентское решение"
+                    }
+                    Surface(color = CardColor, shape = RoundedCornerShape(13.dp),
+                        modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(13.dp))) {
+                        Column(Modifier.padding(11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(label, color = White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            Text(event.string("details").take(240).ifBlank { "Решение зарегистрировано." }, color = Muted, fontSize = 9.sp)
+                            Text(event.string("created_at").take(16).replace("T", " "), color = Purple, fontSize = 9.sp)
+                        }
+                    }
+                }
+            }
             item { Text("ЗАКОНОПРОЕКТЫ НА РЕШЕНИЕ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
             if (!state.lawsLoaded) {
                 item { PresidentNotice("Законопроекты недоступны", "Не удалось получить список законопроектов. Подписание и вето временно недоступны.") }
@@ -444,7 +479,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                 }
             }
             item {
-                TextButton(onClick = { refresh++ }, modifier = Modifier.fillMaxWidth()) { Text("↻  Обновить полномочия и законопроекты", color = Purple) }
+                TextButton(onClick = { refresh++ }, modifier = Modifier.fillMaxWidth()) { Text("↻  Обновить всю президентскую администрацию", color = Purple) }
             }
         }
         if (state.busy) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = Purple) }
