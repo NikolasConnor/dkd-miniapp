@@ -31,6 +31,7 @@ import ru.dkd.app.core.network.revokeSession
 import ru.dkd.app.core.security.ProfileCache
 import ru.dkd.app.core.security.SessionStore
 import ru.dkd.app.feature.auth.LoginScreen
+import ru.dkd.app.feature.applications.ApplicationsScreen
 import ru.dkd.app.feature.documents.DocumentsScreen
 import ru.dkd.app.feature.elections.ElectionsScreen
 import ru.dkd.app.feature.government.StateScreen
@@ -249,10 +250,18 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                                     "Выборы" -> navController.navigate("elections")
                                     "Государство" -> navController.navigate("government")
                                     "Президентская администрация" -> navController.navigate("president")
+                                    "Заявления" -> navController.navigate("applications")
                                     else -> navController.navigate("detail/${Uri.encode(it)}")
                                 }
                             },
                             onState = { navController.navigate("government") }
+                        )
+                    }
+                    composable("applications") {
+                        ApplicationsScreen(
+                            token = token,
+                            onBack = { navController.popBackStack() },
+                            onError = { appViewModel.setError(it) }
                         )
                     }
                     composable("president") {
