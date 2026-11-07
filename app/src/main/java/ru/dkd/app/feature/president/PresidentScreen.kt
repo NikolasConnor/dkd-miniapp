@@ -222,14 +222,12 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 17.dp, vertical = 17.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 19.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         item {
             TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) { Text("←  Назад", color = Purple) }
-            Text("ПРЕЗИДЕНТСКАЯ АДМИНИСТРАЦИЯ", color = Pink, fontSize = 9.sp, letterSpacing = 1.4.sp, fontWeight = FontWeight.Bold)
-            Text("Полномочия Президента", color = White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-            Text("Официальные решения доступны только аккаунту с серверными правами Президента.", color = Muted, fontSize = 11.sp)
+            DkdPageHeader("ВЫСШИЙ ОРГАН ВЛАСТИ", "Президент", "Указы, государственные решения и кадровые полномочия", "♛")
         }
         if (state.loading) {
             item { PresidentNotice("Проверяем полномочия…", "Получаем актуальный статус с сервера ДКД.") }
