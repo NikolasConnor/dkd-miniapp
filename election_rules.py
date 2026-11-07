@@ -8,6 +8,11 @@ def president_can_close_duma_election(status: str) -> bool:
     return str(status or "").strip().casefold() == "active"
 
 
+def president_can_decide_law(status: str) -> bool:
+    """Only a bill passed by the Duma may be signed or vetoed by the President."""
+    return str(status or "").strip().casefold() == "awaiting_president"
+
+
 def is_party_leader(membership: dict | None, party: dict | None, user_id: int) -> bool:
     """Return whether this member is the active party leader.
 
