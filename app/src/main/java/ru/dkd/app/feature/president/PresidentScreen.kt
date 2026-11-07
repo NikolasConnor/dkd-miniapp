@@ -40,6 +40,8 @@ private data class PresidentUiState(
     val subjectsLoaded: Boolean = false,
     val dumaElections: List<JSONObject> = emptyList(),
     val dumaElectionsLoaded: Boolean = false,
+    val decrees: List<JSONObject> = emptyList(),
+    val decreesLoaded: Boolean = false,
     val assignableRoles: List<JSONObject> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
@@ -75,6 +77,7 @@ private class PresidentViewModel : ViewModel() {
         val applicationsResult = apiCall(token, "GET", "/api/president/applications")
         val subjectsResult = apiCall(token, "GET", "/api/president/subjects")
         val electionsResult = apiCall(token, "GET", "/api/votes")
+        val decreesResult = apiCall(token, "GET", "/api/president/decrees")
         val allowedRoleNames = setOf("Премьер-министр", "Министр иностранных дел")
         mutable.value = PresidentUiState(
             loading = false, authorized = true,
@@ -88,9 +91,11 @@ private class PresidentViewModel : ViewModel() {
             subjectsLoaded = subjectsResult.error == null && subjectsResult.data?.has("subjects") == true,
             dumaElections = electionsResult.data?.array("duma") ?: emptyList(),
             dumaElectionsLoaded = electionsResult.error == null && electionsResult.data?.has("duma") == true,
+            decrees = decreesResult.data?.array("decrees") ?: emptyList(),
+            decreesLoaded = decreesResult.error == null && decreesResult.data?.has("decrees") == true,
             assignableRoles = (subjectsResult.data?.array("roles") ?: emptyList())
                 .filter { it.string("name") in allowedRoleNames },
-            error = lawsResult.error ?: applicationsResult.error ?: subjectsResult.error ?: electionsResult.error,
+            error = lawsResult.error ?: applicationsResult.error ?: subjectsResult.error ?: electionsResult.error ?: decreesResult.error,
             message = successMessage
         )
     }
@@ -138,6 +143,12 @@ private class PresidentViewModel : ViewModel() {
             "Указ опубликован.")
     }
 
+    fun updateDecreeExecution(token: String, id: Int, status: String, note: String = "") {
+        submit(token, "PATCH", "/api/president/decrees/$id/execution",
+            JSONObject().put("status", status).put("note", note),
+            "Статус исполнения указа обновлён.")
+    }
+
     fun decideLaw(token: String, id: Int, status: String) {
         submit(token, "PATCH", "/api/president/laws/$id",
             JSONObject().put("status", status),
@@ -180,6 +191,8 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
     var appointmentToRemove by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var selectedSubject by remember { mutableStateOf<JSONObject?>(null) }
     var selectedRole by remember { mutableStateOf<JSONObject?>(null) }
+    var subjectSearch by remember { mutableStateOf("") }
+    var decreeToUpdate by remember { mutableStateOf<Triple<Int, String, String>?>(null) }
     var subjectMenuExpanded by remember { mutableStateOf(false) }
     var roleMenuExpanded by remember { mutableStateOf(false) }
 
@@ -218,6 +231,52 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PresidentAction("Опубликовать указ", "Новый президентский акт", Modifier.weight(1f), !state.busy) { decreeDialog = true }
                     PresidentAction("Назначить выборы", "Новая кампания в Думе", Modifier.weight(1f), !state.busy) { electionDialog = true }
+                }
+            }
+            item { Text("КОНТРОЛЬ ИСПОЛНЕНИЯ УКАЗОВ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
+            if (!state.decreesLoaded) {
+                item { PresidentNotice("Реестр указов недоступен", "Не удалось получить президентские указы. Управление исполнением временно отключено.") }
+            } else if (state.decrees.isEmpty()) {
+                item { PresidentNotice("Опубликованных указов пока нет", "После публикации указ появится здесь, и Президент сможет контролировать его исполнение.") }
+            } else {
+                items(state.decrees, key = { "decree-${it.optInt("id")}" }) { decree ->
+                    val decreeId = decree.optInt("id")
+                    val executionStatus = decree.string("execution_status", "issued")
+                    Surface(color = CardColor, shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(16.dp))) {
+                        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Text(decree.string("title", "Президентский указ"), color = White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(decree.string("text").take(360).ifBlank { "Текст указа недоступен." },
+                                color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                            Text("Исполнение: " + when (executionStatus) {
+                                "issued" -> "Издан · ожидает исполнения"
+                                "in_progress" -> "Исполняется"
+                                "completed" -> "Исполнен"
+                                "suspended" -> "Приостановлен"
+                                else -> executionStatus
+                            }, color = when (executionStatus) {
+                                "completed" -> Good
+                                "suspended" -> Bad
+                                else -> Pink
+                            }, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                            decree.string("execution_note").takeIf { it.isNotBlank() }?.let {
+                                Text("Отметка: $it", color = Muted, fontSize = 9.sp)
+                            }
+                            if (executionStatus != "completed") {
+                                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                    TextButton(enabled = !state.busy, onClick = {
+                                        decreeToUpdate = Triple(decreeId, "in_progress", "Указ принят к исполнению")
+                                    }) { Text("В работу", color = Purple, fontSize = 9.sp) }
+                                    TextButton(enabled = !state.busy, onClick = {
+                                        decreeToUpdate = Triple(decreeId, "completed", "Исполнение завершено")
+                                    }) { Text("Исполнен", color = Good, fontSize = 9.sp) }
+                                    TextButton(enabled = !state.busy, onClick = {
+                                        decreeToUpdate = Triple(decreeId, "suspended", "Исполнение приостановлено")
+                                    }) { Text("Приостановить", color = Bad, fontSize = 9.sp) }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             item { Text("ВЫБОРЫ В ГОСУДАРСТВЕННУЮ ДУМУ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
@@ -507,6 +566,13 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                             }
                         }
                     }
+                    OutlinedTextField(
+                        value = subjectSearch,
+                        onValueChange = { subjectSearch = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        label = { Text("Найти человека по ФИО или username") }
+                    )
                     Box {
                         OutlinedButton(onClick = { subjectMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
                             Text(selectedSubject?.string("full_name") ?: "Выберите человека", color = White)
@@ -515,10 +581,16 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                             expanded = subjectMenuExpanded,
                             onDismissRequest = { subjectMenuExpanded = false }
                         ) {
-                            state.subjects.forEach { subject ->
+                            state.subjects.filter { subject ->
+                                val query = subjectSearch.trim().removePrefix("@").lowercase()
+                                query.isBlank() ||
+                                    subject.string("full_name").lowercase().contains(query) ||
+                                    subject.string("username").lowercase().contains(query)
+                            }.take(40).forEach { subject ->
                                 DropdownMenuItem(
-                                    text = { Text(subject.string("full_name", "Участник ДКД")) },
-                                    onClick = { selectedSubject = subject; subjectMenuExpanded = false }
+                                    text = { Text(subject.string("full_name", "Участник ДКД") +
+                                        subject.string("username").takeIf { it.isNotBlank() }?.let { " · @$it" }.orEmpty()) },
+                                    onClick = { selectedSubject = subject; subjectMenuExpanded = false; subjectSearch = "" }
                                 )
                             }
                         }
@@ -543,6 +615,29 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                     selectedSubject = null
                 }) { Text("Отмена", color = Muted) }
             }
+        )
+    }
+
+    decreeToUpdate?.let { decision ->
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) decreeToUpdate = null },
+            containerColor = Panel,
+            title = { Text("Изменить исполнение указа?", color = White) },
+            text = { Text(
+                "Вы подтверждаете статус «" + when (decision.second) {
+                    "in_progress" -> "В работе"
+                    "completed" -> "Исполнен"
+                    else -> "Приостановлен"
+                } + "». Решение будет записано в журнал президентских действий.",
+                color = Muted, fontSize = 12.sp
+            ) },
+            confirmButton = {
+                TextButton(enabled = !state.busy, onClick = {
+                    vm.updateDecreeExecution(token, decision.first, decision.second, decision.third)
+                    decreeToUpdate = null
+                }) { Text("Подтвердить", color = Purple) }
+            },
+            dismissButton = { TextButton(onClick = { decreeToUpdate = null }) { Text("Отмена", color = Muted) } }
         )
     }
 
