@@ -13,6 +13,17 @@ internal data class ProfileLoadResult(
     val error: String? = null
 )
 
+/** Returns the given name from the DKD "Фамилия Имя Отчество" format. */
+internal fun greetingFirstName(fullName: String, fallback: String): String {
+    val parts = fullName.takeIf { it.isNotBlank() && it != "null" }
+        ?.trim()?.split(Regex("\\s+")).orEmpty()
+    return when {
+        parts.size >= 2 -> parts[1]
+        parts.size == 1 -> parts[0]
+        else -> fallback
+    }
+}
+
 /** Maps legacy JSON endpoints into a small typed model consumed by the app ViewModel. */
 internal class ProfileRepository {
     suspend fun refresh(token: String, fallback: ProfileData): ProfileLoadResult {
@@ -20,17 +31,7 @@ internal class ProfileRepository {
         val profileJson = profileResponse.data?.optJSONObject("profile") ?: profileResponse.data
 
         val fullName = profileJson?.optString("full_name").orEmpty()
-        val nameParts = fullName
-            .takeIf { it.isNotBlank() && it != "null" }
-            ?.trim()
-            ?.split(Regex("\\s+"))
-            .orEmpty()
-        // DKD names are stored as "Фамилия Имя Отчество"; the greeting uses the first name.
-        val name = when {
-            nameParts.size >= 2 -> nameParts[1]
-            nameParts.size == 1 -> nameParts[0]
-            else -> fallback.name
-        }
+        val name = greetingFirstName(fullName, fallback.name)
 
         val role = profileJson?.optString("role")
             ?.takeIf { it.isNotBlank() && it != "null" }
