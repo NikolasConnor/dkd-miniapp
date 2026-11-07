@@ -336,8 +336,15 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                     Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         Text(law.string("title", "Законопроект"), color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Text(law.string("description").ifBlank { "Описание не предоставлено." }, color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
-                        Text("Статус: $status", color = Pink, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
-                        if (status != "signed" && status != "vetoed") {
+                        Text("Статус: " + when (status) {
+                            "awaiting_president" -> "Принят Госдумой — ожидает решения Президента"
+                            "under_duma_review" -> "Рассматривается Государственной Думой"
+                            "signed" -> "Подписан Президентом"
+                            "vetoed" -> "Отклонён Президентом"
+                            "rejected_by_duma" -> "Отклонён Государственной Думой"
+                            else -> status
+                        }, color = Pink, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                        if (status == "awaiting_president") {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(onClick = { lawToDecide = id to "signed" }, enabled = !state.busy,
                                     modifier = Modifier.weight(1f), shape = RoundedCornerShape(11.dp),
