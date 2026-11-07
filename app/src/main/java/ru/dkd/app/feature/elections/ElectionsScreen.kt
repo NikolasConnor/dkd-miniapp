@@ -115,7 +115,7 @@ private fun ElectionCard(election: JSONObject, kind: String, busy: Boolean, onVo
     val isActive = status == "active"
     val isClosed = status == "closed"
     val hasVoted = election.bool("has_voted")
-    val canVote = election.bool("can_vote", true)
+    val canVote = election.optBoolean("can_vote", true)
     val options = election.array("candidate_details")
     val parties = election.array("party_lists")
     val results = election.optJSONObject("vote_counts")
