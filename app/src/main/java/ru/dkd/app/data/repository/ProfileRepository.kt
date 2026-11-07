@@ -1,6 +1,7 @@
 package ru.dkd.app.data.repository
 
-import ru.dkd.app.core.network.apiCall
+import ru.dkd.app.core.network.loadNotificationSummaryDto
+import ru.dkd.app.core.network.loadProfileDto
 
 internal data class ProfileData(
     val name: String,
@@ -24,22 +25,15 @@ internal fun greetingFirstName(fullName: String, fallback: String): String {
     }
 }
 
-/** Maps legacy JSON endpoints into a small typed model consumed by the app ViewModel. */
 internal class ProfileRepository {
     suspend fun refresh(token: String, fallback: ProfileData): ProfileLoadResult {
-        val profileResponse = apiCall(token, "GET", "/api/profile")
-        val profileJson = profileResponse.data?.optJSONObject("profile") ?: profileResponse.data
+        val profileResponse = loadProfileDto(token)
+        val profile = profileResponse.data?.profile
+        val notificationsResponse = loadNotificationSummaryDto(token)
 
-        val fullName = profileJson?.optString("full_name").orEmpty()
-        val name = greetingFirstName(fullName, fallback.name)
-
-        val role = profileJson?.optString("role")
-            ?.takeIf { it.isNotBlank() && it != "null" }
-            ?: fallback.role
-
-        val notificationsResponse = apiCall(token, "GET", "/api/notifications")
-        val unread = notificationsResponse.data?.optInt("unread_count", fallback.unreadCount)
-            ?: fallback.unreadCount
+        val name = greetingFirstName(profile?.fullName.orEmpty(), fallback.name)
+        val role = profile?.role?.takeIf { it.isNotBlank() && it != "null" } ?: fallback.role
+        val unread = notificationsResponse.data?.unreadCount ?: fallback.unreadCount
 
         return ProfileLoadResult(
             profile = ProfileData(name, role, unread.coerceAtLeast(0)),
