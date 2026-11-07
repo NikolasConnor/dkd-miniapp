@@ -1,5 +1,6 @@
 package ru.dkd.app.feature.notifications
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.items
@@ -53,8 +54,10 @@ internal fun NotificationsScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(notes, key = { it.int("id") }) { item ->
-                Surface(color = if (item.bool("is_read")) Panel else Color(0xFF243B57),
-                    shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().clickable {
+                Surface(color = if (item.bool("is_read")) Panel else Color(0xFF25234D),
+                    shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()
+                        .border(1.dp, if (item.bool("is_read")) LineColor else Purple, RoundedCornerShape(16.dp))
+                        .clickable {
                         scope.launch {
                             val r = apiCall(token, "POST", "/api/notifications/read", JSONObject().put("notification_id", item.int("id")))
                             if (r.error != null) onError(r.error) else refresh++
