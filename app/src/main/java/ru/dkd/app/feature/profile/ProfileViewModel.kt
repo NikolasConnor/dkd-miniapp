@@ -15,7 +15,8 @@ internal data class ProfileUiState(
     val loading: Boolean = true,
     val profile: CitizenProfile? = null,
     val error: String? = null,
-    val savingPreference: Boolean = false
+    val savingPreference: Boolean = false,
+    val savingProfile: Boolean = false
 )
 
 internal class ProfileViewModel : ViewModel() {
@@ -28,6 +29,40 @@ internal class ProfileViewModel : ViewModel() {
             mutableState.value = mutableState.value.copy(loading = true, error = null)
             val result = repository.load(token)
             mutableState.value = ProfileUiState(loading = false, profile = result.profile, error = result.error)
+        }
+    }
+
+    fun updateIdentity(token: String, fullName: String, avatarEmoji: String) {
+        viewModelScope.launch {
+            val current = mutableState.value.profile ?: return@launch
+            if (mutableState.value.savingProfile) return@launch
+            val name = fullName.trim()
+            if (name.length !in 2..120) {
+                mutableState.value = mutableState.value.copy(error = "ФИО должно содержать от 2 до 120 символов.")
+                return@launch
+            }
+            mutableState.value = mutableState.value.copy(savingProfile = true, error = null)
+            val nameResult = apiCall(token, "PATCH", "/api/profile", JSONObject().put("full_name", name))
+            if (nameResult.error != null) {
+                mutableState.value = mutableState.value.copy(savingProfile = false, error = nameResult.error)
+                return@launch
+            }
+            val avatarResult = apiCall(token, "PATCH", "/api/profile/avatar", JSONObject().put("avatar_emoji", avatarEmoji))
+            if (avatarResult.error != null) {
+                val refreshed = repository.load(token)
+                mutableState.value = mutableState.value.copy(
+                    savingProfile = false,
+                    profile = refreshed.profile,
+                    error = avatarResult.error
+                )
+                return@launch
+            }
+            val refreshed = repository.load(token)
+            mutableState.value = mutableState.value.copy(
+                savingProfile = false,
+                profile = refreshed.profile ?: current.copy(fullName = name, avatarEmoji = avatarEmoji),
+                error = refreshed.error
+            )
         }
     }
 
