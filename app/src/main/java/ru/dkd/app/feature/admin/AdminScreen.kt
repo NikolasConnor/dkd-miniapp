@@ -104,7 +104,7 @@ internal class AdminViewModel : ViewModel() {
 }
 
 @Composable
-internal fun AdminScreen(token: String, onBack: () -> Unit, onError: (String) -> Unit) {
+internal fun AdminScreen(token: String, onBack: () -> Unit, onError: (String) -> Unit, onNavigate: (String) -> Unit) {
     val vm: AdminViewModel = viewModel()
     val state by vm.state.collectAsState()
     var query by remember { mutableStateOf("") }
@@ -134,6 +134,45 @@ internal fun AdminScreen(token: String, onBack: () -> Unit, onError: (String) ->
                     AdminMetric("Участники", state.subjects.size.toString(), Modifier.weight(1f))
                     AdminMetric("Заявления", state.applications.count { it.string("status") == "pending" }.toString(), Modifier.weight(1f))
                     AdminMetric("Должности", state.roles.size.toString(), Modifier.weight(1f))
+                }
+            }
+            item {
+                Text("ПОЛНЫЕ ПОЛНОМОЧИЯ АДМИНИСТРАТОРА", color = Muted, fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Text("Главный администратор имеет доступ ко всем разделам управления государством.",
+                    color = White, fontSize = 11.sp)
+            }
+            item {
+                val destinations = listOf(
+                    Triple("Президент и указы", "👑", "president"),
+                    Triple("Государство и правительство", "🏛️", "government"),
+                    Triple("Государственная Дума", "⚖️", "duma"),
+                    Triple("Выборы и результаты", "🗳️", "elections"),
+                    Triple("Партии и кандидаты", "🎭", "party-candidates"),
+                    Triple("Новости и публикации", "📰", "news"),
+                    Triple("Заявления граждан", "📨", "applications"),
+                    Triple("Уведомления", "🔔", "notifications")
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    destinations.chunked(2).forEach { pair ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            pair.forEach { (title, emoji, route) ->
+                                Surface(
+                                    color = CardColor,
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier.weight(1f)
+                                        .border(1.dp, LineColor, RoundedCornerShape(16.dp))
+                                        .clickable { onNavigate(route) }
+                                ) {
+                                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(emoji, fontSize = 24.sp)
+                                        Text(title, color = White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                        Text("Открыть раздел →", color = Purple, fontSize = 9.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             state.message?.let { item { AdminNotice("Готово", it) } }
