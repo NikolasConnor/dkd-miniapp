@@ -19,4 +19,36 @@ class ApiClientUrlTest {
             buildApiUrl("api/profile")
         )
     }
+
+    @Test
+    fun mapsUnauthorizedResponseToSessionMessage() {
+        assertEquals(
+            "Сессия истекла. Войдите в приложение заново.",
+            errorFrom(401, "{}")
+        )
+    }
+
+    @Test
+    fun mapsForbiddenResponseToPermissionMessage() {
+        assertEquals(
+            "У вас недостаточно прав для этого действия.",
+            errorFrom(403, "{}")
+        )
+    }
+
+    @Test
+    fun preservesBackendDetailMessage() {
+        assertEquals(
+            "Недостаточно прав",
+            errorFrom(403, """{"detail":"Недостаточно прав"}""")
+        )
+    }
+
+    @Test
+    fun mapsMissingServiceResponse() {
+        assertEquals(
+            "Этот сервис ещё не опубликован на сервере ДКД.",
+            errorFrom(404, "{}")
+        )
+    }
 }
