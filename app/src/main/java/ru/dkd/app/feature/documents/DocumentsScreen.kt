@@ -9,6 +9,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -17,10 +18,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.json.JSONObject
-import ru.dkd.app.core.common.array
 import ru.dkd.app.core.common.string
 import ru.dkd.app.core.design.*
-import ru.dkd.app.core.network.apiCall
 
 private data class DocumentItem(
     val category: String,
@@ -33,38 +32,23 @@ private data class DocumentItem(
 
 @Composable
 internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
-    var loading by remember { mutableStateOf(true) }
-    var hasPassport by remember { mutableStateOf(false) }
-    var passportLoadFailed by remember { mutableStateOf(false) }
-    var documentsLoadFailed by remember { mutableStateOf(false) }
-    var passport by remember { mutableStateOf<JSONObject?>(null) }
-    var mandates by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var presidentCertificates by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var decrees by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
-    var laws by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    val viewModel: DocumentsViewModel = viewModel()
+    val uiState by viewModel.state.collectAsState()
     var selected by remember { mutableStateOf<DocumentItem?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(token, refresh) {
-        loading = true
-        val passportResult = apiCall(token, "GET", "/api/passport")
-        val passportData = passportResult.data
-        hasPassport = passportData?.optBoolean("has_passport", false) ?: false
-        passportLoadFailed = passportResult.error != null || passportData == null
-        passport = passportData?.optJSONObject("passport")
+    LaunchedEffect(token, refresh) { viewModel.refresh(token) }
+    LaunchedEffect(uiState.error) { uiState.error?.let(onError) }
 
-        val documentsResult = apiCall(token, "GET", "/api/documents")
-        val data = documentsResult.data
-        documentsLoadFailed = documentsResult.error != null || data == null
-        mandates = data?.array("mandates") ?: emptyList()
-        presidentCertificates = data?.array("president_certificate") ?: emptyList()
-        decrees = data?.array("decrees") ?: emptyList()
-        laws = data?.array("laws") ?: emptyList()
-
-        val error = passportResult.error ?: documentsResult.error
-        if (error != null) onError(error)
-        loading = false
-    }
+    val loading = uiState.loading
+    val hasPassport = uiState.hasPassport
+    val passportLoadFailed = uiState.passportLoadFailed
+    val documentsLoadFailed = uiState.documentsLoadFailed
+    val passport = uiState.passport
+    val mandates = uiState.mandates
+    val presidentCertificates = uiState.presidentCertificates
+    val decrees = uiState.decrees
+    val laws = uiState.laws
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
