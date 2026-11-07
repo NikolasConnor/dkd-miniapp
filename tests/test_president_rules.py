@@ -38,6 +38,50 @@ class PresidentRoleRulesTests(unittest.TestCase):
         ))
 
 
+class DumaRulesTests(unittest.TestCase):
+    def test_duma_party_lists_lock_when_campaign_is_active(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        election = {"id": 12, "status": "active", "ends_at": "2030-01-03T00:00:00+00:00"}
+        with patch.object(core, "duma_start_at", return_value=datetime(2030, 1, 1, tzinfo=timezone.utc)):
+            self.assertTrue(core._duma_campaign_lists_locked(
+                election, datetime(2030, 1, 2, tzinfo=timezone.utc)
+            ))
+
+    def test_duma_party_lists_remain_editable_before_campaign(self):
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        election = {"id": 12, "status": "scheduled", "ends_at": "2030-01-03T00:00:00+00:00"}
+        with patch.object(core, "duma_start_at", return_value=datetime(2030, 1, 2, tzinfo=timezone.utc)):
+            self.assertFalse(core._duma_campaign_lists_locked(
+                election, datetime(2030, 1, 1, tzinfo=timezone.utc)
+            ))
+
+    def test_duma_session_expires_after_three_days(self):
+        from datetime import datetime, timezone
+
+        events = [{
+            "id": 100, "action": "duma_session_opened",
+            "details": '{"created_at":"2030-01-01T12:00:00+00:00"}',
+        }]
+        before_expiry = datetime(2030, 1, 4, 11, 59, tzinfo=timezone.utc)
+        at_expiry = datetime(2030, 1, 4, 12, 0, tzinfo=timezone.utc)
+        self.assertFalse(core._duma_session_expired(events, 100, before_expiry))
+        self.assertTrue(core._duma_session_expired(events, 100, at_expiry))
+        self.assertTrue(core._is_duma_session_closed(events, 100) is False)
+        self.assertEqual(
+            core._duma_session_expiry(events, 100),
+            datetime(2030, 1, 4, 12, 0, tzinfo=timezone.utc),
+        )
+
+    def test_duma_law_voting_requires_open_session(self):
+        source = Path("core.py").read_text(encoding="utf-8")
+        self.assertIn('"and session_open"', source)
+        self.assertIn('"law["can_vote"] = ("', source)
+
+
 class PresidentApiPermissionTests(unittest.TestCase):
     def test_mutating_president_routes_require_president_dependency(self):
         source = Path("app.py").read_text(encoding="utf-8")
