@@ -4895,6 +4895,77 @@ def publish_decree(actor_id: int, title: str, text: str, secret_for_user_id: int
     return created
 
 
+PRESIDENT_DECREE_EXECUTION_STATUSES = {"in_progress", "completed", "suspended"}
+
+
+def _presidential_decree_events() -> tuple[dict[int, dict], dict[int, dict]]:
+    events = fetch_all(lambda: db().table("audit_log").select(
+        "id,action,details,created_at"
+    ).in_("action", ["presidential_decree_created", "presidential_decree_execution_updated"])
+     .order("id"))
+    created: dict[int, dict] = {}
+    latest: dict[int, dict] = {}
+    for event in events:
+        details = str(event.get("details") or "")
+        if event.get("action") == "presidential_decree_created":
+            match = re.fullmatch(r"decree:(\d+)", details)
+            if match:
+                created[int(match.group(1))] = event
+        elif event.get("action") == "presidential_decree_execution_updated":
+            try:
+                payload = json.loads(details)
+                decree_id = int(payload.get("decree_id") or 0)
+                if decree_id:
+                    latest[decree_id] = {**payload, "updated_at": event.get("created_at")}
+            except (TypeError, ValueError, AttributeError):
+                continue
+    return created, latest
+
+
+def president_list_decrees(actor_id: int) -> dict:
+    created_events, latest_events = _presidential_decree_events()
+    if not created_events:
+        return {"decrees": []}
+    decree_ids = sorted(created_events)
+    decree_rows = select_in("decrees", "id,title,text,is_secret,secret_for_user_id,created_at", "id", decree_ids)
+    result = []
+    for decree in decree_rows:
+        decree_id = int(decree["id"])
+        execution = latest_events.get(decree_id, {})
+        result.append({
+            **decree,
+            "execution_status": execution.get("status", "issued"),
+            "execution_note": execution.get("note", ""),
+            "execution_updated_at": execution.get("updated_at"),
+        })
+    result.sort(key=lambda item: int(item.get("id") or 0), reverse=True)
+    return {"decrees": result}
+
+
+def president_update_decree_execution(actor_id: int, decree_id: int, status: str, note: str = "") -> dict:
+    if status not in PRESIDENT_DECREE_EXECUTION_STATUSES:
+        raise DKDError(422, "Недопустимый статус исполнения указа.")
+    note = str(note or "").strip()
+    if len(note) > 2000:
+        raise DKDError(422, "Комментарий не должен превышать 2000 символов.")
+    created_events, latest_events = _presidential_decree_events()
+    decree_id = int(decree_id)
+    if decree_id not in created_events:
+        raise DKDError(404, "Президентский указ не найден.")
+    current = latest_events.get(decree_id, {}).get("status", "issued")
+    if current == "completed":
+        raise DKDError(409, "Исполненный указ нельзя вернуть в работу или изменить его статус.")
+    event = audit(actor_id, "presidential_decree_execution_updated", None, json.dumps({
+        "decree_id": decree_id, "status": status, "note": note,
+    }, ensure_ascii=False))
+    if event is None:
+        raise DKDError(503, "Не удалось сохранить решение об исполнении указа. Повторите попытку.")
+    return {"ok": True, "decree_id": decree_id, "execution_status": status, "execution_note": note}
+
+
+
+
+
 # ----------------------------------------------------------------------------
 # Администрирование пользователей и ролей
 # ----------------------------------------------------------------------------
