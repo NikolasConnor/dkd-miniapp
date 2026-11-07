@@ -30,7 +30,9 @@ private data class DumaState(
     val loading: Boolean = true,
     val authorized: Boolean = false,
     val sessions: List<JSONObject> = emptyList(),
+    val sessionsLoaded: Boolean = false,
     val laws: List<JSONObject> = emptyList(),
+    val lawsLoaded: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
     val message: String? = null
@@ -51,10 +53,15 @@ private class DumaViewModel : ViewModel() {
             mutable.value = DumaState(loading = false, error = result.error ?: "Раздел Думы недоступен.")
             return
         }
+        val sessionsLoaded = result.data.has("sessions") && result.data.opt("sessions") is org.json.JSONArray
+        val lawsLoaded = result.data.has("laws") && result.data.opt("laws") is org.json.JSONArray
         mutable.value = DumaState(
             loading = false, authorized = true,
-            sessions = result.data.array("sessions"),
-            laws = result.data.array("laws"),
+            sessions = if (sessionsLoaded) result.data.array("sessions") else emptyList(),
+            sessionsLoaded = sessionsLoaded,
+            laws = if (lawsLoaded) result.data.array("laws") else emptyList(),
+            lawsLoaded = lawsLoaded,
+            error = if (!sessionsLoaded || !lawsLoaded) "Сервер вернул неполный ответ. Обновите раздел; парламентские действия временно недоступны." else null,
             message = message
         )
     }
@@ -116,7 +123,9 @@ internal fun DumaScreen(token: String, onBack: () -> Unit, onError: (String) -> 
         } else if (!state.authorized) {
             item { DumaNotice("Доступ ограничен", "Парламентская работа доступна только действующим депутатам и администратору. Одного отображения кнопок недостаточно для получения полномочий.") }
         } else {
-            item {
+            if (!state.sessionsLoaded || !state.lawsLoaded) {
+                item { DumaNotice("Данные парламента загружены не полностью", "Не удалось подтвердить наличие заседаний и законопроектов. Создание заседаний и голосование временно скрыты до успешной загрузки.") }
+            } else item {
                 Button(onClick = { openDialog = true }, enabled = !state.busy,
                     modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(13.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Purple)) {
@@ -124,7 +133,8 @@ internal fun DumaScreen(token: String, onBack: () -> Unit, onError: (String) -> 
                 }
             }
             item { Text("ЗАСЕДАНИЯ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
-            if (state.sessions.isEmpty()) item { DumaNotice("Заседаний пока нет", "Депутат может открыть заседание, после чего внести законопроект на рассмотрение.") }
+            if (!state.sessionsLoaded) item { DumaNotice("Список заседаний недоступен", "Не удалось загрузить заседания с сервера.") }
+            else if (state.sessions.isEmpty()) item { DumaNotice("Заседаний пока нет", "Депутат может открыть заседание, после чего внести законопроект на рассмотрение.") }
             items(state.sessions, key = { "session-${it.optInt("id")}" }) { session ->
                 val sessionId = session.optInt("id")
                 val closed = session.bool("closed")
@@ -151,7 +161,8 @@ internal fun DumaScreen(token: String, onBack: () -> Unit, onError: (String) -> 
                 }
             }
             item { Text("ВСЕ ЗАКОНОПРОЕКТЫ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
-            if (state.laws.isEmpty()) item { DumaNotice("Законопроектов нет", "Новые законопроекты появятся после внесения на открытом заседании.") }
+            if (!state.lawsLoaded) item { DumaNotice("Список законопроектов недоступен", "Не удалось загрузить законопроекты с сервера.") }
+            else if (state.laws.isEmpty()) item { DumaNotice("Законопроектов нет", "Новые законопроекты появятся после внесения на открытом заседании.") }
             items(state.laws, key = { "law-${it.optInt("id")}" }) { law ->
                 DumaLawCard(law, state.busy) { vote -> confirmVote = law.optInt("id") to vote }
             }
