@@ -38,7 +38,7 @@ private data class ApplicationsState(
     val message: String? = null
 )
 
-private class ApplicationsViewModel : ViewModel() {
+internal class ApplicationsViewModel : ViewModel() {
     private val mutable = MutableStateFlow(ApplicationsState())
     val state = mutable.asStateFlow()
 
