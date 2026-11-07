@@ -404,3 +404,11 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - News DTOs deliberately include only public article metadata; Telegram media file IDs and private identifiers are not exposed to the Android cache.
 - Added MockWebServer tests for response deserialization and authenticated request paths for all three endpoints.
 - No ballot submission or privileged mutation was enabled by this read-only migration. Duma voting remains disabled in the Android client pending production enforcement of the party-leader restriction.
+
+
+## Typed presidential ballot submission
+
+- Added a typed request/response contract for the presidential ballot endpoint.
+- The Android presidential ballot action now uses the typed Retrofit call and displays success only when the server returns `ok: true`; HTTP or transport failures remain visible as errors.
+- The endpoint is a non-idempotent POST and the shared OkHttp client continues to disable automatic connection retries.
+- No Duma ballot action was added. It remains disabled in the client until the party-leader restriction is deployed and verified on production.
