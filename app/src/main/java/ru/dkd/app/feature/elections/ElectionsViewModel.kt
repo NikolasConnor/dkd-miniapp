@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import ru.dkd.app.data.repository.ElectionsRepository
-import ru.dkd.app.core.network.apiCall
+import ru.dkd.app.core.network.submitPresidentialVoteDto
 
 internal data class ElectionsUiState(
     val loading: Boolean = true,
@@ -28,14 +28,16 @@ internal class ElectionsViewModel : ViewModel() {
         viewModelScope.launch {
             if (mutableState.value.busy) return@launch
             mutableState.value = mutableState.value.copy(busy = true, error = null, message = null)
-            val result = apiCall(
-                token, "POST", "/api/votes/presidential/$electionId/cast",
-                JSONObject().put("option", option)
-            )
-            if (result.error != null) {
-                mutableState.value = mutableState.value.copy(busy = false, error = result.error)
+            val result = submitPresidentialVoteDto(token, electionId, option)
+            val error = result.error ?: if (result.data?.ok == true) null
+                else result.data?.message ?: "Сервер не подтвердил приём голоса."
+            if (error != null) {
+                mutableState.value = mutableState.value.copy(busy = false, error = error)
             } else {
-                mutableState.value = mutableState.value.copy(busy = false, message = "Ваш голос принят сервером.")
+                mutableState.value = mutableState.value.copy(
+                    busy = false,
+                    message = result.data?.message ?: "Ваш голос принят сервером."
+                )
                 refresh(token)
             }
         }
