@@ -244,10 +244,11 @@ Applied in the native client:
 - Home, State, Profile and common service surfaces now use the Mini App palette, gradient hero panels, rounded cards, and muted text treatment.
 - App shell now has a matching branded header, five agreed government tabs, and a notification bell with unread count.
 - Notifications are wired into the native navigation graph and styled with the same card/border treatment.
+- Documents tab is now connected to the production-confirmed `GET /api/passport` and `GET /api/documents` contracts through a repository and ViewModel. It renders the citizen passport, current deputy mandate, presidential certificate, published presidential decrees, and only signed laws returned by the server. Document status is read from the server; a failed request is not misrepresented as an empty collection.
 - Version bumped to `0.6.0` / versionCode `6`.
 
 Still outstanding in Stage 3:
-- Documents and Elections currently lead to clearly marked demonstration screens; they are not yet fully ported or connected to verified live data contracts.
+- Elections still leads to a clearly marked demonstration screen; its API contracts and native ballot interaction are not yet ported. Documents are now connected, but require live-account verification on a device.
 - Remaining feature screens (President, Government, Duma, parties, laws, applications, and citizen services) still need individual native designs and API contract verification.
 - Need screenshot comparison on a real Android device against the Mini App at equivalent viewport sizes, then spacing/typography refinements.
 - Do not treat any placeholder action as a completed government service.
