@@ -18,6 +18,14 @@ import retrofit2.http.Part
 import retrofit2.http.Url
 import com.google.gson.annotations.SerializedName
 
+internal data class CastVoteRequest(
+    @SerializedName("option") val option: String
+)
+internal data class MutationResponseDto(
+    @SerializedName("ok") val ok: Boolean = false,
+    @SerializedName("message") val message: String? = null
+)
+
 internal data class RedeemLoginRequest(val code: String)
 internal data class RedeemLoginResponse(val session_token: String? = null)
 
@@ -156,6 +164,15 @@ internal data class NewsEnvelopeDto(
 
 /** Retrofit transport contract. Legacy feature endpoints retain raw JSON until DTO contracts are verified. */
 internal interface DkdApiService {
+    @Headers("Accept: application/json")
+    @POST("/api/votes/{kind}/{election_id}/cast")
+    suspend fun castVote(
+        @Header("Authorization") authorization: String,
+        @retrofit2.http.Path("kind") kind: String,
+        @retrofit2.http.Path("election_id") electionId: Int,
+        @Body request: CastVoteRequest
+    ): Response<MutationResponseDto>
+
     @Headers("Accept: application/json")
     @GET("/api/votes")
     suspend fun getElections(@Header("Authorization") authorization: String): Response<ElectionsEnvelopeDto>
