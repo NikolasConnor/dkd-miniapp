@@ -4,6 +4,7 @@ import okhttp3.MultipartBody
 import okhttp3.RequestBody
 import okhttp3.ResponseBody
 import retrofit2.Response
+import retrofit2.http.Headers
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -16,8 +17,15 @@ import retrofit2.http.PUT
 import retrofit2.http.Part
 import retrofit2.http.Url
 
-/** Retrofit transport contract. JSON remains decoded at the repository boundary for legacy API compatibility. */
+internal data class RedeemLoginRequest(val code: String)
+internal data class RedeemLoginResponse(val session_token: String? = null)
+
+/** Retrofit transport contract. Legacy feature endpoints retain raw JSON until DTO contracts are verified. */
 internal interface DkdApiService {
+    @Headers("Accept: application/json")
+    @POST("/api/android/auth/redeem")
+    suspend fun redeemLogin(@Body request: RedeemLoginRequest): Response<RedeemLoginResponse>
+
     @GET
     suspend fun get(
         @Url url: String,
