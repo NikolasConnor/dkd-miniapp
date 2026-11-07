@@ -67,7 +67,7 @@ private class PresidentViewModel : ViewModel() {
             mutable.value = PresidentUiState(loading = false, error = status.error ?: "Не удалось получить статус доступа.")
             return
         }
-        val allowed = statusJson.bool("is_president")
+        val allowed = statusJson.bool("is_president") || statusJson.bool("is_admin")
         if (!allowed) {
             mutable.value = PresidentUiState(
                 loading = false, authorized = false,
