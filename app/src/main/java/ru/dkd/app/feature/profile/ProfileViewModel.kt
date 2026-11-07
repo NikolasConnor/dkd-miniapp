@@ -11,7 +11,6 @@ import ru.dkd.app.data.repository.CitizenProfileRepository
 
 internal data class ProfileUiState(
     val loading: Boolean = true,
-    val savingPreference: Boolean = false,
     val profile: CitizenProfile? = null,
     val error: String? = null
 )
@@ -26,20 +25,6 @@ internal class ProfileViewModel : ViewModel() {
             mutableState.value = mutableState.value.copy(loading = true, error = null)
             val result = repository.load(token)
             mutableState.value = ProfileUiState(loading = false, profile = result.profile, error = result.error)
-        }
-    }
-
-    fun setNewsNotifications(token: String, enabled: Boolean) {
-        viewModelScope.launch {
-            val current = mutableState.value
-            val profile = current.profile ?: return@launch
-            mutableState.value = current.copy(savingPreference = true, error = null)
-            val error = repository.setNewsNotifications(token, enabled)
-            mutableState.value = mutableState.value.copy(
-                savingPreference = false,
-                profile = if (error == null) profile.copy(newsNotificationsEnabled = enabled) else profile,
-                error = error
-            )
         }
     }
 }
