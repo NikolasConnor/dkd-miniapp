@@ -22,6 +22,7 @@ internal fun PartyCandidatesScreen(token: String, onBack: () -> Unit, onError: (
     val vm: PartyCandidatesViewModel = viewModel()
     val state by vm.state.collectAsState()
     var refresh by remember { mutableIntStateOf(0) }
+    val party = state.party
 
     LaunchedEffect(token, refresh) { vm.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -38,7 +39,7 @@ internal fun PartyCandidatesScreen(token: String, onBack: () -> Unit, onError: (
             Text("Сформируйте партийный список из действующих участников вашей партии.", color = Muted, fontSize = 11.sp)
         }
 
-        if (state.loading && state.party == null) {
+        if (state.loading && party == null) {
             item { CandidateNotice("Загружаем состав партии…", "Проверяем полномочия председателя и список участников.") }
         } else if (state.error != null && state.party == null) {
             item { CandidateNotice("Не удалось загрузить список", state.error ?: "Ошибка сервера.") }
@@ -50,7 +51,7 @@ internal fun PartyCandidatesScreen(token: String, onBack: () -> Unit, onError: (
                     modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFF55508E), RoundedCornerShape(19.dp))) {
                     Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text("ПАРТИЯ", color = Pink, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text("${state.party.string("emoji", "🎭")}  ${state.party.string("name", "Партия")}", color = White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                        Text("${party.string("emoji", "🎭")}  ${state.party.string("name", "Партия")}", color = White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                         Text("Выбрано кандидатов: ${state.selectedIds.size} из ${state.members.size}", color = Muted, fontSize = 10.sp)
                     }
                 }
