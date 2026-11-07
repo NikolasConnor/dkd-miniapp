@@ -88,16 +88,3 @@ internal fun LoginScreen(
         }
     }
 }
-
-
-
-private fun JSONObject.string(key: String, fallback: String = ""): String =
-    optString(key).takeIf { it.isNotBlank() && it != "null" } ?: fallback
-private fun JSONObject.int(key: String): Int = optInt(key, 0)
-private fun JSONObject.bool(key: String): Boolean = optBoolean(key, false)
-private fun JSONObject.array(key: String): List<JSONObject> {
-    val value = optJSONArray(key) ?: return emptyList()
-    return (0 until value.length()).mapNotNull { value.optJSONObject(it) }
-}
-private fun JSONObject.obj(key: String): JSONObject = optJSONObject(key) ?: JSONObject()
-
