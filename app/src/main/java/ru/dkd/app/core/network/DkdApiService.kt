@@ -48,6 +48,23 @@ internal data class DkdDocumentDto(
     @SerializedName("created_at") val createdAt: String = ""
 )
 
+internal data class DkdProfileDto(
+    @SerializedName("full_name") val fullName: String = "",
+    @SerializedName("avatar_emoji") val avatarEmoji: String = "",
+    @SerializedName("role") val role: String = "",
+    @SerializedName("citizenship") val citizenship: String = "",
+    @SerializedName("party_name") val partyName: String? = null,
+    @SerializedName("news_notifications_enabled") val newsNotificationsEnabled: Boolean = true
+)
+
+internal data class ProfileEnvelopeDto(
+    @SerializedName("profile") val profile: DkdProfileDto? = null
+)
+
+internal data class NotificationSummaryDto(
+    @SerializedName("unread_count") val unreadCount: Int = 0
+)
+
 internal data class DocumentsEnvelopeDto(
     @SerializedName("laws") val laws: List<DkdDocumentDto> = emptyList(),
     @SerializedName("decrees") val decrees: List<DkdDocumentDto> = emptyList(),
@@ -57,6 +74,14 @@ internal data class DocumentsEnvelopeDto(
 
 /** Retrofit transport contract. Legacy feature endpoints retain raw JSON until DTO contracts are verified. */
 internal interface DkdApiService {
+    @Headers("Accept: application/json")
+    @GET("/api/profile")
+    suspend fun getProfile(@Header("Authorization") authorization: String): Response<ProfileEnvelopeDto>
+
+    @Headers("Accept: application/json")
+    @GET("/api/notifications")
+    suspend fun getNotificationSummary(@Header("Authorization") authorization: String): Response<NotificationSummaryDto>
+
     @Headers("Accept: application/json")
     @GET("/api/passport")
     suspend fun getPassport(@Header("Authorization") authorization: String): Response<PassportEnvelopeDto>
