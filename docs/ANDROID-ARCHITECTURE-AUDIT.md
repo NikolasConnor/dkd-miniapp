@@ -351,3 +351,14 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - The President can review citizen applications directly in Android: approval/rejection is confirmed before sending; approval of citizenship causes the server to issue the passport and notify the applicant.
 - The President can publish decrees, sign/veto laws, schedule Duma elections, and dissolve the Duma using the existing server-authorized routes. All actions require server-side role checks; no local role grants are performed.
 - These additions are awaiting the latest Android CI run and still require live-account testing.
+
+
+## Stage 3/4 safety follow-up — 2026-11-07
+
+- Added a shared, pure eligibility rule for identifying active party leaders by numeric user ID, with a legacy username fallback.
+- The non-production `android-dkd-portal-redesign` backend branch now rejects a party leader's Duma election ballot before inserting a vote. Presidential ballots remain unaffected.
+- Added Python unit tests for leader, non-leader, legacy membership, dissolved-party, and missing-membership cases; CI now runs them.
+- Disabled OkHttp automatic connection retries. This avoids silently replaying non-idempotent operations such as votes, role changes, and presidential decisions after ambiguous network failures.
+- These backend changes are confined to the Android working branch. Production `main`, Render, and Supabase are unchanged.
+- The Android app still points to the production Render URL, so Duma vote submission remains intentionally disabled in Android until this backend rule is explicitly reviewed, merged, deployed, and verified in production.
+- Last known successful Android artifact was built from commit `7f617b4d48c32fc67ce20d0d5be303fafbe56361`; it predates this backend-only eligibility hardening. Rebuild after Android source changes.
