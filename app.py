@@ -901,6 +901,11 @@ def president_update_decree_execution(decree_id: int, payload: DecreeExecutionUp
     return core.president_update_decree_execution(user["id"], decree_id, payload.status, payload.note)
 
 
+@app.get("/api/president/activity")
+def president_activity(user: dict = Depends(president_user)):
+    return core.president_list_activity(user["id"])
+
+
 @app.post("/api/president/parliament/dissolve")
 def president_dissolve_parliament(user: dict = Depends(president_user)):
     return core.president_dissolve_parliament(user["id"])
