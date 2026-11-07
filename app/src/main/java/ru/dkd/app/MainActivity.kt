@@ -240,7 +240,16 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         StubHomeScreen(
                             name = uiState.name,
                             role = uiState.role,
-                            onOpen = { if (it == "Новости") navController.navigate("news") else navController.navigate("detail/${Uri.encode(it)}") },
+                            onOpen = {
+                                when (it) {
+                                    "Новости" -> navController.navigate("news")
+                                    "Статус гражданина" -> navController.navigate("profile")
+                                    "Документы" -> navController.navigate("documents")
+                                    "Выборы" -> navController.navigate("elections")
+                                    "Государство" -> navController.navigate("government")
+                                    else -> navController.navigate("detail/${Uri.encode(it)}")
+                                }
+                            },
                             onState = { navController.navigate("government") }
                         )
                     }
