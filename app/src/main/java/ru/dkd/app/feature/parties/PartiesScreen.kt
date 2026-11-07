@@ -26,6 +26,7 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
     val viewModel: PartiesViewModel = viewModel()
     val state by viewModel.state.collectAsState()
     var refresh by remember { mutableIntStateOf(0) }
+    var confirmLeave by remember { mutableStateOf(false) }
 
     LaunchedEffect(token, refresh) { viewModel.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -63,9 +64,19 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
                 }
             }
             items(state.parties, key = { it.optInt("id") }) { party ->
-                PartyCard(party, state.myPartyId)
+                PartyCard(
+                    party = party,
+                    myPartyId = state.myPartyId,
+                    isCitizen = state.isCitizen,
+                    busy = state.busy,
+                    onJoin = { viewModel.join(token, party.optInt("id")) },
+                    onLeave = { confirmLeave = true }
+                )
             }
         }
+
+        state.message?.let { message -> item { PartyNotice("Готово", message) } }
+        if (state.busy) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = Purple) }
 
         item {
             TextButton(onClick = { refresh++ }, modifier = Modifier.fillMaxWidth()) {
@@ -73,10 +84,33 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
             }
         }
     }
+
+    if (confirmLeave) {
+        AlertDialog(
+            onDismissRequest = { confirmLeave = false },
+            containerColor = Panel,
+            title = { Text("Покинуть партию?", color = White) },
+            text = { Text("Если вы председатель, сервер передаст руководство другому участнику или распустит партию, если вы последний участник.", color = Muted, fontSize = 12.sp) },
+            confirmButton = {
+                TextButton(enabled = !state.busy, onClick = {
+                    confirmLeave = false
+                    viewModel.leave(token)
+                }) { Text("Покинуть", color = Bad) }
+            },
+            dismissButton = { TextButton(onClick = { confirmLeave = false }) { Text("Отмена", color = Muted) } }
+        )
+    }
 }
 
 @Composable
-private fun PartyCard(party: JSONObject, myPartyId: Int?) {
+private fun PartyCard(
+    party: JSONObject,
+    myPartyId: Int?,
+    isCitizen: Boolean,
+    busy: Boolean,
+    onJoin: () -> Unit,
+    onLeave: () -> Unit
+) {
     val id = party.optInt("id")
     val members = party.array("members")
     val isMine = party.bool("is_member")
@@ -120,6 +154,17 @@ private fun PartyCard(party: JSONObject, myPartyId: Int?) {
                 if (members.size > 8) Text("И ещё ${members.size - 8} участников", color = Muted, fontSize = 9.sp)
             }
             if (canManage) Text("Вы можете управлять этой партией в Mini App.", color = Blue, fontSize = 9.sp)
+            if (isMine) {
+                OutlinedButton(onClick = onLeave, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(11.dp)) {
+                    Text("Покинуть партию", color = Bad, fontSize = 11.sp)
+                }
+            } else if (isCitizen && myPartyId == null) {
+                Button(onClick = onJoin, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(11.dp), colors = ButtonDefaults.buttonColors(containerColor = Purple)) {
+                    Text("Вступить в партию", color = White, fontSize = 11.sp)
+                }
+            }
         }
     }
 }
