@@ -1,6 +1,7 @@
 package ru.dkd.app.feature.news
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,11 +13,13 @@ import ru.dkd.app.data.repository.NewsRepository
 internal data class NewsUiState(
     val loading: Boolean = true,
     val articles: List<JSONObject> = emptyList(),
-    val error: String? = null
+    val error: String? = null,
+    val fromCache: Boolean = false,
+    val cachedAtEpochMs: Long? = null
 )
 
-internal class NewsViewModel : ViewModel() {
-    private val repository = NewsRepository()
+internal class NewsViewModel(application: Application) : AndroidViewModel(application) {
+    private val repository = NewsRepository(application)
     private val mutableState = MutableStateFlow(NewsUiState())
     val state: StateFlow<NewsUiState> = mutableState.asStateFlow()
 
@@ -27,7 +30,9 @@ internal class NewsViewModel : ViewModel() {
             mutableState.value = NewsUiState(
                 loading = false,
                 articles = result.articles,
-                error = result.error
+                error = result.error,
+                fromCache = result.fromCache,
+                cachedAtEpochMs = result.cachedAtEpochMs
             )
         }
     }
