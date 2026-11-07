@@ -393,3 +393,14 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - Migrated the home greeting/profile summary and citizen profile repository away from generic JSONObject parsing for their read endpoints.
 - Added MockWebServer tests for profile fields, notification unread count and Bearer authorization.
 - Profile mutations remain explicit authenticated API calls; no UI setting is presented as saved until the backend confirms it.
+
+
+## Typed elections, parties and news read APIs
+
+- Added Gson DTOs and dedicated Retrofit endpoints for `GET /api/votes`, `GET /api/parties`, and `GET /api/news`.
+- Migrated the three feature repositories away from generic `JSONObject` response parsing. Existing Compose screens retain a temporary JSON-shaped presentation adapter, while network contracts are now typed.
+- Election DTOs include candidate emoji identities, party-list candidate names, status, whether the current citizen has voted, and published result counts.
+- Party DTOs include server-authorized management capability, public member display names, and current citizen membership metadata.
+- News DTOs deliberately include only public article metadata; Telegram media file IDs and private identifiers are not exposed to the Android cache.
+- Added MockWebServer tests for response deserialization and authenticated request paths for all three endpoints.
+- No ballot submission or privileged mutation was enabled by this read-only migration. Duma voting remains disabled in the Android client pending production enforcement of the party-leader restriction.
