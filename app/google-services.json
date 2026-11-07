@@ -1,0 +1,28 @@
+{
+  "project_info": {
+    "project_number": "83990995335",
+    "project_id": "dkdr-d4fa4",
+    "storage_bucket": "dkdr-d4fa4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:83990995335:android:fd8292d9a0ed33201e3322",
+        "android_client_info": {
+          "package_name": "ru.dkd.app"
+        }
+      },
+      "api_key": [
+        {
+          "current_key": "AIzaSyAfhL76L1Vbs2ReqhMP1kcJyulLz_mIfr4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
