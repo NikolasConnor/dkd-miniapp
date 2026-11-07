@@ -239,12 +239,12 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         StubHomeScreen(
                             name = uiState.name,
                             role = uiState.role,
-                            onOpen = { navController.navigate("detail/\${Uri.encode(it)}") },
+                            onOpen = { if (it == "Новости") navController.navigate("news") else navController.navigate("detail/${Uri.encode(it)}") },
                             onState = { navController.navigate("government") }
                         )
                     }
                     composable("government") {
-                        StubGovernmentScreen(onOpen = { navController.navigate("detail/\${Uri.encode(it)}") })
+                        StubGovernmentScreen(onOpen = { navController.navigate("detail/${Uri.encode(it)}") })
                     }
                     composable("documents") {
                         DocumentsScreen(
@@ -263,7 +263,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                             name = uiState.name,
                             role = uiState.role,
                             onLogout = onLogout,
-                            onOpen = { navController.navigate("detail/\${Uri.encode(it)}") }
+                            onOpen = { navController.navigate("detail/${Uri.encode(it)}") }
                         )
                     }
                     composable("news") {
