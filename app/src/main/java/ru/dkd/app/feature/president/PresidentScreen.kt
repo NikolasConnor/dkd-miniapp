@@ -1,0 +1,304 @@
+package ru.dkd.app.feature.president
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import org.json.JSONObject
+import ru.dkd.app.core.common.array
+import ru.dkd.app.core.common.bool
+import ru.dkd.app.core.common.string
+import ru.dkd.app.core.design.*
+import ru.dkd.app.core.network.apiCall
+
+private data class PresidentUiState(
+    val loading: Boolean = true,
+    val authorized: Boolean = false,
+    val isAdmin: Boolean = false,
+    val term: JSONObject? = null,
+    val laws: List<JSONObject> = emptyList(),
+    val busy: Boolean = false,
+    val error: String? = null,
+    val message: String? = null
+)
+
+private class PresidentViewModel : ViewModel() {
+    private val mutable = MutableStateFlow(PresidentUiState())
+    val state = mutable.asStateFlow()
+
+    fun refresh(token: String) {
+        viewModelScope.launch {
+            mutable.value = mutable.value.copy(loading = true, error = null, message = null)
+            val status = apiCall(token, "GET", "/api/president/status")
+            val statusJson = status.data
+            if (status.error != null || statusJson == null) {
+                mutable.value = PresidentUiState(loading = false, error = status.error ?: "Не удалось получить статус доступа.")
+                return@launch
+            }
+            val allowed = statusJson.bool("is_president")
+            if (!allowed) {
+                mutable.value = PresidentUiState(
+                    loading = false, authorized = false,
+                    isAdmin = statusJson.bool("is_admin"),
+                    term = statusJson.optJSONObject("term")
+                )
+                return@launch
+            }
+            val lawsResult = apiCall(token, "GET", "/api/president/laws")
+            mutable.value = PresidentUiState(
+                loading = false, authorized = true,
+                isAdmin = statusJson.bool("is_admin"),
+                term = statusJson.optJSONObject("term"),
+                laws = lawsResult.data?.array("laws") ?: emptyList(),
+                error = lawsResult.error
+            )
+        }
+    }
+
+    private fun submit(token: String, method: String, path: String, payload: JSONObject? = null, success: String) {
+        viewModelScope.launch {
+            mutable.value = mutable.value.copy(busy = true, error = null, message = null)
+            val result = apiCall(token, method, path, payload)
+            mutable.value = mutable.value.copy(
+                busy = false,
+                error = result.error,
+                message = if (result.error == null) success else null
+            )
+            if (result.error == null) refresh(token)
+        }
+    }
+
+    fun createDecree(token: String, title: String, text: String) {
+        submit(token, "POST", "/api/president/decrees",
+            JSONObject().put("title", title.trim()).put("text", text.trim()),
+            "Указ опубликован.")
+    }
+
+    fun decideLaw(token: String, id: Int, status: String) {
+        submit(token, "PATCH", "/api/president/laws/$id",
+            JSONObject().put("status", status),
+            if (status == "signed") "Закон подписан." else "По законопроекту применено вето.")
+    }
+
+    fun dissolve(token: String) {
+        submit(token, "POST", "/api/president/parliament/dissolve", JSONObject(),
+            "Решение о роспуске принято сервером.")
+    }
+
+    fun scheduleElection(token: String, title: String, starts: String, ends: String) {
+        submit(token, "POST", "/api/president/elections/duma",
+            JSONObject().put("title", title.trim()).put("starts_at", starts.trim()).put("ends_at", ends.trim()),
+            "Выборы в Государственную Думу назначены.")
+    }
+
+    fun clearNotices() {
+        mutable.value = mutable.value.copy(error = null, message = null)
+    }
+}
+
+@Composable
+internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String) -> Unit) {
+    val vm: PresidentViewModel = viewModel()
+    val state by vm.state.collectAsState()
+    var refresh by remember { mutableIntStateOf(0) }
+    var decreeDialog by remember { mutableStateOf(false) }
+    var electionDialog by remember { mutableStateOf(false) }
+    var dissolveDialog by remember { mutableStateOf(false) }
+    var lawToDecide by remember { mutableStateOf<Pair<Int, String>?>(null) }
+
+    LaunchedEffect(token, refresh) { vm.refresh(token) }
+    LaunchedEffect(state.error) { state.error?.let(onError) }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(horizontal = 17.dp, vertical = 17.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        item {
+            TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) { Text("←  Назад", color = Purple) }
+            Text("ПРЕЗИДЕНТСКАЯ АДМИНИСТРАЦИЯ", color = Pink, fontSize = 9.sp, letterSpacing = 1.4.sp, fontWeight = FontWeight.Bold)
+            Text("Полномочия Президента", color = White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+            Text("Официальные решения доступны только аккаунту с серверными правами Президента.", color = Muted, fontSize = 11.sp)
+        }
+        if (state.loading) {
+            item { PresidentNotice("Проверяем полномочия…", "Получаем актуальный статус с сервера ДКД.") }
+        } else if (!state.authorized) {
+            item { PresidentNotice("Доступ закрыт", "Для этого раздела необходима действующая должность Президента или права главного администратора. Интерфейс не заменяет серверную проверку доступа.") }
+        } else {
+            item {
+                Surface(color = Panel2, shape = RoundedCornerShape(21.dp),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFF55508E), RoundedCornerShape(21.dp))) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(if (state.isAdmin) "СЛУЖЕБНЫЙ ДОСТУП АДМИНИСТРАТОРА" else "ПРЕЗИДЕНТ ДКД", color = Pink, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text(state.term?.string("message").orEmpty().ifBlank { "Полномочия подтверждены сервером" }, color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        val expiry = state.term?.string("term_end").orEmpty()
+                        if (expiry.isNotBlank()) Text("Окончание срока: ${expiry.take(10)}", color = Muted, fontSize = 10.sp)
+                    }
+                }
+            }
+            item { Text("УПРАВЛЕНИЕ ГОСУДАРСТВОМ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PresidentAction("Опубликовать указ", "Новый президентский акт", Modifier.weight(1f), !state.busy) { decreeDialog = true }
+                    PresidentAction("Назначить выборы", "Новая кампания в Думе", Modifier.weight(1f), !state.busy) { electionDialog = true }
+                }
+            }
+            item {
+                Surface(color = Color(0xFF352536), shape = RoundedCornerShape(17.dp),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFF74485F), RoundedCornerShape(17.dp))) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text("Роспуск Государственной Думы", color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text("Необратимое действие: прекращает полномочия действующих депутатов. Сервер проверяет наличие парламента и ограничение — не чаще одного раза за 30 дней.", color = Color(0xFFD6C0CF), fontSize = 10.sp, lineHeight = 15.sp)
+                        OutlinedButton(onClick = { dissolveDialog = true }, enabled = !state.busy,
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Bad),
+                            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
+                            Text("Рассмотреть роспуск")
+                        }
+                    }
+                }
+            }
+            item { Text("ЗАКОНОПРОЕКТЫ НА РЕШЕНИЕ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
+            if (state.laws.isEmpty()) {
+                item { PresidentNotice("Законопроектов нет", "Сервер не вернул законопроекты для рассмотрения.") }
+            }
+            items(state.laws, key = { it.optInt("id") }) { law ->
+                val id = law.optInt("id")
+                val status = law.string("status")
+                Surface(color = CardColor, shape = RoundedCornerShape(17.dp),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(17.dp))) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text(law.string("title", "Законопроект"), color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(law.string("description").ifBlank { "Описание не предоставлено." }, color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                        Text("Статус: $status", color = Pink, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+                        if (status != "signed" && status != "vetoed") {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = { lawToDecide = id to "signed" }, enabled = !state.busy,
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(11.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Purple)) { Text("Подписать", color = White, fontSize = 11.sp) }
+                                OutlinedButton(onClick = { lawToDecide = id to "vetoed" }, enabled = !state.busy,
+                                    modifier = Modifier.weight(1f), shape = RoundedCornerShape(11.dp)) { Text("Вето", color = Pink, fontSize = 11.sp) }
+                            }
+                        }
+                    }
+                }
+            }
+            item {
+                TextButton(onClick = { refresh++ }, modifier = Modifier.fillMaxWidth()) { Text("↻  Обновить полномочия и законопроекты", color = Purple) }
+            }
+        }
+        if (state.busy) item { LinearProgressIndicator(Modifier.fillMaxWidth(), color = Purple) }
+        state.message?.let { msg -> item { PresidentNotice("Операция выполнена", msg) } }
+        state.error?.let { err -> item { PresidentNotice("Не удалось выполнить действие", err) } }
+    }
+
+    if (decreeDialog) {
+        var title by remember { mutableStateOf("") }
+        var body by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) decreeDialog = false },
+            containerColor = Panel,
+            title = { Text("Новый президентский указ", color = White) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    OutlinedTextField(title, { title = it }, label = { Text("Название") }, singleLine = true)
+                    OutlinedTextField(body, { body = it }, label = { Text("Полный текст указа") }, minLines = 4)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = title.trim().length >= 2 && body.isNotBlank() && !state.busy,
+                    onClick = { vm.createDecree(token, title, body); decreeDialog = false }) { Text("Опубликовать", color = Purple) }
+            },
+            dismissButton = { TextButton(onClick = { decreeDialog = false }) { Text("Отмена", color = Muted) } }
+        )
+    }
+
+    if (electionDialog) {
+        var title by remember { mutableStateOf("Выборы в Государственную Думу") }
+        var starts by remember { mutableStateOf("") }
+        var ends by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) electionDialog = false },
+            containerColor = Panel,
+            title = { Text("Назначить думские выборы", color = White) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Укажите даты в формате ISO 8601, например 2026-11-08T10:00:00+03:00.", color = Muted, fontSize = 10.sp)
+                    OutlinedTextField(title, { title = it }, label = { Text("Название кампании") }, singleLine = true)
+                    OutlinedTextField(starts, { starts = it }, label = { Text("Начало (ISO 8601)") }, singleLine = true)
+                    OutlinedTextField(ends, { ends = it }, label = { Text("Окончание (ISO 8601)") }, singleLine = true)
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = title.trim().length >= 2 && starts.isNotBlank() && ends.isNotBlank() && !state.busy,
+                    onClick = { vm.scheduleElection(token, title, starts, ends); electionDialog = false }) { Text("Назначить", color = Purple) }
+            },
+            dismissButton = { TextButton(onClick = { electionDialog = false }) { Text("Отмена", color = Muted) } }
+        )
+    }
+
+    if (dissolveDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) dissolveDialog = false },
+            containerColor = Panel,
+            title = { Text("Подтвердить роспуск Думы?", color = White) },
+            text = { Text("Это действие прекращает полномочия действующих депутатов. Продолжить? Сервер дополнительно проверит все ограничения.", color = Muted, fontSize = 12.sp) },
+            confirmButton = {
+                TextButton(enabled = !state.busy, onClick = { vm.dissolve(token); dissolveDialog = false }) { Text("Да, распустить", color = Bad) }
+            },
+            dismissButton = { TextButton(onClick = { dissolveDialog = false }) { Text("Отмена", color = Muted) } }
+        )
+    }
+
+    lawToDecide?.let { decision ->
+        AlertDialog(
+            onDismissRequest = { lawToDecide = null },
+            containerColor = Panel,
+            title = { Text(if (decision.second == "signed") "Подписать закон?" else "Наложить вето?", color = White) },
+            text = { Text("Решение будет отправлено на сервер и отразится в официальных документах и истории.", color = Muted, fontSize = 12.sp) },
+            confirmButton = {
+                TextButton(enabled = !state.busy, onClick = { vm.decideLaw(token, decision.first, decision.second); lawToDecide = null }) {
+                    Text("Подтвердить", color = Purple)
+                }
+            },
+            dismissButton = { TextButton(onClick = { lawToDecide = null }) { Text("Отмена", color = Muted) } }
+        )
+    }
+}
+
+@Composable
+private fun PresidentAction(title: String, subtitle: String, modifier: Modifier, enabled: Boolean, onClick: () -> Unit) {
+    Surface(color = CardColor, shape = RoundedCornerShape(16.dp),
+        modifier = modifier.border(1.dp, LineColor, RoundedCornerShape(16.dp))) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(title, color = White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(subtitle, color = Muted, fontSize = 9.sp)
+            TextButton(onClick = onClick, enabled = enabled, contentPadding = PaddingValues(0.dp)) { Text("Открыть →", color = Purple, fontSize = 10.sp) }
+        }
+    }
+}
+
+@Composable
+private fun PresidentNotice(title: String, body: String) {
+    Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(body, color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+        }
+    }
+}
