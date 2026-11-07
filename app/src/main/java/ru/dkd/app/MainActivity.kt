@@ -41,6 +41,7 @@ import ru.dkd.app.feature.home.StubServiceScreen
 import ru.dkd.app.feature.notifications.NotificationsScreen
 import ru.dkd.app.feature.news.NewsScreen
 import ru.dkd.app.feature.parties.PartiesScreen
+import ru.dkd.app.feature.parties.PartyCandidatesScreen
 import ru.dkd.app.feature.profile.ProfileScreen
 import ru.dkd.app.feature.president.PresidentScreen
 import ru.dkd.app.feature.shell.DkdViewModel
@@ -305,6 +306,13 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                             onError = { appViewModel.setError(it) }
                         )
                     }
+                    composable("party-candidates") {
+                        PartyCandidatesScreen(
+                            token = token,
+                            onBack = { navController.popBackStack() },
+                            onError = { appViewModel.setError(it) }
+                        )
+                    }
                     composable("news") {
                         NewsScreen(
                             token = token,
@@ -327,7 +335,8 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         if (title == "Партии") {
                             PartiesScreen(
                                 token = token,
-                                onError = { appViewModel.setError(it) }
+                                onError = { appViewModel.setError(it) },
+                                onManageCandidates = { navController.navigate("party-candidates") }
                             )
                         } else {
                             StubServiceScreen(
