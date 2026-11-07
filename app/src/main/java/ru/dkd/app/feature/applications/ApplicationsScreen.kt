@@ -30,6 +30,7 @@ private data class ApplicationsState(
     val loading: Boolean = true,
     val sending: Boolean = false,
     val applications: List<JSONObject> = emptyList(),
+    val isCitizen: Boolean = false,
     val error: String? = null,
     val message: String? = null
 )
@@ -42,10 +43,13 @@ private class ApplicationsViewModel : ViewModel() {
         viewModelScope.launch {
             mutable.value = mutable.value.copy(loading = true, error = null)
             val result = apiCall(token, "GET", "/api/applications")
+            val profileResult = apiCall(token, "GET", "/api/profile")
+            val profile = profileResult.data?.optJSONObject("profile") ?: profileResult.data
             mutable.value = mutable.value.copy(
                 loading = false,
                 applications = result.data?.array("applications") ?: mutable.value.applications,
-                error = result.error
+                isCitizen = profile?.string("citizenship") == "Гражданин ДКД",
+                error = result.error ?: profileResult.error
             )
         }
     }
@@ -84,7 +88,6 @@ internal fun ApplicationsScreen(token: String, onBack: () -> Unit, onError: (Str
     LaunchedEffect(token, refresh) { vm.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
 
-    val isCitizen = state.applications.any { it.string("kind") == "citizenship" && it.string("status") == "approved" }
     val pending = state.applications.any { it.string("kind") == "citizenship" && it.string("status") == "pending" }
 
     LazyColumn(
@@ -108,7 +111,7 @@ internal fun ApplicationsScreen(token: String, onBack: () -> Unit, onError: (Str
                 }
             }
         }
-        if (isCitizen) {
+        if (state.isCitizen) {
             item { ApplicationNotice("Гражданство уже подтверждено", "Сервер вернул одобренное заявление. Проверьте выданный паспорт в разделе «Документы».") }
         } else if (pending) {
             item { ApplicationNotice("Заявление на рассмотрении", "Новое заявление на гражданство нельзя подать, пока текущее не рассмотрено.") }
