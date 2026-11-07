@@ -720,7 +720,10 @@ def get_parties(user: dict = Depends(auth_user)):
 
 @app.post("/api/parties")
 def create_party(payload: PartyCreate, user: dict = Depends(auth_user)):
-    return {"ok": True, "party": core.create_party(user, payload.name, payload.emoji, payload.description)}
+    # Public party creation must pass through presidential approval.
+    return {"ok": True, "application": core.create_party_application(
+        user, payload.name, payload.emoji, payload.description
+    )}
 
 
 class PartySettingsUpdate(BaseModel):
