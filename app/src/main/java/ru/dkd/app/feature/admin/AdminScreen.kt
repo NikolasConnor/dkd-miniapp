@@ -61,7 +61,7 @@ private class AdminViewModel : ViewModel() {
                 loading = false,
                 isAdmin = true,
                 subjects = subjects.data?.array("subjects") ?: emptyList(),
-                roles = subjects.data?.array("roles") ?: emptyList(),
+                roles = subjects.data?.array("roles")?.filter { it.string("name") != "Главный администратор" } ?: emptyList(),
                 applications = applications.data?.array("applications") ?: emptyList(),
                 error = subjects.error ?: applications.error
             )
