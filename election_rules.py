@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 
+def president_can_close_duma_election(status: str) -> bool:
+    """A President may finalize only a campaign that has actually started."""
+    return str(status or "").strip().casefold() == "active"
+
+
 def is_party_leader(membership: dict | None, party: dict | None, user_id: int) -> bool:
     """Return whether this member is the active party leader.
 
