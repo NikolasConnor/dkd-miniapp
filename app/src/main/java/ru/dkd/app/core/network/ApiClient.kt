@@ -7,9 +7,11 @@ import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.ResponseBody
 import org.json.JSONObject
+import retrofit2.Response
+import retrofit2.Retrofit
 import ru.dkd.app.BuildConfig
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -28,6 +30,14 @@ private val httpClient: OkHttpClient by lazy {
         .callTimeout(75, TimeUnit.SECONDS)
         .retryOnConnectionFailure(false)
         .build()
+}
+
+private val retrofitService: DkdApiService by lazy {
+    Retrofit.Builder()
+        .baseUrl("$API_BASE_URL/")
+        .client(httpClient)
+        .build()
+        .create(DkdApiService::class.java)
 }
 
 internal data class ApiResult(val token: String? = null, val error: String? = null)
@@ -56,22 +66,48 @@ internal fun errorFrom(status: Int, body: String): String {
     }
 }
 
+private fun Response<ResponseBody>.bodyText(): String = body()?.string().orEmpty()
+
+private suspend fun executeApi(
+    token: String?,
+    method: String,
+    path: String,
+    payload: JSONObject? = null
+): NetResult {
+    val url = buildApiUrl(path)
+    val auth = token?.let { "Bearer $it" }
+    val body = payload?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType())
+    val response = when (method.uppercase()) {
+        "GET", "HEAD" -> retrofitService.get(url, auth)
+        "POST" -> retrofitService.post(
+            url, auth, body ?: ByteArray(0).toRequestBody(null)
+        )
+        "PUT" -> retrofitService.put(
+            url, auth ?: return NetResult(error = "Требуется авторизация."),
+            body ?: ByteArray(0).toRequestBody(null)
+        )
+        "PATCH" -> retrofitService.patch(
+            url, auth ?: return NetResult(error = "Требуется авторизация."),
+            body ?: ByteArray(0).toRequestBody(null)
+        )
+        "DELETE" -> retrofitService.delete(
+            url, auth ?: return NetResult(error = "Требуется авторизация."), body
+        )
+        else -> return NetResult(error = "Неподдерживаемый HTTP-метод: $method.")
+    }
+    val text = if (response.isSuccessful) response.bodyText() else response.errorBody()?.string().orEmpty()
+    return if (response.isSuccessful) NetResult(responseJson(text))
+    else NetResult(error = errorFrom(response.code(), text))
+}
+
 internal suspend fun redeemLoginCode(code: String): ApiResult = withContext(Dispatchers.IO) {
     try {
-        val payload = JSONObject().put("code", code.trim()).toString()
-            .toRequestBody("application/json; charset=utf-8".toMediaType())
-        val request = Request.Builder()
-            .url(buildApiUrl("/api/android/auth/redeem"))
-            .header("Accept", "application/json")
-            .post(payload)
-            .build()
-        httpClient.newCall(request).execute().use { response ->
-            val body = response.body?.string().orEmpty()
-            if (!response.isSuccessful) return@withContext ApiResult(error = errorFrom(response.code, body))
-            val token = responseJson(body)?.optString("session_token")?.takeIf { it.isNotBlank() && it != "null" }
-            if (token == null) ApiResult(error = "Сервер не вернул токен сессии.")
-            else ApiResult(token = token)
-        }
+        val payload = JSONObject().put("code", code.trim())
+        val result = executeApi(null, "POST", "/api/android/auth/redeem", payload)
+        val token = result.data?.optString("session_token")
+            ?.takeIf { it.isNotBlank() && it != "null" }
+        if (token == null) ApiResult(error = result.error ?: "Сервер не вернул токен сессии.")
+        else ApiResult(token = token)
     } catch (e: Exception) {
         ApiResult(error = exceptionMessage(e))
     }
@@ -79,13 +115,7 @@ internal suspend fun redeemLoginCode(code: String): ApiResult = withContext(Disp
 
 internal suspend fun revokeSession(token: String): Boolean = withContext(Dispatchers.IO) {
     try {
-        val request = Request.Builder()
-            .url(buildApiUrl("/api/android/auth/logout"))
-            .header("Authorization", "Bearer $token")
-            .header("Accept", "application/json")
-            .post(ByteArray(0).toRequestBody(null))
-            .build()
-        httpClient.newCall(request).execute().use { it.isSuccessful }
+        executeApi(token, "POST", "/api/android/auth/logout") .error == null
     } catch (_: Exception) {
         false
     }
@@ -98,25 +128,7 @@ internal suspend fun apiCall(
     payload: JSONObject? = null
 ): NetResult = withContext(Dispatchers.IO) {
     try {
-        val body = payload?.toString()?.toRequestBody("application/json; charset=utf-8".toMediaType())
-        val verb = method.uppercase()
-        val requestBody = when (verb) {
-            "GET", "HEAD" -> null
-            "POST", "PUT", "PATCH" -> body ?: ByteArray(0).toRequestBody(null)
-            "DELETE" -> body
-            else -> return@withContext NetResult(error = "Неподдерживаемый HTTP-метод: $verb.")
-        }
-        val request = Request.Builder()
-            .url(buildApiUrl(path))
-            .header("Authorization", "Bearer $token")
-            .header("Accept", "application/json")
-            .apply { method(verb, requestBody) }
-            .build()
-        httpClient.newCall(request).execute().use { response ->
-            val responseBody = response.body?.string().orEmpty()
-            if (response.isSuccessful) NetResult(responseJson(responseBody), null)
-            else NetResult(error = errorFrom(response.code, responseBody))
-        }
+        executeApi(token, method, path, payload)
     } catch (e: Exception) {
         NetResult(error = exceptionMessage(e))
     }
@@ -147,25 +159,18 @@ internal suspend fun apiUpload(
         } ?: return@withContext NetResult(error = "Не удалось прочитать выбранный файл.")
 
         val mime = context.contentResolver.getType(uri) ?: "application/octet-stream"
-        val multipart = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart("body", body)
-            .addFormDataPart(
-                "file", "upload",
-                bytes.toRequestBody(mime.toMediaType())
-            )
-            .build()
-        val request = Request.Builder()
-            .url(buildApiUrl(path))
-            .header("Authorization", "Bearer $token")
-            .header("Accept", "application/json")
-            .post(multipart)
-            .build()
-        httpClient.newCall(request).execute().use { response ->
-            val responseBody = response.body?.string().orEmpty()
-            if (response.isSuccessful) NetResult(responseJson(responseBody))
-            else NetResult(error = errorFrom(response.code, responseBody))
-        }
+        val part = MultipartBody.Part.createFormData(
+            "file", "upload", bytes.toRequestBody(mime.toMediaType())
+        )
+        val response = retrofitService.upload(
+            buildApiUrl(path),
+            "Bearer $token",
+            body.toRequestBody("text/plain; charset=utf-8".toMediaType()),
+            part
+        )
+        val text = if (response.isSuccessful) response.bodyText() else response.errorBody()?.string().orEmpty()
+        if (response.isSuccessful) NetResult(responseJson(text))
+        else NetResult(error = errorFrom(response.code(), text))
     } catch (e: Exception) {
         NetResult(error = exceptionMessage(e))
     }
