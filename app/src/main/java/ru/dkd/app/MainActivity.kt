@@ -158,7 +158,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                     Modifier.fillMaxWidth()
                         .background(Brush.verticalGradient(listOf(Panel, Navy)))
                         .navigationBarsPadding()
-                        .padding(start = 10.dp, end = 10.dp, top = 9.dp, bottom = 7.dp),
+                        .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -184,12 +184,12 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                                         restoreState = true
                                     }
                                 }
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 10.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(icon, color = if (active) Pink else Muted, fontSize = 20.sp)
-                            Text(label, color = if (active) White else Muted, fontSize = 9.sp, maxLines = 1)
+                            Text(icon, color = if (active) Pink else Muted, fontSize = 25.sp)
+                            Text(label, color = if (active) White else Muted, fontSize = 10.sp, maxLines = 1)
                         }
                     }
                 }
@@ -202,19 +202,19 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
             ) {
                 Row(
                     Modifier.fillMaxWidth().background(Panel.copy(alpha = .94f))
-                        .padding(horizontal = 17.dp, vertical = 11.dp),
+                        .padding(horizontal = 20.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
-                        Modifier.size(39.dp).background(
+                        Modifier.size(44.dp).background(
                             Brush.linearGradient(listOf(Blue, Purple)),
                             RoundedCornerShape(13.dp)
                         ),
                         contentAlignment = Alignment.Center
-                    ) { Text("Д", color = White, fontSize = 21.sp, fontWeight = FontWeight.Black) }
+                    ) { Text("Д", color = White, fontSize = 24.sp, fontWeight = FontWeight.Black) }
                     Spacer(Modifier.width(10.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        Text("ДКД", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("ДКД", color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                         Text("NEXORA GROUP", color = Muted, fontSize = 8.sp, letterSpacing = 2.sp)
                     }
                     Box {
