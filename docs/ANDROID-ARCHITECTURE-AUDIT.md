@@ -222,12 +222,12 @@ Work completed on `android-dkd-portal-redesign` after the audit:
 
 ### Remaining Stage 2 work / explicit limitations
 
-- Most government/service composables still reside in `MainActivity.kt`; the next refactor must split them into feature files and move screen state/network calls into ViewModels and repositories.
+- The app shell is now approximately 9.4 KB / 206 lines. Home/government screens, notifications, pairing login, palette, JSON helpers, network, and session storage live in separate packages/files.
 - API transport is extracted, but still uses `HttpURLConnection` and `JSONObject`; typed DTOs and Retrofit/OkHttp remain future work.
-- Navigation is still the existing tab/detail state implementation; Navigation Compose has not yet been introduced.
+- Navigation is still the existing tab/detail state implementation; Navigation Compose and feature ViewModels/StateFlow have not yet been introduced.
 - No Room cache or offline synchronization has been added.
 - The Gradle wrapper is still absent; CI continues to use pinned Gradle 8.9 via setup-gradle.
 - The current Home/State/service screens still contain demonstration placeholders. This stage did not claim to make government services functional or redesign the visual system.
 - No production API, Render service, Mini App, or database was changed.
 
-The CI run triggered by these commits is the build verification gate. A successful APK build alone does not prove runtime behavior; install/device and two-account auth tests are still required.
+The workflow now runs `testDebugUnitTest assembleDebug`. A small API URL construction unit test was added. The final refactor commit triggered a GitHub Actions build at the time this log was updated; its result must be checked before calling the stage build-verified. A successful APK build alone does not prove runtime behavior; install/device and two-account auth tests are still required.
