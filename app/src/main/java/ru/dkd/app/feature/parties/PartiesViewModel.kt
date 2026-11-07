@@ -65,7 +65,7 @@ internal class PartiesViewModel : ViewModel() {
                     isCitizen = refreshed.isCitizen,
                     myPartyId = refreshed.myPartyId,
                     error = refreshed.error,
-                    message = "Политическая партия создана."
+                    message = "Заявка на создание партии отправлена Президенту на рассмотрение."
                 )
             }
         }
@@ -117,6 +117,10 @@ internal class PartiesViewModel : ViewModel() {
 
     fun leave(token: String) {
         mutate(token, "/api/parties/leave", "POST", "Вы вышли из партии.")
+    }
+
+    fun disband(token: String, partyId: Int) {
+        mutate(token, "/api/parties/$partyId", "DELETE", "Партия распущена.")
     }
 
     private fun mutate(token: String, path: String, method: String, success: String) {
