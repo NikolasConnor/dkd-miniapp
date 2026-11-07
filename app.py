@@ -164,7 +164,25 @@ def health():
 
 @app.get("/api/config")
 def config():
-    return {"app": "ДКД Mini App", "api_version": core.APP_VERSION}
+    # Public Android release metadata. Clients compare version_code on launch/resume.
+    try:
+        version_code = max(1, int(os.getenv("ANDROID_VERSION_CODE", "8")))
+    except ValueError:
+        version_code = 8
+    return {
+        "app": "ДКД",
+        "api_version": core.APP_VERSION,
+        "android_version_code": version_code,
+        "android_version_name": os.getenv("ANDROID_VERSION_NAME", "0.8.0"),
+        "android_release_url": os.getenv(
+            "ANDROID_RELEASE_URL",
+            "https://github.com/NikolasConnor/dkd-miniapp/releases/latest"
+        ),
+        "android_update_message": os.getenv(
+            "ANDROID_UPDATE_MESSAGE",
+            "Доступна новая версия приложения ДКД. Установите её поверх текущей версии."
+        ),
+    }
 
 
 # ----------------------------------------------------------------------------
