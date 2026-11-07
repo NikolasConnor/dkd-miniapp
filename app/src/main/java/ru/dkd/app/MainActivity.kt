@@ -40,6 +40,7 @@ import ru.dkd.app.feature.notifications.NotificationsScreen
 import ru.dkd.app.feature.news.NewsScreen
 import ru.dkd.app.feature.parties.PartiesScreen
 import ru.dkd.app.feature.profile.ProfileScreen
+import ru.dkd.app.feature.president.PresidentScreen
 import ru.dkd.app.feature.shell.DkdViewModel
 
 class MainActivity : ComponentActivity() {
@@ -247,10 +248,18 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                                     "Документы" -> navController.navigate("documents")
                                     "Выборы" -> navController.navigate("elections")
                                     "Государство" -> navController.navigate("government")
+                                    "Президентская администрация" -> navController.navigate("president")
                                     else -> navController.navigate("detail/${Uri.encode(it)}")
                                 }
                             },
                             onState = { navController.navigate("government") }
+                        )
+                    }
+                    composable("president") {
+                        PresidentScreen(
+                            token = token,
+                            onBack = { navController.popBackStack() },
+                            onError = { appViewModel.setError(it) }
                         )
                     }
                     composable("government") {
