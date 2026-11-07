@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -259,7 +260,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
             } else if (state.decrees.isEmpty()) {
                 item { PresidentNotice("Опубликованных указов пока нет", "После публикации указ появится здесь, и Президент сможет контролировать его исполнение.") }
             } else {
-                items(state.decrees, key = { "decree-${it.optInt("id")}" }) { decree ->
+                itemsIndexed(state.decrees, key = { index, _ -> "decree-$index" }) { _, decree ->
                     val decreeId = decree.optInt("id")
                     val executionStatus = decree.string("execution_status", "issued")
                     Surface(color = CardColor, shape = RoundedCornerShape(16.dp),
@@ -362,7 +363,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
             } else if (appointed.isEmpty()) {
                 item { PresidentNotice("Должности пока не назначены", "Президент может назначить Премьер-министра и Министра иностранных дел.") }
             } else {
-                items(appointed, key = { "appointment-${it.optInt("id")}" }) { subject ->
+                itemsIndexed(appointed, key = { index, _ -> "appointment-$index" }) { _, subject ->
                     val roleNames = subject.array("roles").map { it.string("name") }
                         .filter { it == "Премьер-министр" || it == "Министр иностранных дел" }
                     Surface(color = CardColor, shape = RoundedCornerShape(14.dp),
@@ -389,7 +390,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
             } else if (state.applications.isEmpty()) {
                 item { PresidentNotice("Новых заявлений нет", "Заявления граждан, ожидающие решения, появятся здесь.") }
             }
-            items(state.applications, key = { "application-${it.optInt("id")}" }) { application ->
+            itemsIndexed(state.applications, key = { index, _ -> "application-$index" }) { _, application ->
                 val applicationId = application.optInt("id")
                 val status = application.string("status")
                 Surface(color = CardColor, shape = RoundedCornerShape(16.dp),
@@ -437,7 +438,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
             } else if (state.activity.isEmpty()) {
                 item { PresidentNotice("История пока пуста", "Назначения, решения по заявлениям, указы, законы и выборы будут фиксироваться здесь.") }
             } else {
-                items(state.activity, key = { "activity-${it.optInt("id")}" }) { event ->
+                itemsIndexed(state.activity, key = { index, _ -> "activity-$index" }) { _, event ->
                     val label = when (event.string("action")) {
                         "role_assigned" -> "Кадровое назначение"
                         "role_removed" -> "Прекращение полномочий"
@@ -467,7 +468,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
             } else if (state.laws.isEmpty()) {
                 item { PresidentNotice("Законопроектов нет", "На сервере нет законопроектов для рассмотрения.") }
             }
-            items(state.laws, key = { it.optInt("id") }) { law ->
+            itemsIndexed(state.laws, key = { index, _ -> "law-$index" }) { _, law ->
                 val id = law.optInt("id")
                 val status = law.string("status")
                 Surface(color = CardColor, shape = RoundedCornerShape(17.dp),
