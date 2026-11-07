@@ -1,0 +1,281 @@
+package ru.dkd.app.feature.documents
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import org.json.JSONObject
+import ru.dkd.app.core.common.array
+import ru.dkd.app.core.common.string
+import ru.dkd.app.core.design.*
+import ru.dkd.app.core.network.apiCall
+
+private data class DocumentItem(
+    val category: String,
+    val title: String,
+    val subtitle: String,
+    val body: String,
+    val date: String,
+    val status: String
+)
+
+@Composable
+internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
+    var loading by remember { mutableStateOf(true) }
+    var hasPassport by remember { mutableStateOf(false) }
+    var passport by remember { mutableStateOf<JSONObject?>(null) }
+    var mandates by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var presidentCertificates by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var decrees by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var laws by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var selected by remember { mutableStateOf<DocumentItem?>(null) }
+    var refresh by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(token, refresh) {
+        loading = true
+        val passportResult = apiCall(token, "GET", "/api/passport")
+        val passportData = passportResult.data
+        hasPassport = passportData?.optBoolean("has_passport", false) ?: false
+        passport = passportData?.optJSONObject("passport")
+
+        val documentsResult = apiCall(token, "GET", "/api/documents")
+        val data = documentsResult.data
+        mandates = data?.array("mandates") ?: emptyList()
+        presidentCertificates = data?.array("president_certificate") ?: emptyList()
+        decrees = data?.array("decrees") ?: emptyList()
+        laws = data?.array("laws") ?: emptyList()
+
+        val error = passportResult.error ?: documentsResult.error
+        if (error != null) onError(error)
+        loading = false
+    }
+
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 17.dp, end = 17.dp, top = 18.dp, bottom = 24.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp)
+    ) {
+        item {
+            Text("ЦИФРОВЫЕ ДОКУМЕНТЫ", color = Pink, fontSize = 9.sp, letterSpacing = 1.6.sp, fontWeight = FontWeight.Bold)
+            Text("Документы", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
+            Text("Ваши удостоверения и официальные акты ДКД", color = Muted, fontSize = 12.sp)
+            Spacer(Modifier.height(5.dp))
+        }
+
+        item {
+            if (loading && passport == null) {
+                Surface(color = Panel, shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Purple)
+                        Spacer(Modifier.width(12.dp))
+                        Text("Загружаем документы…", color = Muted, fontSize = 12.sp)
+                    }
+                }
+            } else if (hasPassport && passport != null) {
+                PassportCard(passport = passport!!)
+            } else {
+                Surface(
+                    color = CardColor, shape = RoundedCornerShape(20.dp),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(20.dp))
+                ) {
+                    Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text("Паспорт гражданина ДКД", color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text(
+                            "Паспорт появляется автоматически после одобрения заявления на гражданство.",
+                            color = Muted, fontSize = 12.sp, lineHeight = 17.sp
+                        )
+                        Text("ПОКА НЕ ВЫДАН", color = Pink, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                    }
+                }
+            }
+        }
+
+        item { SectionHeading("Удостоверения и мандаты", mandates.size + presidentCertificates.size) }
+        if (mandates.isEmpty() && presidentCertificates.isEmpty()) {
+            item { EmptyDocumentNote("Активных удостоверений нет", "Мандат отображается только у действующего депутата. Президентское удостоверение — только у действующего Президента.") }
+        }
+        items(mandates, key = { "mandate-${it.optInt("id")}" }) { doc ->
+            DocumentRow(
+                icon = "▤",
+                title = doc.string("title", "Мандат депутата"),
+                subtitle = "Мандат депутата Государственной Думы",
+                status = "Действителен",
+                onClick = {
+                    selected = DocumentItem("Мандат", doc.string("title"), "Удостоверение депутата Государственной Думы",
+                        doc.string("text"), doc.string("created_at"), "Действителен")
+                }
+            )
+        }
+        items(presidentCertificates, key = { "president-${it.optInt("id")}" }) { doc ->
+            DocumentRow(
+                icon = "♛",
+                title = doc.string("title", "Удостоверение Президента ДКД"),
+                subtitle = "Документ главы государства",
+                status = "Действительно",
+                onClick = {
+                    selected = DocumentItem("Президентское удостоверение", doc.string("title"), "Документ главы государства",
+                        doc.string("text"), doc.string("created_at"), "Действительно")
+                }
+            )
+        }
+
+        item { SectionHeading("Президентские указы", decrees.size) }
+        if (decrees.isEmpty()) item { EmptyDocumentNote("Указов пока нет", "Здесь отображаются опубликованные президентские указы, доступные вашему аккаунту.") }
+        items(decrees, key = { "decree-${it.optInt("id")}" }) { doc ->
+            DocumentRow(
+                icon = "§",
+                title = doc.string("title", "Президентский указ"),
+                subtitle = doc.string("created_at").take(10).ifBlank { "Официальный документ ДКД" },
+                status = "Опубликован",
+                onClick = {
+                    selected = DocumentItem("Указ", doc.string("title"), "Официальный документ Президента",
+                        doc.string("text"), doc.string("created_at"), "Опубликован")
+                }
+            )
+        }
+
+        item { SectionHeading("Законы, подписанные Президентом", laws.size) }
+        if (laws.isEmpty()) item { EmptyDocumentNote("Подписанных законов пока нет", "В этот список попадают только законы со статусом «подписан».") }
+        items(laws, key = { "law-${it.optInt("id")}" }) { doc ->
+            DocumentRow(
+                icon = "⚖",
+                title = doc.string("title", "Закон ДКД"),
+                subtitle = doc.string("description", "Законодательный акт").take(90),
+                status = "Подписан",
+                onClick = {
+                    selected = DocumentItem("Закон", doc.string("title"), "Законодательный акт",
+                        doc.string("description"), doc.string("created_at"), "Подписан Президентом")
+                }
+            )
+        }
+
+        item {
+            Spacer(Modifier.height(7.dp))
+            TextButton(onClick = { refresh++ }, modifier = Modifier.fillMaxWidth()) {
+                Text("↻  Обновить документы", color = Purple)
+            }
+        }
+    }
+
+    selected?.let { document ->
+        AlertDialog(
+            onDismissRequest = { selected = null },
+            containerColor = Panel,
+            title = {
+                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(document.category.uppercase(), color = Pink, fontSize = 9.sp, letterSpacing = 1.4.sp)
+                    Text(document.title, color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(document.status, color = Good, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    if (document.date.isNotBlank()) Text("Дата: ${document.date.take(10)}", color = Muted, fontSize = 11.sp)
+                    Text(document.body.ifBlank { document.subtitle }, color = White, fontSize = 13.sp, lineHeight = 19.sp)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { selected = null }) { Text("Закрыть", color = Purple) }
+            }
+        )
+    }
+}
+
+@Composable
+private fun PassportCard(passport: JSONObject) {
+    Box(
+        Modifier.fillMaxWidth().border(1.dp, Color(0xFF7770B8), RoundedCornerShape(22.dp))
+            .background(
+                Brush.linearGradient(listOf(Color(0xFF3D2854), Color(0xFF24254D), Color(0xFF1A2446))),
+                RoundedCornerShape(22.dp)
+            ).padding(17.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("ДКД  /  DIGITAL ID", color = Pink, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+                    Text("ПАСПОРТ ГРАЖДАНИНА", color = White, fontSize = 13.sp, fontWeight = FontWeight.Bold, letterSpacing = .7.sp)
+                }
+                Text("🏛️", fontSize = 27.sp)
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = .16f))
+            Text(passport.string("full_name", "Гражданин ДКД"), color = White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("ФАМИЛИЯ, ИМЯ, ОТЧЕСТВО", color = Color(0xFFC5C7FF), fontSize = 8.sp, letterSpacing = 1.sp)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("НОМЕР ДОКУМЕНТА", color = Muted, fontSize = 8.sp, letterSpacing = .8.sp)
+                    Text(passport.string("number"), color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                }
+                Text("ДЕЙСТВИТЕЛЕН", color = Good, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = .6.sp)
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = .16f))
+            Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                PassportMeta("ВЫДАН", passport.string("issued_at"))
+                PassportMeta("КОД ПОДРАЗДЕЛЕНИЯ", passport.string("division_code"))
+            }
+            Text(passport.string("issued_by", "Служба гражданства ДКД"), color = Color(0xFFC5C7FF), fontSize = 9.sp)
+        }
+    }
+}
+
+@Composable
+private fun PassportMeta(label: String, value: String) {
+    Column(Modifier.widthIn(max = 170.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(label, color = Muted, fontSize = 8.sp, letterSpacing = .6.sp)
+        Text(value.ifBlank { "—" }, color = White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun SectionHeading(title: String, count: Int) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Surface(color = Color(0x338B7CFF), shape = RoundedCornerShape(20.dp)) {
+            Text(count.toString(), color = Pink, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
+        }
+    }
+}
+
+@Composable
+private fun DocumentRow(icon: String, title: String, subtitle: String, status: String, onClick: () -> Unit) {
+    Surface(
+        color = CardColor, shape = RoundedCornerShape(17.dp),
+        modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(17.dp)).clickable(onClick = onClick)
+    ) {
+        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(43.dp).background(Color(0x338B7CFF), RoundedCornerShape(13.dp)),
+                contentAlignment = Alignment.Center
+            ) { Text(icon, color = Pink, fontSize = 21.sp) }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
+                Text(subtitle, color = Muted, fontSize = 10.sp, maxLines = 2)
+                Text(status, color = Good, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+            }
+            Text("›", color = Purple, fontSize = 24.sp)
+        }
+    }
+}
+
+@Composable
+private fun EmptyDocumentNote(title: String, description: String) {
+    Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(title, color = White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(description, color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+        }
+    }
+}
