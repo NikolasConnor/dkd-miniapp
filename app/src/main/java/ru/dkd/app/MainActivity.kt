@@ -33,6 +33,7 @@ import ru.dkd.app.core.security.SessionStore
 import ru.dkd.app.feature.auth.LoginScreen
 import ru.dkd.app.feature.applications.ApplicationsScreen
 import ru.dkd.app.feature.documents.DocumentsScreen
+import ru.dkd.app.feature.duma.DumaScreen
 import ru.dkd.app.feature.elections.ElectionsScreen
 import ru.dkd.app.feature.government.StateScreen
 import ru.dkd.app.feature.home.HomeScreen
@@ -251,10 +252,18 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                                     "Государство" -> navController.navigate("government")
                                     "Президентская администрация" -> navController.navigate("president")
                                     "Заявления" -> navController.navigate("applications")
+                                    "Государственная Дума" -> navController.navigate("duma")
                                     else -> navController.navigate("detail/${Uri.encode(it)}")
                                 }
                             },
                             onState = { navController.navigate("government") }
+                        )
+                    }
+                    composable("duma") {
+                        DumaScreen(
+                            token = token,
+                            onBack = { navController.popBackStack() },
+                            onError = { appViewModel.setError(it) }
                         )
                     }
                     composable("applications") {
