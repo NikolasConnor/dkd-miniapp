@@ -31,6 +31,7 @@ import ru.dkd.app.core.network.revokeSession
 import ru.dkd.app.core.security.ProfileCache
 import ru.dkd.app.core.security.SessionStore
 import ru.dkd.app.feature.auth.LoginScreen
+import ru.dkd.app.feature.documents.DocumentsScreen
 import ru.dkd.app.feature.home.StubGovernmentScreen
 import ru.dkd.app.feature.home.StubHomeScreen
 import ru.dkd.app.feature.home.StubProfileScreen
@@ -244,10 +245,9 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         StubGovernmentScreen(onOpen = { navController.navigate("detail/\${Uri.encode(it)}") })
                     }
                     composable("documents") {
-                        StubServiceScreen(
-                            "Документы",
-                            onBack = { navController.popBackStack() },
-                            onInfo = { appViewModel.setError(it) }
+                        DocumentsScreen(
+                            token = token,
+                            onError = { appViewModel.setError(it) }
                         )
                     }
                     composable("elections") {
