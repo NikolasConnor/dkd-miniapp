@@ -38,6 +38,8 @@ private data class PresidentUiState(
     val applicationsLoaded: Boolean = false,
     val subjects: List<JSONObject> = emptyList(),
     val subjectsLoaded: Boolean = false,
+    val dumaElections: List<JSONObject> = emptyList(),
+    val dumaElectionsLoaded: Boolean = false,
     val assignableRoles: List<JSONObject> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
@@ -72,6 +74,7 @@ private class PresidentViewModel : ViewModel() {
         val lawsResult = apiCall(token, "GET", "/api/president/laws")
         val applicationsResult = apiCall(token, "GET", "/api/president/applications")
         val subjectsResult = apiCall(token, "GET", "/api/president/subjects")
+        val electionsResult = apiCall(token, "GET", "/api/votes")
         val allowedRoleNames = setOf("Премьер-министр", "Министр иностранных дел")
         mutable.value = PresidentUiState(
             loading = false, authorized = true,
@@ -83,9 +86,11 @@ private class PresidentViewModel : ViewModel() {
             applicationsLoaded = applicationsResult.error == null && applicationsResult.data?.has("applications") == true,
             subjects = subjectsResult.data?.array("subjects") ?: emptyList(),
             subjectsLoaded = subjectsResult.error == null && subjectsResult.data?.has("subjects") == true,
+            dumaElections = electionsResult.data?.array("duma") ?: emptyList(),
+            dumaElectionsLoaded = electionsResult.error == null && electionsResult.data?.has("duma") == true,
             assignableRoles = (subjectsResult.data?.array("roles") ?: emptyList())
                 .filter { it.string("name") in allowedRoleNames },
-            error = lawsResult.error ?: applicationsResult.error ?: subjectsResult.error,
+            error = lawsResult.error ?: applicationsResult.error ?: subjectsResult.error ?: electionsResult.error,
             message = successMessage
         )
     }
@@ -142,6 +147,11 @@ private class PresidentViewModel : ViewModel() {
             "Выборы в Государственную Думу назначены.")
     }
 
+    fun closeElection(token: String, electionId: Int) {
+        submit(token, "POST", "/api/president/elections/duma/$electionId/close", JSONObject(),
+            "Голосование завершено. Сервер зафиксировал итоги и обработал формирование созыва.")
+    }
+
     fun clearNotices() {
         mutable.value = mutable.value.copy(error = null, message = null)
     }
@@ -155,6 +165,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
     var decreeDialog by remember { mutableStateOf(false) }
     var electionDialog by remember { mutableStateOf(false) }
     var dissolveDialog by remember { mutableStateOf(false) }
+    var electionToClose by remember { mutableStateOf<JSONObject?>(null) }
     var lawToDecide by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var applicationToReview by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var appointmentDialog by remember { mutableStateOf(false) }
@@ -198,6 +209,37 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PresidentAction("Опубликовать указ", "Новый президентский акт", Modifier.weight(1f), !state.busy) { decreeDialog = true }
                     PresidentAction("Назначить выборы", "Новая кампания в Думе", Modifier.weight(1f), !state.busy) { electionDialog = true }
+                }
+            }
+            item { Text("ВЫБОРЫ В ГОСУДАРСТВЕННУЮ ДУМУ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
+            if (!state.dumaElectionsLoaded) {
+                item { PresidentNotice("Сведения о выборах недоступны", "Не удалось проверить состояние думской кампании. Управление завершением временно отключено.") }
+            } else if (state.dumaElections.isEmpty()) {
+                item { PresidentNotice("Кампаний пока нет", "Президент может назначить новые выборы в Государственную Думу.") }
+            } else {
+                items(state.dumaElections) { election ->
+                    val electionStatus = election.string("status")
+                    Surface(color = CardColor, shape = RoundedCornerShape(15.dp),
+                        modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(15.dp))) {
+                        Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(election.string("title", "Выборы в Госдуму"), color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text("Статус: " + when (electionStatus) {
+                                "active" -> "Голосование идёт"
+                                "scheduled" -> "Ожидают начала"
+                                "closed" -> "Завершены"
+                                else -> electionStatus
+                            }, color = if (electionStatus == "active") Good else Muted, fontSize = 10.sp)
+                            Text("Учтено голосов: " + election.optInt("votes_total", 0), color = Muted, fontSize = 10.sp)
+                            if (electionStatus == "active") {
+                                OutlinedButton(
+                                    onClick = { electionToClose = election },
+                                    enabled = !state.busy,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Bad)
+                                ) { Text("Завершить голосование") }
+                            }
+                        }
+                    }
                 }
             }
             item {
@@ -358,6 +400,25 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                     onClick = { vm.scheduleElection(token, title, starts, ends); electionDialog = false }) { Text("Назначить", color = Purple) }
             },
             dismissButton = { TextButton(onClick = { electionDialog = false }) { Text("Отмена", color = Muted) } }
+        )
+    }
+
+    electionToClose?.let { election ->
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) electionToClose = null },
+            containerColor = Panel,
+            title = { Text("Завершить думские выборы?", color = White) },
+            text = { Text(
+                "Кампания «" + election.string("title", "Выборы в Госдуму") + "» будет закрыта. Сервер зафиксирует голоса и попытается сформировать новый состав Думы. Это действие нельзя отменить.",
+                color = Muted, fontSize = 12.sp
+            ) },
+            confirmButton = {
+                TextButton(enabled = !state.busy, onClick = {
+                    vm.closeElection(token, election.optInt("id"))
+                    electionToClose = null
+                }) { Text("Завершить выборы", color = Bad) }
+            },
+            dismissButton = { TextButton(onClick = { electionToClose = null }) { Text("Отмена", color = Muted) } }
         )
     }
 
