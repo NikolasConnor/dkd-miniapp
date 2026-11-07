@@ -1,5 +1,8 @@
 package ru.dkd.app
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.annotation.SuppressLint
 import android.content.Context
 import android.webkit.CookieManager
@@ -24,6 +27,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,6 +45,9 @@ private val Green = Color(0xFF9BE2B5)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1001)
+        }
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(
                 primary = Blue, background = Navy, surface = Panel, onSurface = White
@@ -51,6 +58,7 @@ class MainActivity : ComponentActivity() {
                         onLogin = { code -> redeemCode(code) },
                         onLoggedIn = { newToken ->
                             getPreferences(Context.MODE_PRIVATE).edit().putString("session_token", newToken).apply()
+                            getSharedPreferences("dkd_session", Context.MODE_PRIVATE).edit().putString("session_token", newToken).apply()
                             token = newToken
                         }
                     )
@@ -60,6 +68,7 @@ class MainActivity : ComponentActivity() {
                         onLogout = {
                             revokeSession(token!!)
                             getPreferences(Context.MODE_PRIVATE).edit().remove("session_token").apply()
+                            getSharedPreferences("dkd_session", Context.MODE_PRIVATE).edit().remove("session_token").apply()
                             CookieManager.getInstance().removeAllCookies(null)
                             CookieManager.getInstance().flush()
                             token = null
@@ -173,6 +182,10 @@ private class AndroidBridge(private val activeSession: Boolean) {
 private fun ConnectedApp(token: String, onLogout: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val baseUrl = BuildConfig.DKD_API_BASE_URL.trimEnd('/')
+    LaunchedEffect(token) {
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { fcmToken -> PushTokenRegistrar.register(context, token, fcmToken) }
+    }
     Column(Modifier.fillMaxSize().background(Navy)) {
         Row(
             Modifier.fillMaxWidth().background(Panel).padding(horizontal = 14.dp, vertical = 8.dp),
