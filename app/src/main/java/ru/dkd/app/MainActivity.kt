@@ -40,6 +40,7 @@ import ru.dkd.app.feature.home.StubServiceScreen
 import ru.dkd.app.feature.notifications.NotificationsScreen
 import ru.dkd.app.feature.news.NewsScreen
 import ru.dkd.app.feature.parties.PartiesScreen
+import ru.dkd.app.feature.profile.ProfileScreen
 import ru.dkd.app.feature.shell.DkdViewModel
 
 class MainActivity : ComponentActivity() {
@@ -263,11 +264,10 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         )
                     }
                     composable("profile") {
-                        StubProfileScreen(
-                            name = uiState.name,
-                            role = uiState.role,
+                        ProfileScreen(
+                            token = token,
                             onLogout = onLogout,
-                            onOpen = { navController.navigate("detail/${Uri.encode(it)}") }
+                            onError = { appViewModel.setError(it) }
                         )
                     }
                     composable("news") {
