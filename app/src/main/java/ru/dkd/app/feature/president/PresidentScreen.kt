@@ -208,7 +208,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(if (state.isAdmin) "СЛУЖЕБНЫЙ ДОСТУП АДМИНИСТРАТОРА" else "ПРЕЗИДЕНТ ДКД", color = Pink, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         Text(state.term?.string("message").orEmpty().ifBlank { "Полномочия подтверждены сервером" }, color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        val expiry = state.term?.string("term_end").orEmpty()
+                        val expiry = state.term?.string("end_at").orEmpty()
                         if (expiry.isNotBlank()) Text("Окончание срока: ${expiry.take(10)}", color = Muted, fontSize = 10.sp)
                     }
                 }
