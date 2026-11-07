@@ -12,8 +12,8 @@ android {
         applicationId = "ru.dkd.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
         buildConfigField("String", "DKD_API_BASE_URL", "\"https://dkd-miniapp-1.onrender.com\"")
     }
 
