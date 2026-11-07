@@ -38,6 +38,7 @@ import ru.dkd.app.feature.home.StubHomeScreen
 import ru.dkd.app.feature.home.StubProfileScreen
 import ru.dkd.app.feature.home.StubServiceScreen
 import ru.dkd.app.feature.notifications.NotificationsScreen
+import ru.dkd.app.feature.news.NewsScreen
 import ru.dkd.app.feature.shell.DkdViewModel
 
 class MainActivity : ComponentActivity() {
@@ -263,6 +264,12 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                             role = uiState.role,
                             onLogout = onLogout,
                             onOpen = { navController.navigate("detail/\${Uri.encode(it)}") }
+                        )
+                    }
+                    composable("news") {
+                        NewsScreen(
+                            token = token,
+                            onError = { appViewModel.setError(it) }
                         )
                     }
                     composable("notifications") {
