@@ -335,3 +335,10 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - The party chair can open a dedicated native candidate-list editor. It reads `GET /api/elections/duma/party-template` and saves selected member Telegram IDs with `PUT /api/elections/duma/party-template`. The backend verifies party leadership and membership, and synchronizes only unfinished Duma campaigns. This lets the chair prepare the list before an election is opened.
 - The State screen now renders a proportional seat-composition bar and party legend from `GET /api/parliament-roster`. It uses each party's current server-provided color, so changing a party color updates the parliament composition display on the next refresh.
 - These additions are source/API-contract reviewed; they are not considered build-verified or device-tested until the latest CI and physical-device checks complete.
+
+
+### Stage 3 implementation log — candidate ordering and President application review
+
+- The party candidate-list editor preserves the order in which candidates are selected and includes up/down controls to explicitly change their order before saving. The backend persists that order in the party template and propagates it to open campaigns.
+- The President administration now loads citizen applications from `GET /api/president/applications` and supports approve/reject decisions through `PATCH /api/president/applications/{application_id}`. Each decision requires confirmation; citizenship approval triggers passport issuance on the backend and the applicant receives a server notification.
+- This feature set remains pending the current Android build and real-account verification.
