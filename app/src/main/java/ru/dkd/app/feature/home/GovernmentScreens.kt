@@ -35,7 +35,8 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
         Triple("Выборы", "Голосования и официальные итоги", "☑"),
         Triple("Документы", "Паспорт и действующие удостоверения", "▤"),
         Triple("Государство", "Парламент и органы власти", "⌘"),
-        Triple("Партии", "Политические объединения ДКД", "♟")
+        Triple("Партии", "Политические объединения ДКД", "♟"),
+        Triple("Президентская администрация", "Указы, законы и полномочия Президента", "♛")
     )
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 17.dp)) {
         Spacer(Modifier.height(18.dp))
