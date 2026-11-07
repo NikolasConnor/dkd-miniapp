@@ -28,7 +28,7 @@ import ru.dkd.app.core.common.string
 import ru.dkd.app.core.design.*
 import ru.dkd.app.core.network.apiCall
 
-private data class PresidentUiState(
+internal data class PresidentUiState(
     val loading: Boolean = true,
     val authorized: Boolean = false,
     val isAdmin: Boolean = false,
