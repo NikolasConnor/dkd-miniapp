@@ -362,3 +362,15 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - These backend changes are confined to the Android working branch. Production `main`, Render, and Supabase are unchanged.
 - The Android app still points to the production Render URL, so Duma vote submission remains intentionally disabled in Android until this backend rule is explicitly reviewed, merged, deployed, and verified in production.
 - Last known successful Android artifact was built from commit `7f617b4d48c32fc67ce20d0d5be303fafbe56361`; it predates this backend-only eligibility hardening. Rebuild after Android source changes.
+
+
+## Follow-up implementation — Retrofit and offline public-state cache
+
+- Migrated the central HTTP transport from `HttpURLConnection` to Retrofit 2.11 + OkHttp 4.12. Existing feature endpoints remain JSON-compatible while DTO contracts are verified; the Android pairing-code redeem request/response now has typed DTOs.
+- Kept automatic connection retries disabled. Non-idempotent operations must not be replayed automatically after an ambiguous network failure.
+- Added MockWebServer coverage for Bearer authorization, HTTP error propagation, request body delivery, and single-attempt POST behavior.
+- Added Room 2.6.1 with a public-state snapshot table. The State repository stores only the parliament roster and public party list. It does not cache passports, mandates, profile data, or private application/court materials in this database.
+- The State screen can show the last cached public snapshot after a network failure and clearly labels it as an offline copy with its save timestamp. Cached state is read-only; all legally significant mutations remain server-confirmed.
+- Added Room DAO persistence tests.
+- Remaining: typed DTOs for all feature endpoints, safe cache strategy for other public screens, migration/schema policy, WorkManager only for safe refreshes, UI/device tests, release signing and distribution.
+- The app still uses production Render as its read/API base URL. No production backend, Render, Supabase, database, or RLS changes were made.
