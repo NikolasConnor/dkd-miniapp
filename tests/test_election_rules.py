@@ -1,6 +1,6 @@
 import unittest
 
-from election_rules import is_party_leader
+from election_rules import is_party_leader, president_can_close_duma_election
 
 
 class PartyLeaderEligibilityTests(unittest.TestCase):
@@ -42,6 +42,14 @@ class PartyLeaderEligibilityTests(unittest.TestCase):
 
     def test_missing_membership_does_not_block_voting(self):
         self.assertFalse(is_party_leader(None, None, 42))
+
+
+class PresidentDumaElectionControlTests(unittest.TestCase):
+    def test_president_can_close_only_active_election(self):
+        self.assertTrue(president_can_close_duma_election("active"))
+        self.assertFalse(president_can_close_duma_election("scheduled"))
+        self.assertFalse(president_can_close_duma_election("closed"))
+        self.assertFalse(president_can_close_duma_election("unknown"))
 
 
 if __name__ == "__main__":
