@@ -4,6 +4,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -135,7 +136,7 @@ internal fun DumaScreen(token: String, onBack: () -> Unit, onError: (String) -> 
             item { Text("ЗАСЕДАНИЯ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
             if (!state.sessionsLoaded) item { DumaNotice("Список заседаний недоступен", "Не удалось загрузить заседания с сервера.") }
             else if (state.sessions.isEmpty()) item { DumaNotice("Заседаний пока нет", "Депутат может открыть заседание, после чего внести законопроект на рассмотрение.") }
-            items(state.sessions, key = { "session-${it.optInt("id")}" }) { session ->
+            itemsIndexed(state.sessions, key = { index, _ -> "session-$index" }) { _, session ->
                 val sessionId = session.optInt("id")
                 val closed = session.bool("closed")
                 val sessionLaws = session.array("laws")
@@ -171,7 +172,7 @@ internal fun DumaScreen(token: String, onBack: () -> Unit, onError: (String) -> 
             item { Text("ВСЕ ЗАКОНОПРОЕКТЫ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
             if (!state.lawsLoaded) item { DumaNotice("Список законопроектов недоступен", "Не удалось загрузить законопроекты с сервера.") }
             else if (state.laws.isEmpty()) item { DumaNotice("Законопроектов нет", "Новые законопроекты появятся после внесения на открытом заседании.") }
-            items(state.laws, key = { "law-${it.optInt("id")}" }) { law ->
+            itemsIndexed(state.laws, key = { index, _ -> "law-$index" }) { _, law ->
                 DumaLawCard(law, state.busy) { vote -> confirmVote = law.optInt("id") to vote }
             }
             item { TextButton(onClick = { refresh++ }, modifier = Modifier.fillMaxWidth()) { Text("↻  Обновить парламент", color = Purple) } }
