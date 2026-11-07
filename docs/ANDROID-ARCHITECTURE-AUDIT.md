@@ -303,3 +303,16 @@ The screen is linked from the Home government services. These operations have no
 - Added the President administration and citizen applications / Duma entries to the native Home services grid.
 
 These new write flows have not yet been exercised using real citizen, deputy, and President accounts on a physical Android device. CI build verification is pending for the latest feature head. No production backend, database, or Mini App files were modified.
+
+
+### Stage 3 implementation log — citizen profile and party actions
+
+Additional native write flows now use the production-confirmed API contracts:
+
+- Profile identity editor updates the citizen's full name with `PATCH /api/profile` and avatar with `PATCH /api/profile/avatar`. The avatar selector uses emojis from the backend allowlist. The UI refreshes authoritative profile data after a successful update and reports partial failure if the name was saved but the avatar update failed.
+- News-notification preference is now editable in the native profile using `PATCH /api/profile/news-preferences`; the toggle changes only after the server confirms success.
+- Citizens can create a party with `POST /api/parties`, join an existing party with `POST /api/parties/{party_id}/join`, and leave with `POST /api/parties/leave`. Leaving requires an explicit confirmation because the backend transfers leadership to another member or dissolves a party when the departing leader is the last member.
+- All party membership and profile mutations remain server-authoritative. The Android UI does not grant privileges locally.
+- Android app version is now `0.7.0` / versionCode `7`.
+
+These flows have passed source-level API contract inspection but still require a successful Android CI build and real-account device tests. Party settings editing, member removal, candidate-list preparation, election ballot submission, and the remaining services are not claimed complete.
