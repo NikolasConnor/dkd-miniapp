@@ -30,6 +30,7 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
     var confirmLeave by remember { mutableStateOf(false) }
     var createOpen by remember { mutableStateOf(false) }
     var editParty by remember { mutableStateOf<JSONObject?>(null) }
+    var kickTarget by remember { mutableStateOf<Triple<Int, Int, String>?>(null) }
 
     LaunchedEffect(token, refresh) { viewModel.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -84,7 +85,8 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
                     busy = state.busy,
                     onJoin = { viewModel.join(token, party.optInt("id")) },
                     onLeave = { confirmLeave = true },
-                    onEdit = { editParty = party }
+                    onEdit = { editParty = party },
+                    onKick = { memberId, memberName -> kickTarget = Triple(party.optInt("id"), memberId, memberName) }
                 )
             }
         }
@@ -191,6 +193,23 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
         )
     }
 
+
+    kickTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { kickTarget = null },
+            containerColor = Panel,
+            title = { Text("Исключить участника?", color = White) },
+            text = { Text("Участник «${target.third}» будет исключён из партии. Это действие нельзя отменить автоматически.", color = Muted, fontSize = 12.sp) },
+            confirmButton = {
+                TextButton(enabled = !state.busy, onClick = {
+                    viewModel.kick(token, target.first, target.second)
+                    kickTarget = null
+                }) { Text("Исключить", color = Bad) }
+            },
+            dismissButton = { TextButton(onClick = { kickTarget = null }) { Text("Отмена", color = Muted) } }
+        )
+    }
+
     if (confirmLeave) {
         AlertDialog(
             onDismissRequest = { confirmLeave = false },
@@ -216,7 +235,8 @@ private fun PartyCard(
     busy: Boolean,
     onJoin: () -> Unit,
     onLeave: () -> Unit,
-    onEdit: () -> Unit
+    onEdit: () -> Unit,
+    onKick: (Int, String) -> Unit
 ) {
     val id = party.optInt("id")
     val members = party.array("members")
@@ -255,6 +275,12 @@ private fun PartyCard(
                         Text(member.string("name", "Участник"), color = White, fontSize = 11.sp, modifier = Modifier.weight(1f))
                         if (member.bool("is_leader")) {
                             Text("ПРЕДСЕДАТЕЛЬ", color = Pink, fontSize = 7.sp, fontWeight = FontWeight.Bold, letterSpacing = .5.sp)
+                        } else if (canManage) {
+                            TextButton(
+                                onClick = { onKick(member.optInt("member_id"), member.string("name", "Участник")) },
+                                enabled = !busy,
+                                contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                            ) { Text("Исключить", color = Bad, fontSize = 8.sp) }
                         }
                     }
                 }
