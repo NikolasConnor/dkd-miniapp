@@ -116,6 +116,14 @@ private class PresidentViewModel : ViewModel() {
         )
     }
 
+    fun removeRole(token: String, subjectId: Int, roleId: Int) {
+        submit(
+            token, "PUT", "/api/president/roles",
+            JSONObject().put("subject_id", subjectId).put("role_id", roleId).put("assigned", false),
+            "Полномочия должностного лица прекращены."
+        )
+    }
+
     fun reviewApplication(token: String, id: Int, status: String) {
         submit(
             token, "PATCH", "/api/president/applications/$id",
@@ -169,6 +177,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
     var lawToDecide by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var applicationToReview by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var appointmentDialog by remember { mutableStateOf(false) }
+    var appointmentToRemove by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var selectedSubject by remember { mutableStateOf<JSONObject?>(null) }
     var selectedRole by remember { mutableStateOf<JSONObject?>(null) }
     var subjectMenuExpanded by remember { mutableStateOf(false) }
@@ -280,6 +289,15 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(subject.string("full_name", "Должностное лицо"), color = White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             Text(roleNames.joinToString(" · "), color = Pink, fontSize = 9.sp)
+                            subject.array("roles")
+                                .filter { it.string("name") in setOf("Премьер-министр", "Министр иностранных дел") }
+                                .forEach { role ->
+                                    TextButton(
+                                        enabled = !state.busy,
+                                        onClick = { appointmentToRemove = subject.optInt("id") to role.optInt("id") },
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) { Text("Снять полномочия: " + role.string("name"), color = Bad, fontSize = 10.sp) }
+                                }
                         }
                     }
                 }
@@ -439,6 +457,22 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                 TextButton(enabled = !state.busy, onClick = { vm.dissolve(token); dissolveDialog = false }) { Text("Да, распустить", color = Bad) }
             },
             dismissButton = { TextButton(onClick = { dissolveDialog = false }) { Text("Отмена", color = Muted) } }
+        )
+    }
+
+    appointmentToRemove?.let { removal ->
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) appointmentToRemove = null },
+            containerColor = Panel,
+            title = { Text("Прекратить полномочия?", color = White) },
+            text = { Text("Назначенная должность будет снята с выбранного человека. Продолжить?", color = Muted, fontSize = 12.sp) },
+            confirmButton = {
+                TextButton(enabled = !state.busy, onClick = {
+                    vm.removeRole(token, removal.first, removal.second)
+                    appointmentToRemove = null
+                }) { Text("Снять должность", color = Bad) }
+            },
+            dismissButton = { TextButton(onClick = { appointmentToRemove = null }) { Text("Отмена", color = Muted) } }
         )
     }
 
