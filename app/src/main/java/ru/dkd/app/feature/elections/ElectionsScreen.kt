@@ -33,13 +33,11 @@ internal fun ElectionsScreen(token: String, onError: (String) -> Unit) {
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 17.dp, end = 17.dp, top = 18.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 28.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
-            Text("ИЗБИРАТЕЛЬНАЯ СИСТЕМА", color = Pink, fontSize = 9.sp, letterSpacing = 1.6.sp, fontWeight = FontWeight.Bold)
-            Text("Выборы", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-            Text("Официальные кампании и результаты голосований ДКД", color = Muted, fontSize = 12.sp)
+            DkdPageHeader("ГОЛОС ГРАЖДАН", "Выборы", "Официальные кампании и результаты голосований ДКД", "✓")
         }
 
         if (state.loading && state.presidential.isEmpty() && state.duma.isEmpty()) {
