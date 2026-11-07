@@ -18,6 +18,7 @@ class PublicSnapshotSanitizerTest {
         val party = sanitized.getJSONArray("parties").getJSONObject(0)
 
         assertEquals("Citizen One", member.getString("full_name"))
+        assertNull(member.opt("party_id"))
         assertNull(member.opt("telegram_user_id"))
         assertNull(member.opt("username"))
         assertNull(sanitized.opt("telegram_user_id"))
