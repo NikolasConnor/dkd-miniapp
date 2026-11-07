@@ -86,6 +86,31 @@ class DkdApiServiceTest {
         assertEquals("Deputy mandate", response.body()?.mandates?.firstOrNull()?.title)
     }
 
+
+    @Test
+    fun profileEndpointDeserializesEnvelopeAndDisplayFields() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"profile":{"full_name":"Citizen Name","avatar_emoji":"star","role":"President","citizenship":"Citizen","party_name":"Party A","news_notifications_enabled":false}}"""
+        ))
+        val response = service.getProfile("Bearer profile-token")
+        val request = server.takeRequest(1, TimeUnit.SECONDS)
+        assertTrue(response.isSuccessful)
+        assertEquals("Bearer profile-token", request?.getHeader("Authorization"))
+        assertEquals("Citizen Name", response.body()?.profile?.fullName)
+        assertEquals("Party A", response.body()?.profile?.partyName)
+        assertEquals(false, response.body()?.profile?.newsNotificationsEnabled)
+    }
+
+    @Test
+    fun notificationSummaryDeserializesUnreadCount() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"notifications":[],"unread_count":7}"""
+        ))
+        val response = service.getNotificationSummary("Bearer profile-token")
+        assertTrue(response.isSuccessful)
+        assertEquals(7, response.body()?.unreadCount)
+    }
+
     @Test
     fun postSendsJsonBodyWithoutAutomaticRetry() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(403).setBody("""{"detail":"Запрещено"}"""))
