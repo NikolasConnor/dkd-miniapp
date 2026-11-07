@@ -7,9 +7,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import ru.dkd.app.core.network.apiCall
 import ru.dkd.app.core.security.CachedProfile
 import ru.dkd.app.core.security.ProfileCache
+import ru.dkd.app.data.repository.ProfileData
+import ru.dkd.app.data.repository.ProfileRepository
 
 internal data class DkdUiState(
     val name: String = "Гражданин",
@@ -21,6 +22,7 @@ internal data class DkdUiState(
 
 internal class DkdViewModel(application: Application) : AndroidViewModel(application) {
     private val cache = ProfileCache(application)
+    private val repository = ProfileRepository()
     private val mutableState = MutableStateFlow(
         cache.read()?.let {
             DkdUiState(name = it.name, role = it.role, unreadCount = it.unreadCount)
@@ -31,28 +33,25 @@ internal class DkdViewModel(application: Application) : AndroidViewModel(applica
     fun refresh(token: String) {
         viewModelScope.launch {
             mutableState.value = mutableState.value.copy(loading = true, error = null)
-            val profileResult = apiCall(token, "GET", "/api/profile")
-            val profile = profileResult.data?.optJSONObject("profile") ?: profileResult.data
-            val fullName = profile?.optString("full_name").orEmpty()
-            val displayName = fullName
-                .takeIf { it.isNotBlank() && it != "null" }
-                ?.trim()?.split(Regex("\\s+"))?.first()
-                ?: mutableState.value.name
-            val role = profile?.optString("role")
-                ?.takeIf { !it.isNullOrBlank() && it != "null" }
-                ?: mutableState.value.role
-
-            val notifications = apiCall(token, "GET", "/api/notifications")
-            val unread = notifications.data?.optInt("unread_count", 0)
-                ?: mutableState.value.unreadCount
-            mutableState.value = mutableState.value.copy(
-                name = displayName,
-                role = role,
-                unreadCount = unread,
-                loading = false,
-                error = profileResult.error ?: notifications.error
+            val current = mutableState.value
+            val result = repository.refresh(
+                token,
+                ProfileData(current.name, current.role, current.unreadCount)
             )
-            cache.write(CachedProfile(displayName, role, unread))
+            mutableState.value = mutableState.value.copy(
+                name = result.profile.name,
+                role = result.profile.role,
+                unreadCount = result.profile.unreadCount,
+                loading = false,
+                error = result.error
+            )
+            cache.write(
+                CachedProfile(
+                    result.profile.name,
+                    result.profile.role,
+                    result.profile.unreadCount
+                )
+            )
         }
     }
 
