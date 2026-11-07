@@ -20,10 +20,17 @@ internal class ProfileRepository {
         val profileJson = profileResponse.data?.optJSONObject("profile") ?: profileResponse.data
 
         val fullName = profileJson?.optString("full_name").orEmpty()
-        val name = fullName
+        val nameParts = fullName
             .takeIf { it.isNotBlank() && it != "null" }
-            ?.trim()?.split(Regex("\\s+"))?.first()
-            ?: fallback.name
+            ?.trim()
+            ?.split(Regex("\\s+"))
+            .orEmpty()
+        // DKD names are stored as "Фамилия Имя Отчество"; the greeting uses the first name.
+        val name = when {
+            nameParts.size >= 2 -> nameParts[1]
+            nameParts.size == 1 -> nameParts[0]
+            else -> fallback.name
+        }
 
         val role = profileJson?.optString("role")
             ?.takeIf { it.isNotBlank() && it != "null" }
