@@ -72,8 +72,102 @@ internal data class DocumentsEnvelopeDto(
     @SerializedName("president_certificate") val presidentCertificates: List<DkdDocumentDto> = emptyList()
 )
 
+internal data class PartyMemberDto(
+    @SerializedName("member_id") val memberId: Int = 0,
+    @SerializedName("name") val name: String = "",
+    @SerializedName("username") val username: String? = null,
+    @SerializedName("is_leader") val isLeader: Boolean = false
+)
+
+internal data class PartyDto(
+    @SerializedName("id") val id: Int = 0,
+    @SerializedName("name") val name: String = "",
+    @SerializedName("emoji") val emoji: String = "🎭",
+    @SerializedName("description") val description: String? = null,
+    @SerializedName("color") val color: String = "#7188FF",
+    @SerializedName("leader_username") val leaderUsername: String? = null,
+    @SerializedName("status") val status: String = "",
+    @SerializedName("members_count") val membersCount: Int = 0,
+    @SerializedName("members") val members: List<PartyMemberDto> = emptyList(),
+    @SerializedName("is_member") val isMember: Boolean = false,
+    @SerializedName("can_manage") val canManage: Boolean = false
+)
+
+internal data class PartiesMeDto(
+    @SerializedName("is_citizen") val isCitizen: Boolean = false,
+    @SerializedName("party_id") val partyId: Int? = null,
+    @SerializedName("is_admin") val isAdmin: Boolean = false
+)
+
+internal data class PartiesEnvelopeDto(
+    @SerializedName("parties") val parties: List<PartyDto> = emptyList(),
+    @SerializedName("me") val me: PartiesMeDto? = null
+)
+
+internal data class ElectionCandidateDto(
+    @SerializedName("name") val name: String = "",
+    @SerializedName("full_name") val fullName: String = "",
+    @SerializedName("avatar_emoji") val avatarEmoji: String = "👤"
+)
+
+internal data class DumaPartyListDto(
+    @SerializedName("party_name") val partyName: String = "",
+    @SerializedName("party_emoji") val partyEmoji: String = "🎭",
+    @SerializedName("color") val color: String = "#7188FF",
+    @SerializedName("candidates") val candidates: List<String> = emptyList()
+)
+
+internal data class ElectionDto(
+    @SerializedName("id") val id: Int = 0,
+    @SerializedName("kind") val kind: String = "",
+    @SerializedName("title") val title: String = "",
+    @SerializedName("options") val options: List<String> = emptyList(),
+    @SerializedName("starts_at") val startsAt: String? = null,
+    @SerializedName("ends_at") val endsAt: String? = null,
+    @SerializedName("created_at") val createdAt: String? = null,
+    @SerializedName("status") val status: String = "",
+    @SerializedName("is_open") val isOpen: Boolean = false,
+    @SerializedName("has_voted") val hasVoted: Boolean = false,
+    @SerializedName("my_option") val myOption: String? = null,
+    @SerializedName("vote_counts") val voteCounts: Map<String, Int>? = null,
+    @SerializedName("votes_total") val votesTotal: Int? = null,
+    @SerializedName("candidate_details") val candidateDetails: List<ElectionCandidateDto> = emptyList(),
+    @SerializedName("party_lists") val partyLists: List<DumaPartyListDto> = emptyList()
+)
+
+internal data class ElectionsEnvelopeDto(
+    @SerializedName("presidential") val presidential: List<ElectionDto> = emptyList(),
+    @SerializedName("duma") val duma: List<ElectionDto> = emptyList()
+)
+
+internal data class NewsArticleDto(
+    @SerializedName("id") val id: Int = 0,
+    @SerializedName("text") val text: String = "",
+    @SerializedName("created_at") val createdAt: String = "",
+    @SerializedName("title") val title: String = "",
+    @SerializedName("category") val category: String = "other",
+    @SerializedName("importance") val importance: String = "normal",
+    @SerializedName("media_type") val mediaType: String? = null
+)
+
+internal data class NewsEnvelopeDto(
+    @SerializedName("news") val news: List<NewsArticleDto> = emptyList()
+)
+
 /** Retrofit transport contract. Legacy feature endpoints retain raw JSON until DTO contracts are verified. */
 internal interface DkdApiService {
+    @Headers("Accept: application/json")
+    @GET("/api/votes")
+    suspend fun getElections(@Header("Authorization") authorization: String): Response<ElectionsEnvelopeDto>
+
+    @Headers("Accept: application/json")
+    @GET("/api/parties")
+    suspend fun getParties(@Header("Authorization") authorization: String): Response<PartiesEnvelopeDto>
+
+    @Headers("Accept: application/json")
+    @GET("/api/news")
+    suspend fun getNews(@Header("Authorization") authorization: String): Response<NewsEnvelopeDto>
+
     @Headers("Accept: application/json")
     @GET("/api/profile")
     suspend fun getProfile(@Header("Authorization") authorization: String): Response<ProfileEnvelopeDto>
