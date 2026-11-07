@@ -1578,13 +1578,22 @@ def tally(kind: str, election_id: int) -> dict[str, int]:
     return dict(Counter(b["option"] for b in ballots))
 
 
+def _is_active_party_leader(user_id: int, subject: dict | None = None) -> bool:
+    """Определяет действующего председателя любой активной партии по Telegram ID."""
+    uid = int(user_id)
+    membership, party = active_membership(uid)
+    if not membership or not party:
+        return False
+    profile = subject or get_subject(uid) or {}
+    return _is_party_leader(party, {"id": uid, "username": profile.get("username")})
+
+
 def list_elections(user_id: int) -> dict:
     _sync_duma_term()
     _maybe_finalize_duma_elections()
     mine = fetch_all(lambda: db().table("votes").select("election_type,election_id,option").eq("user_id", int(user_id)).order("id"))
     my = {(v["election_type"], int(v["election_id"])): v["option"] for v in mine}
-    duma_membership, duma_party = active_membership(int(user_id))
-    duma_leader_blocked = is_party_leader(duma_membership, duma_party, int(user_id))
+    duma_leader_blocked = _is_active_party_leader(int(user_id))
     result: dict[str, list] = {}
     for kind, table in ELECTION_TABLES.items():
         items = rows(db().table(table).select(ELECTION_COLS).order("id", desc=True).limit(10))
@@ -1681,10 +1690,8 @@ def cast_vote(user: dict, kind: str, election_id: int, option: str) -> dict:
     subject = get_subject(uid)
     if not subject or not subject.get("is_citizen"):
         raise DKDError(403, "Голосовать могут только граждане ДКД.")
-    if kind == "duma":
-        membership, party = active_membership(uid)
-        if is_party_leader(membership, party, uid):
-            raise DKDError(403, "Председатель политической партии не может голосовать на выборах в Государственную Думу.")
+    if kind == "duma" and _is_active_party_leader(uid, subject):
+        raise DKDError(403, "Председатель политической партии не может голосовать на выборах в Государственную Думу.")
     election = one(db().table(ELECTION_TABLES[kind]).select(ELECTION_COLS).eq("id", int(election_id)).limit(1))
     if not election:
         raise DKDError(404, "Выборы не найдены.")
@@ -1717,6 +1724,8 @@ def admin_cast_vote(actor_id: int, kind: str, election_id: int, voter_user_id: i
     voter = get_subject(int(voter_user_id))
     if not voter or not voter.get("is_citizen"):
         raise DKDError(404, "Указанный пользователь не найден или не является гражданином.")
+    if kind == "duma" and _is_active_party_leader(int(voter_user_id), voter):
+        raise DKDError(403, "Нельзя учитывать голос председателя политической партии на выборах в Государственную Думу.")
     election = one(db().table(ELECTION_TABLES[kind]).select(ELECTION_COLS).eq("id", int(election_id)).limit(1))
     if not election:
         raise DKDError(404, "Выборы не найдены.")
