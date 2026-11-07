@@ -1,6 +1,7 @@
 package ru.dkd.app.feature.government
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -13,11 +14,13 @@ internal data class StateUiState(
     val loading: Boolean = true,
     val parliament: JSONObject? = null,
     val parties: List<JSONObject> = emptyList(),
-    val error: String? = null
+    val error: String? = null,
+    val fromCache: Boolean = false,
+    val cachedAtEpochMs: Long? = null
 )
 
-internal class StateViewModel : ViewModel() {
-    private val repository = StateRepository()
+internal class StateViewModel(application: Application) : AndroidViewModel(application) {
+    private val repository = StateRepository(application)
     private val mutableState = MutableStateFlow(StateUiState())
     val state: StateFlow<StateUiState> = mutableState.asStateFlow()
 
@@ -29,7 +32,9 @@ internal class StateViewModel : ViewModel() {
                 loading = false,
                 parliament = result.parliament,
                 parties = result.parties,
-                error = result.error
+                error = result.error,
+                fromCache = result.fromCache,
+                cachedAtEpochMs = result.cachedAtEpochMs
             )
         }
     }
