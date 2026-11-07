@@ -26,7 +26,7 @@ private val httpClient: OkHttpClient by lazy {
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .callTimeout(75, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
+        .retryOnConnectionFailure(false)
         .build()
 }
 
