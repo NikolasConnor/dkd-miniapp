@@ -17,8 +17,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.json.JSONObject
-import ru.dkd.app.core.common.string
+import ru.dkd.app.core.network.DkdDocumentDto
+import ru.dkd.app.core.network.PassportDto
 import ru.dkd.app.core.design.*
 
 private data class DocumentItem(
@@ -98,57 +98,57 @@ internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
         } else if (mandates.isEmpty() && presidentCertificates.isEmpty()) {
             item { EmptyDocumentNote("Активных удостоверений нет", "Мандат отображается только у действующего депутата. Президентское удостоверение — только у действующего Президента.") }
         }
-        items(mandates, key = { "mandate-${it.optInt("id")}" }) { doc ->
+        items(mandates, key = { "mandate-${it.id}" }) { doc ->
             DocumentRow(
                 icon = "▤",
-                title = doc.string("title", "Мандат депутата"),
+                title = doc.title.ifBlank { "Мандат депутата" },
                 subtitle = "Мандат депутата Государственной Думы",
                 status = "Действителен",
                 onClick = {
-                    selected = DocumentItem("Мандат", doc.string("title"), "Удостоверение депутата Государственной Думы",
-                        doc.string("text"), doc.string("created_at"), "Действителен")
+                    selected = DocumentItem("Мандат", doc.title, "Удостоверение депутата Государственной Думы",
+                        doc.text, doc.createdAt, "Действителен")
                 }
             )
         }
-        items(presidentCertificates, key = { "president-${it.optInt("id")}" }) { doc ->
+        items(presidentCertificates, key = { "president-${it.id}" }) { doc ->
             DocumentRow(
                 icon = "♛",
-                title = doc.string("title", "Удостоверение Президента ДКД"),
+                title = doc.title.ifBlank { "Удостоверение Президента ДКД" },
                 subtitle = "Документ главы государства",
                 status = "Действительно",
                 onClick = {
-                    selected = DocumentItem("Президентское удостоверение", doc.string("title"), "Документ главы государства",
-                        doc.string("text"), doc.string("created_at"), "Действительно")
+                    selected = DocumentItem("Президентское удостоверение", doc.title, "Документ главы государства",
+                        doc.text, doc.createdAt, "Действительно")
                 }
             )
         }
 
         item { SectionHeading("Президентские указы", decrees.size) }
         if (decrees.isEmpty() && !documentsLoadFailed) item { EmptyDocumentNote("Указов пока нет", "Здесь отображаются опубликованные президентские указы, доступные вашему аккаунту.") }
-        items(decrees, key = { "decree-${it.optInt("id")}" }) { doc ->
+        items(decrees, key = { "decree-${it.id}" }) { doc ->
             DocumentRow(
                 icon = "§",
-                title = doc.string("title", "Президентский указ"),
-                subtitle = doc.string("created_at").take(10).ifBlank { "Официальный документ ДКД" },
+                title = doc.title.ifBlank { "Президентский указ" },
+                subtitle = doc.createdAt.take(10).ifBlank { "Официальный документ ДКД" },
                 status = "Опубликован",
                 onClick = {
-                    selected = DocumentItem("Указ", doc.string("title"), "Официальный документ Президента",
-                        doc.string("text"), doc.string("created_at"), "Опубликован")
+                    selected = DocumentItem("Указ", doc.title, "Официальный документ Президента",
+                        doc.text, doc.createdAt, "Опубликован")
                 }
             )
         }
 
         item { SectionHeading("Законы, подписанные Президентом", laws.size) }
         if (laws.isEmpty() && !documentsLoadFailed) item { EmptyDocumentNote("Подписанных законов пока нет", "В этот список попадают только законы со статусом «подписан».") }
-        items(laws, key = { "law-${it.optInt("id")}" }) { doc ->
+        items(laws, key = { "law-${it.id}" }) { doc ->
             DocumentRow(
                 icon = "⚖",
-                title = doc.string("title", "Закон ДКД"),
-                subtitle = doc.string("description", "Законодательный акт").take(90),
+                title = doc.title.ifBlank { "Закон ДКД" },
+                subtitle = doc.description.ifBlank { "Законодательный акт" }.take(90),
                 status = "Подписан",
                 onClick = {
-                    selected = DocumentItem("Закон", doc.string("title"), "Законодательный акт",
-                        doc.string("description"), doc.string("created_at"), "Подписан Президентом")
+                    selected = DocumentItem("Закон", doc.title, "Законодательный акт",
+                        doc.description, doc.createdAt, "Подписан Президентом")
                 }
             )
         }
@@ -186,7 +186,7 @@ internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
 }
 
 @Composable
-private fun PassportCard(passport: JSONObject) {
+private fun PassportCard(passport: PassportDto) {
     Box(
         Modifier.fillMaxWidth().border(1.dp, Color(0xFF7770B8), RoundedCornerShape(22.dp))
             .background(
@@ -203,16 +203,16 @@ private fun PassportCard(passport: JSONObject) {
                 Text("🏛️", fontSize = 27.sp)
             }
             HorizontalDivider(color = Color.White.copy(alpha = .16f))
-            Text(passport.string("full_name", "Гражданин ДКД"), color = White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(passport.fullName.ifBlank { "Гражданин ДКД" }, color = White, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             Text("ФАМИЛИЯ, ИМЯ, ОТЧЕСТВО", color = Color(0xFFC5C7FF), fontSize = 8.sp, letterSpacing = 1.sp)
             Row(verticalAlignment = Alignment.Bottom) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("НОМЕР ДОКУМЕНТА", color = Muted, fontSize = 8.sp, letterSpacing = .8.sp)
-                    Text(passport.string("number"), color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(passport.number, color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
-                val active = passport.string("status") == "active"
+                val active = passport.status == "active"
                 Text(
-                    passport.string("status_label", if (active) "Действителен" else "Аннулирован").uppercase(),
+                    passport.statusLabel.ifBlank { if (active) "Действителен" else "Аннулирован" }.uppercase(),
                     color = if (active) Good else Bad,
                     fontSize = 8.sp,
                     fontWeight = FontWeight.Bold,
@@ -221,10 +221,10 @@ private fun PassportCard(passport: JSONObject) {
             }
             HorizontalDivider(color = Color.White.copy(alpha = .16f))
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                PassportMeta("ВЫДАН", passport.string("issued_at"))
-                PassportMeta("КОД ПОДРАЗДЕЛЕНИЯ", passport.string("division_code"))
+                PassportMeta("ВЫДАН", passport.issuedAt)
+                PassportMeta("КОД ПОДРАЗДЕЛЕНИЯ", passport.divisionCode)
             }
-            Text(passport.string("issued_by", "Служба гражданства ДКД"), color = Color(0xFFC5C7FF), fontSize = 9.sp)
+            Text(passport.issuedBy.ifBlank { "Служба гражданства ДКД" }, color = Color(0xFFC5C7FF), fontSize = 9.sp)
         }
     }
 }
