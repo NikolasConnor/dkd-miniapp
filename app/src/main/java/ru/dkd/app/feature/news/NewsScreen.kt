@@ -4,6 +4,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -58,7 +62,7 @@ internal fun NewsScreen(token: String, onError: (String) -> Unit) {
         }
 
         items(state.articles, key = { it.optInt("id") }) { article ->
-            NewsCard(article) { selected = article }
+            NewsCard(article, token) { selected = article }
         }
 
         item {
@@ -94,7 +98,7 @@ internal fun NewsScreen(token: String, onError: (String) -> Unit) {
 }
 
 @Composable
-private fun NewsCard(article: JSONObject, onClick: () -> Unit) {
+private fun NewsCard(article: JSONObject, token: String, onClick: () -> Unit) {
     val importance = article.string("importance")
     val markerColor = when (importance) {
         "urgent" -> Bad
@@ -115,6 +119,28 @@ private fun NewsCard(article: JSONObject, onClick: () -> Unit) {
                 Text(categoryLabel(article.string("category")), color = Muted, fontSize = 9.sp)
             }
             Text(article.string("title", "Сообщение пресс-центра ДКД"), color = White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            val mediaType = article.string("media_type")
+            if (mediaType == "photo") {
+                val context = LocalContext.current
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(ru.dkd.app.core.network.API_BASE_URL + "/api/news/" + article.optInt("id") + "/media")
+                        .addHeader("Authorization", "Bearer " + token)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = "Изображение к новости",
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp),
+                    contentScale = ContentScale.Crop
+                )
+            } else if (mediaType == "video") {
+                Surface(color = Panel2, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("▶", color = Pink, fontSize = 22.sp)
+                        Spacer(Modifier.width(9.dp))
+                        Text("К новости прикреплено видео. Просмотр видео появится в следующем обновлении.", color = Muted, fontSize = 10.sp)
+                    }
+                }
+            }
             Text(article.string("text").take(230), color = Muted, fontSize = 11.sp, lineHeight = 16.sp, maxLines = 5)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(article.string("created_at").take(10), color = Muted, fontSize = 9.sp, modifier = Modifier.weight(1f))
