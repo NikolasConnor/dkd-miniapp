@@ -325,6 +325,52 @@ def verify_android_session(token: str) -> dict:
             "first_name": subject.get("full_name") or "", "last_name": ""}
 
 
+def register_android_push_token(user: dict, token: str) -> dict:
+    value = str(token or "").strip()
+    if not 20 <= len(value) <= 4096:
+        raise DKDError(400, "Некорректный токен push-уведомлений.")
+    execute(db().table("android_push_tokens").upsert({
+        "user_id": int(user["id"]), "fcm_token": value,
+        "updated_at": now_iso(), "disabled_at": None,
+    }, on_conflict="fcm_token"), "Не удалось зарегистрировать устройство.")
+    return {"ok": True}
+
+
+def send_android_push(user_id: int, title: str, message: str) -> int:
+    raw_credentials = env("FIREBASE_SERVICE_ACCOUNT_JSON")
+    if not raw_credentials:
+        return 0
+    try:
+        import firebase_admin
+        from firebase_admin import credentials, messaging
+        try:
+            app = firebase_admin.get_app("dkd")
+        except ValueError:
+            service_account = json.loads(raw_credentials)
+            app = firebase_admin.initialize_app(credentials.Certificate(service_account), name="dkd")
+        tokens = rows(db().table("android_push_tokens").select("id,fcm_token")
+                      .eq("user_id", int(user_id)).is_("disabled_at", "null"))
+        sent = 0
+        for row in tokens:
+            try:
+                messaging.send(messaging.Message(
+                    notification=messaging.Notification(title=clean_name(title)[:160], body=str(message or "")[:1000]),
+                    data={"title": clean_name(title)[:160], "body": str(message or "")[:1000]},
+                    token=row["fcm_token"],
+                ), app=app)
+                sent += 1
+            except Exception as exc:
+                text = str(exc).lower()
+                if "registration-token-not-registered" in text or "invalid-registration-token" in text:
+                    execute(db().table("android_push_tokens").update({"disabled_at": now_iso()}).eq("id", row["id"]))
+                else:
+                    log.warning("FCM delivery failed for token row %s: %s", row.get("id"), exc)
+        return sent
+    except Exception:
+        log.exception("Firebase push delivery failed")
+        return 0
+
+
 def revoke_android_session(token: str) -> dict:
     value = str(token or "").strip()
     if not value:
@@ -2356,6 +2402,7 @@ def create_notification(user_id: int, title: str, message: str, send_telegram: b
         "user_id": int(user_id), "title": clean_name(title)[:160],
         "message": str(message or "")[:4000], "is_read": False,
     }), "Не удалось создать уведомление.")[0]
+    send_android_push(int(user_id), title, message)
     if send_telegram:
         send_telegram_message(int(user_id), f"🔔 {clean_name(title)}\n\n{str(message or '')[:3900]}")
     return row
