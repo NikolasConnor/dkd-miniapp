@@ -78,7 +78,7 @@ internal fun NewsScreen(token: String, onError: (String) -> Unit) {
         }
 
         items(state.articles, key = { it.optInt("id") }) { article ->
-            NewsCard(article, token) { selected = article }
+            NewsCard(article, token, mediaEnabled = !state.fromCache) { selected = article }
         }
 
         item {
@@ -114,7 +114,7 @@ internal fun NewsScreen(token: String, onError: (String) -> Unit) {
 }
 
 @Composable
-private fun NewsCard(article: JSONObject, token: String, onClick: () -> Unit) {
+private fun NewsCard(article: JSONObject, token: String, mediaEnabled: Boolean, onClick: () -> Unit) {
     val importance = article.string("importance")
     val markerColor = when (importance) {
         "urgent" -> Bad
@@ -136,7 +136,12 @@ private fun NewsCard(article: JSONObject, token: String, onClick: () -> Unit) {
             }
             Text(article.string("title", "Сообщение пресс-центра ДКД"), color = White, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             val mediaType = article.string("media_type")
-            if (mediaType == "photo") {
+            if (mediaType == "photo" && !mediaEnabled) {
+                Surface(color = Panel2, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text("Изображение будет доступно после восстановления соединения.", color = Muted,
+                        fontSize = 10.sp, modifier = Modifier.padding(12.dp))
+                }
+            } else if (mediaType == "photo") {
                 val context = LocalContext.current
                 AsyncImage(
                     model = ImageRequest.Builder(context)
