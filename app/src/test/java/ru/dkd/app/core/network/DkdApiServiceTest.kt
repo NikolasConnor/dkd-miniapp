@@ -2,6 +2,8 @@ package ru.dkd.app.core.network
 
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
