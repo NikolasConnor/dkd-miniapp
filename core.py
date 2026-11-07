@@ -23,7 +23,7 @@ import urllib.request
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable
-from election_rules import is_party_leader, president_can_close_duma_election
+from election_rules import is_party_leader, president_can_close_duma_election, president_can_decide_law
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qsl
 
@@ -5091,6 +5091,8 @@ def president_set_law_status(actor_id: int, law_id: int, status: str) -> dict:
     law = one(db().table("laws").select("id,title,status").eq("id", int(law_id)).limit(1))
     if not law:
         raise DKDError(404, "Закон не найден.")
+    if not president_can_decide_law(str(law.get("status") or "")):
+        raise DKDError(409, "Президент может подписать или отклонить только закон, принятый Госдумой и направленный на рассмотрение.")
     updated = execute(db().table("laws").update({"status": status}).eq("id", int(law_id)),
                       "Не удалось обновить статус закона.")
     audit(actor_id, "president_law_signed" if status == "signed" else "president_law_vetoed", None,
