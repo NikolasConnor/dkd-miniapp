@@ -700,6 +700,19 @@ class PartyCreate(BaseModel):
     description: str = Field(default="", max_length=1000)
 
 
+class PartyApplicationCreate(BaseModel):
+    name: str = Field(min_length=2, max_length=60)
+    emoji: str = Field(default="🎭", max_length=8)
+    description: str = Field(default="", max_length=1000)
+
+
+@app.post("/api/parties/applications")
+def submit_party_application(payload: PartyApplicationCreate, user: dict = Depends(auth_user)):
+    return {"ok": True, "application": core.create_party_application(
+        user, payload.name, payload.emoji, payload.description
+    )}
+
+
 @app.get("/api/parties")
 def get_parties(user: dict = Depends(auth_user)):
     return core.list_parties(user, core.is_admin(user))
