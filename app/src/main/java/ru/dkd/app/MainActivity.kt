@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 import ru.dkd.app.core.design.*
 import ru.dkd.app.core.network.redeemLoginCode
 import ru.dkd.app.core.network.revokeSession
+import ru.dkd.app.core.security.ProfileCache
 import ru.dkd.app.core.security.SessionStore
 import ru.dkd.app.feature.auth.LoginScreen
 import ru.dkd.app.feature.home.StubGovernmentScreen
@@ -95,6 +96,7 @@ private fun DKDApp() {
                         logoutError = null
                         if (revokeSession(old)) {
                             store.clear()
+                            ProfileCache(context).clear()
                             token = null
                         } else {
                             logoutError = "Не удалось связаться с сервером и отозвать сессию. Проверьте интернет и повторите выход."
