@@ -26,6 +26,7 @@ internal class PartyCandidatesViewModel : ViewModel() {
 
     fun refresh(token: String) {
         viewModelScope.launch {
+            val previousMessage = mutable.value.message
             mutable.value = mutable.value.copy(loading = true, error = null)
             val result = apiCall(token, "GET", "/api/elections/duma/party-template")
             val data = result.data
@@ -38,7 +39,8 @@ internal class PartyCandidatesViewModel : ViewModel() {
                 party = data?.optJSONObject("party"),
                 members = data?.array("members") ?: emptyList(),
                 selectedIds = ids,
-                error = result.error
+                error = result.error,
+                message = previousMessage
             )
         }
     }
