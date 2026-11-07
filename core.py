@@ -999,6 +999,16 @@ def president_schedule_duma_election(actor_id: int, title: str, starts_at: str, 
         "title": title, "options": [], "ends_at": end.isoformat(), "status": "scheduled", "results": {},
     }), "Не удалось назначить выборы.")[0]
     _setting_put(DUMA_START_KEY_PREFIX + str(election["id"]), start.isoformat())
+    try:
+        publish_news(
+            actor_id,
+            f"Президент назначил выборы в Государственную Думу «{title}». Начало: {start.astimezone(NEWS_TZ).strftime('%d.%m.%Y %H:%M')} МСК; окончание: {end.astimezone(NEWS_TZ).strftime('%d.%m.%Y %H:%M')} МСК.",
+            title="Назначены выборы в Государственную Думу",
+            category="elections",
+            importance="important",
+        )
+    except Exception as exc:
+        log.warning("Could not publish Duma election announcement: %s", exc)
     # Подтягиваем заранее подготовленные списки председателей партий.
     prepared = {}
     parties = rows(db().table("parties").select(PARTY_COLS).eq("status", "active"))
@@ -4892,6 +4902,17 @@ def publish_decree(actor_id: int, title: str, text: str, secret_for_user_id: int
         row["secret_for"] = str(int(secret_for_user_id))
     created = execute(db().table("decrees").insert(row), "Не удалось опубликовать указ.")[0]
     audit(actor_id, "presidential_decree_created", secret_for_user_id, f"decree:{created['id']}")
+    if secret_for_user_id is None:
+        try:
+            publish_news(
+                actor_id,
+                f"Президент ДКД издал указ «{title}». Полный текст доступен в разделе «Документы».",
+                title=f"Указ Президента: {title}",
+                category="documents",
+                importance="important",
+            )
+        except Exception as exc:
+            log.warning("Could not publish presidential decree announcement: %s", exc)
     return created
 
 
@@ -4929,6 +4950,11 @@ def president_list_decrees(actor_id: int) -> dict:
     decree_rows = rows(db().table("decrees").select(
         "id,title,text,is_secret,secret_for_user_id,created_at"
     ).order("id", desc=True).limit(300))
+    decree_rows = [
+        item for item in decree_rows
+        if item.get("title") != "Удостоверение Президента ДКД"
+        and not str(item.get("title") or "").startswith("Мандат депутата Госдумы")
+    ]
     result = []
     for decree in decree_rows:
         decree_id = int(decree["id"])
@@ -5241,7 +5267,13 @@ def president_set_law_status(actor_id: int, law_id: int, status: str) -> dict:
     audit(actor_id, "president_law_signed" if status == "signed" else "president_law_vetoed", None,
           f"law:{law_id}")
     label = "подписан Президентом" if status == "signed" else "отправлен Президентом на вето"
-    _notify_current_deputies("Решение Президента по законопроекту", f"Законопроект «{law.get('title', '')}» {label}.")
+    message = f"Законопроект «{law.get('title', '')}» {label}."
+    _notify_current_deputies("Решение Президента по законопроекту", message)
+    try:
+        publish_news(actor_id, message, title="Решение Президента по законопроекту",
+                     category="government", importance="important")
+    except Exception as exc:
+        log.warning("Could not publish presidential law decision: %s", exc)
     return updated[0] if updated else {"id": law_id, "status": status}
 
 
