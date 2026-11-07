@@ -443,7 +443,7 @@ ROLE_CANONICAL = {
     "депутат": ("Депутат", "🏛️"),
     "гражданин": ("Гражданин", "🪪"),
 }
-PRESIDENT_ASSIGNABLE_ROLES = {"министр иностранных дел", "премьер-министр", "гражданин"}
+PRESIDENT_ASSIGNABLE_ROLES = {"министр иностранных дел", "премьер-министр"}
 
 
 def _setting_value(key: str) -> str | None:
@@ -4923,11 +4923,12 @@ def _presidential_decree_events() -> tuple[dict[int, dict], dict[int, dict]]:
 
 
 def president_list_decrees(actor_id: int) -> dict:
-    created_events, latest_events = _presidential_decree_events()
-    if not created_events:
-        return {"decrees": []}
-    decree_ids = sorted(created_events)
-    decree_rows = select_in("decrees", "id,title,text,is_secret,secret_for_user_id,created_at", "id", decree_ids)
+    # Читаем документы из основного реестра: отсутствие записи аудита не должно
+    # скрывать уже опубликованный указ.
+    _, latest_events = _presidential_decree_events()
+    decree_rows = rows(db().table("decrees").select(
+        "id,title,text,is_secret,secret_for_user_id,created_at"
+    ).order("id", desc=True).limit(300))
     result = []
     for decree in decree_rows:
         decree_id = int(decree["id"])
@@ -4938,7 +4939,6 @@ def president_list_decrees(actor_id: int) -> dict:
             "execution_note": execution.get("note", ""),
             "execution_updated_at": execution.get("updated_at"),
         })
-    result.sort(key=lambda item: int(item.get("id") or 0), reverse=True)
     return {"decrees": result}
 
 
@@ -4948,10 +4948,10 @@ def president_update_decree_execution(actor_id: int, decree_id: int, status: str
     note = str(note or "").strip()
     if len(note) > 2000:
         raise DKDError(422, "Комментарий не должен превышать 2000 символов.")
-    created_events, latest_events = _presidential_decree_events()
     decree_id = int(decree_id)
-    if decree_id not in created_events:
+    if not one(db().table("decrees").select("id").eq("id", decree_id).limit(1)):
         raise DKDError(404, "Президентский указ не найден.")
+    _, latest_events = _presidential_decree_events()
     current = latest_events.get(decree_id, {}).get("status", "issued")
     if current == "completed":
         raise DKDError(409, "Исполненный указ нельзя вернуть в работу или изменить его статус.")
@@ -4961,6 +4961,23 @@ def president_update_decree_execution(actor_id: int, decree_id: int, status: str
     if event is None:
         raise DKDError(503, "Не удалось сохранить решение об исполнении указа. Повторите попытку.")
     return {"ok": True, "decree_id": decree_id, "execution_status": status, "execution_note": note}
+
+
+PRESIDENT_ACTIVITY_ACTIONS = [
+    "role_assigned", "role_removed", "application_reviewed",
+    "duma_election_scheduled", "president_duma_election_closed",
+    "president_parliament_dissolved", "presidential_decree_created",
+    "presidential_decree_execution_updated", "president_law_signed",
+    "president_law_vetoed",
+]
+
+
+def president_list_activity(actor_id: int) -> dict:
+    activity = rows(db().table("audit_log").select(
+        "id,action,target_user_id,details,created_at"
+    ).eq("actor_user_id", int(actor_id)).in_("action", PRESIDENT_ACTIVITY_ACTIONS)
+     .order("id", desc=True).limit(100))
+    return {"activity": activity}
 
 
 
