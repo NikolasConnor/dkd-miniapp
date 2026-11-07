@@ -277,3 +277,7 @@ The Android CI workflow's concurrency policy was changed to avoid cancelling an 
 - No native vote casting is enabled. Before enabling it, the backend must enforce all election eligibility rules (including the Duma party-leader exclusion) and return a contract verified against the production deployment.
 - Law No. 3 family/court functions remain blocked by production API and domain/legal gaps documented above; no UI-only implementation can make those services operational.
 - No Mini App source, production Render service, or Supabase schema/data was modified by these Android changes.
+
+Additional native profile work:
+- Profile now reads the server-authoritative full name, avatar emoji, roles, citizenship status, party membership, and news-notification preference from `GET /api/profile`.
+- The notification preference is displayed read-only. A mutation control was deliberately removed because the current `HttpURLConnection` transport does not safely support HTTP PATCH; the API transport must be migrated before enabling profile edits or preference writes in Android.
