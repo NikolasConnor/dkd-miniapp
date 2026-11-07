@@ -316,3 +316,13 @@ Additional native write flows now use the production-confirmed API contracts:
 - Android app version is now `0.7.0` / versionCode `7`.
 
 These flows have passed source-level API contract inspection but still require a successful Android CI build and real-account device tests. Party settings editing, member removal, candidate-list preparation, election ballot submission, and the remaining services are not claimed complete.
+
+
+### Architecture status correction — latest branch review
+
+The historical Stage 2 notes above describe the earlier checkpoint. At the latest reviewed branch head:
+
+- The shared API transport has been migrated from `HttpURLConnection` to OkHttp 4.12 with connection/read/write/call timeouts and centralized HTTP error mapping.
+- The app uses Navigation Compose, feature ViewModels/StateFlow, repositories, and encrypted Keystore session/profile cache.
+- This is not yet a Retrofit + Kotlin Serialization typed-DTO architecture. Most endpoint payloads still use `JSONObject`.
+- Room cache, background sync, Gradle wrapper, complete service coverage, and physical device verification remain outstanding.
