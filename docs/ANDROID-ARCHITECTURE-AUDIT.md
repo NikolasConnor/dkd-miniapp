@@ -224,10 +224,32 @@ Work completed on `android-dkd-portal-redesign` after the audit:
 
 - The app shell is now approximately 9.4 KB / 206 lines. Home/government screens, notifications, pairing login, palette, JSON helpers, network, and session storage live in separate packages/files.
 - API transport is extracted, but still uses `HttpURLConnection` and `JSONObject`; typed DTOs and Retrofit/OkHttp remain future work.
-- Navigation is still the existing tab/detail state implementation; Navigation Compose and feature ViewModels/StateFlow have not yet been introduced.
-- No Room cache or offline synchronization has been added.
+- Navigation Compose is now installed and used by the app shell for the five main destinations, notifications, and detail routes.
+- A `DkdViewModel` exposes profile and unread-notification state through `StateFlow`; the Compose shell observes it.
+- An encrypted Android Keystore-backed last-known profile snapshot (name, role, unread count) is stored for offline startup. This is a limited profile cache, not a full offline data layer or sync engine.
+- No Room database or background synchronization has been added.
 - The Gradle wrapper is still absent; CI continues to use pinned Gradle 8.9 via setup-gradle.
-- The current Home/State/service screens still contain demonstration placeholders. This stage did not claim to make government services functional or redesign the visual system.
+- The current Home/State/service screens still contain demonstration placeholders. This work does not claim to make government services functional.
 - No production API, Render service, Mini App, or database was changed.
 
-The workflow now runs `testDebugUnitTest assembleDebug`. A small API URL construction unit test was added. The final refactor commit triggered a GitHub Actions build at the time this log was updated; its result must be checked before calling the stage build-verified. A successful APK build alone does not prove runtime behavior; install/device and two-account auth tests are still required.
+The workflow runs `testDebugUnitTest assembleDebug`. API URL construction unit tests were added. GitHub Actions confirmed a successful test + debug APK build for commit `549f1db4b338f2de28bb765af832ad5230aa350f`. Subsequent commits introducing Navigation Compose, ViewModel, encrypted profile cache, and visual updates are undergoing their own CI verification; use the latest branch workflow before calling the current head build-verified. A successful APK build alone does not prove runtime behavior; install/device and two-account auth tests are still required.
+
+
+## Stage 3 implementation log — 2026-11-07
+
+The native visual foundation has started from the existing `main/index.html` reference. The Android palette now uses the Mini App's exact core tokens: `#0d1024`, `#171b37`, `#20264a`, `#343b69`, `#f5f6ff`, `#a8afd5`, `#8b7cff`, `#5e8bff`, and `#f0b7d0`.
+
+Applied in the native client:
+- Login screen now uses the DKD violet/blue gradient, rounded panel, accent border, and typography hierarchy.
+- Home, State, Profile and common service surfaces now use the Mini App palette, gradient hero panels, rounded cards, and muted text treatment.
+- App shell now has a matching branded header, five agreed government tabs, and a notification bell with unread count.
+- Notifications are wired into the native navigation graph and styled with the same card/border treatment.
+- Version bumped to `0.6.0` / versionCode `6`.
+
+Still outstanding in Stage 3:
+- Documents and Elections currently lead to clearly marked demonstration screens; they are not yet fully ported or connected to verified live data contracts.
+- Remaining feature screens (President, Government, Duma, parties, laws, applications, and citizen services) still need individual native designs and API contract verification.
+- Need screenshot comparison on a real Android device against the Mini App at equivalent viewport sizes, then spacing/typography refinements.
+- Do not treat any placeholder action as a completed government service.
+
+No Mini App files, production deployment, or database were modified. The visual source remains read-only.
