@@ -46,12 +46,15 @@ internal data class ApiResult(val token: String? = null, val error: String? = nu
 internal data class NetResult(val data: JSONObject? = null, val error: String? = null)
 internal data class DtoResult<T>(val data: T? = null, val error: String? = null)
 
-internal suspend fun submitPresidentialVoteDto(
-    token: String, electionId: Int, option: String
+internal suspend fun submitElectionVoteDto(
+    token: String, kind: String, electionId: Int, option: String
 ): DtoResult<MutationResponseDto> = withContext(Dispatchers.IO) {
+    if (kind != "presidential" && kind != "duma") {
+        return@withContext DtoResult(error = "Неизвестный тип голосования.")
+    }
     try {
         val response = retrofitService.castVote(
-            "Bearer $token", "presidential", electionId, CastVoteRequest(option)
+            "Bearer $token", kind, electionId, CastVoteRequest(option)
         )
         if (response.isSuccessful) DtoResult(data = response.body())
         else DtoResult(error = errorFrom(response.code(), response.errorBody()?.string().orEmpty()))
