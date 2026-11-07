@@ -478,6 +478,12 @@ def president_dissolve_parliament(user: dict = Depends(president_user)):
     return core.president_dissolve_parliament(user["id"])
 
 
+@app.get("/api/president/decrees")
+def president_list_decrees(user: dict = Depends(president_user)):
+    documents = core.list_documents(user, core.is_admin(user))
+    return {"decrees": documents.get("decrees", [])}
+
+
 @app.post("/api/president/decrees")
 def president_create_decree(payload: DecreeCreate, user: dict = Depends(president_user)):
     return {"ok": True, "decree": core.publish_decree(user["id"], payload.title, payload.text, payload.secret_for_user_id)}
