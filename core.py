@@ -1084,6 +1084,16 @@ def get_duma_party_template(user: dict) -> dict:
                 for uid_ in ids if uid_ in by_id], "selected_user_ids": selected}
 
 
+def _duma_campaign_lists_locked(election: dict, now: datetime | None = None) -> bool:
+    """Список нельзя менять после старта кампании или её окончания."""
+    now = now or utcnow()
+    start = duma_start_at(int(election["id"])) if election.get("id") is not None else None
+    end = parse_dt(election.get("ends_at"))
+    status = effective_status(election)
+    return (status in CLOSED_STATUSES or status == "active"
+            or bool(start and start <= now) or bool(end and end <= now))
+
+
 def save_duma_party_template(user: dict, candidate_user_ids: list[int]) -> dict:
     uid = int(user["id"])
     current = get_duma_party_template(user)
@@ -1106,9 +1116,8 @@ def save_duma_party_template(user: dict, candidate_user_ids: list[int]) -> dict:
     for election in elections:
         if election.get("status") in CLOSED_STATUSES:
             continue
-        # Не меняем кампанию после фактического окончания, даже если статус ещё не обновлён.
-        election_end = parse_dt(election.get("ends_at"))
-        if election_end and election_end <= utcnow():
+        # После начала кампании бюллетень и партийные списки замораживаются.
+        if _duma_campaign_lists_locked(election):
             continue
         lists = duma_party_lists(int(election["id"]))
         lists[str(party_id)] = {"party_id": party_id, "party_name": current["party"]["name"],
@@ -1198,8 +1207,8 @@ def submit_duma_party_list(user: dict, election_id: int, candidates: list[str]) 
     if not election:
         raise DKDError(404, "Выборы в Госдуму не найдены.")
     start, end = duma_start_at(election_id), parse_dt(election.get("ends_at"))
-    if election.get("status") in CLOSED_STATUSES or (end and utcnow() >= end):
-        raise DKDError(409, "Приём списков для этих выборов завершён.")
+    if _duma_campaign_lists_locked(election):
+        raise DKDError(409, "Партийные списки зафиксированы: кампания уже началась или завершилась.")
     cleaned = [clean_name(x) for x in candidates if clean_name(x)]
     if not cleaned or len(cleaned) > 50 or any(len(x) > 120 for x in cleaned):
         raise DKDError(400, "Укажите от 1 до 50 кандидатов; имя каждого — до 120 символов.")
@@ -5481,9 +5490,12 @@ def duma_list(user: dict) -> dict:
                 data = json.loads(ev.get("details") or "{}")
             except (TypeError, ValueError):
                 data = {}
-            sessions.append({"id": int(ev["id"]), "title": data.get("title", "Заседание Государственной думы"),
+            session_id = int(ev["id"])
+            expiry = _duma_session_expiry(events, session_id)
+            sessions.append({"id": session_id, "title": data.get("title", "Заседание Государственной думы"),
                              "created_by": ev.get("actor_user_id"), "created_at": data.get("created_at"),
-                             "closed": False, "laws": []})
+                             "closes_at": expiry.isoformat() if expiry else None,
+                             "closed": _is_duma_session_closed(events, session_id), "laws": []})
         elif ev.get("action") == "duma_session_closed":
             try:
                 data = json.loads(ev.get("details") or "{}")
@@ -5563,8 +5575,31 @@ def duma_open_session(actor_id: int, title: str) -> dict:
     return {"id": int(row["id"]), "title": title, "created_at": created_at, "closed": False, "laws": []}
 
 
+DUMA_SESSION_DURATION = timedelta(days=3)
+
+
+def _duma_session_expiry(events: list[dict], session_id: int) -> datetime | None:
+    opened = next((event for event in events
+                   if event.get("action") == "duma_session_opened"
+                   and int(event.get("id") or 0) == int(session_id)), None)
+    if not opened:
+        return None
+    try:
+        payload = json.loads(opened.get("details") or "{}")
+    except (TypeError, ValueError):
+        payload = {}
+    created = parse_dt(payload.get("created_at"))
+    return created + DUMA_SESSION_DURATION if created else None
+
+
+def _duma_session_expired(events: list[dict], session_id: int,
+                          now: datetime | None = None) -> bool:
+    expiry = _duma_session_expiry(events, session_id)
+    return bool(expiry and (now or utcnow()) >= expiry)
+
+
 def _is_duma_session_closed(events: list[dict], session_id: int) -> bool:
-    """Сверяет точный session_id в JSON, а не ищет число подстрокой."""
+    """Сверяет точный session_id; заседание автоматически истекает через 3 дня."""
     for event in events:
         if event.get("action") != "duma_session_closed":
             continue
@@ -5577,7 +5612,7 @@ def _is_duma_session_closed(events: list[dict], session_id: int) -> bool:
                 return True
         except (TypeError, ValueError):
             continue
-    return False
+    return _duma_session_expired(events, session_id)
 
 
 def duma_close_session(actor_id: int, session_id: int) -> dict:
@@ -5587,7 +5622,7 @@ def duma_close_session(actor_id: int, session_id: int) -> dict:
     if not opened:
         raise DKDError(404, "Заседание не найдено.")
     if _is_duma_session_closed(events, session_id):
-        raise DKDError(409, "Заседание уже закрыто.")
+        raise DKDError(409, "Заседание уже закрыто или срок его работы (3 дня) истёк.")
     close_event = audit(actor_id, "duma_session_closed", None, json.dumps({"session_id": int(session_id)}, ensure_ascii=False))
     if not close_event or close_event.get("id") is None:
         raise DKDError(502, "Не удалось сохранить закрытие заседания. Попробуйте ещё раз.")
@@ -5677,7 +5712,7 @@ def admin_submit_law_to_duma(actor_id: int, law_id: int, session_id: int) -> dic
     if not session_event:
         raise DKDError(404, "Заседание Государственной думы не найдено.")
     if _is_duma_session_closed(events, int(session_id)):
-        raise DKDError(409, "Нельзя открыть голосование в закрытом заседании.")
+        raise DKDError(409, "Нельзя открыть голосование в закрытом заседании или после истечения 3 дней.")
     for event in events:
         if event.get("action") != "duma_law_submitted":
             continue
