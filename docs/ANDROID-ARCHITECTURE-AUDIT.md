@@ -257,3 +257,23 @@ Still outstanding in Stage 3:
 - Do not treat any placeholder action as a completed government service.
 
 No Mini App files, production deployment, or database were modified. The visual source remains read-only.
+
+### Stage 3 implementation log — continued
+
+Additional native, server-backed read screens have been added on the Android working branch:
+
+- Elections: reads `GET /api/votes` through an ElectionsRepository and ViewModel; shows presidential candidates, Duma party lists, campaign status, and published results. Voting is intentionally not enabled in Android yet. The inspected production vote handler does not enforce the agreed party-leader exclusion for Duma elections, so enabling a native cast-vote button before that server-side invariant is fixed would be unsafe.
+- Official News: reads `GET /api/news` and presents official state publications in a native feed; the Home news card opens this screen.
+- Political parties: reads `GET /api/parties` and presents party descriptions, membership counts, leaders, and members. Mutating party-management actions are not enabled in this read-only port.
+- State overview: reads `GET /api/parliament-roster` and `GET /api/parties`, and presents the current Duma composition, seats, term dates, and active parties. This is a public institution overview; it does not claim that President/Government controls are implemented.
+
+The Android CI workflow's concurrency policy was changed to avoid cancelling an in-progress APK build on every rapid commit. Python checks passed on the recent branch head, but the newest Android build must still complete successfully before this head is marked build-verified.
+
+### Remaining release and implementation blockers
+
+- Stage 2 is structurally improved but not fully complete against the original target architecture: API calls still use `HttpURLConnection`/JSONObjects rather than Retrofit/OkHttp and fully typed DTOs; Room and a sync engine are absent; Gradle wrapper files are not present.
+- Several Home/Profile/service details still use demonstration content. Any service not connected to a verified production API must remain clearly marked as unavailable/demo.
+- Android screens have not yet been installed and tested on a physical device. Pairing-code login, logout/revocation, notification read state, documents, elections, news, parties, and state roster require real-account runtime checks.
+- No native vote casting is enabled. Before enabling it, the backend must enforce all election eligibility rules (including the Duma party-leader exclusion) and return a contract verified against the production deployment.
+- Law No. 3 family/court functions remain blocked by production API and domain/legal gaps documented above; no UI-only implementation can make those services operational.
+- No Mini App source, production Render service, or Supabase schema/data was modified by these Android changes.
