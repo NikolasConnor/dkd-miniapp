@@ -374,3 +374,5 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - Added Room DAO persistence tests.
 - Remaining: typed DTOs for all feature endpoints, safe cache strategy for other public screens, migration/schema policy, WorkManager only for safe refreshes, UI/device tests, release signing and distribution.
 - The app still uses production Render as its read/API base URL. No production backend, Render, Supabase, database, or RLS changes were made.
+
+- Extended the Room cache to the official news feed. Cached party entries are reduced to public summary fields only; membership rosters and user-specific party data are deliberately excluded. Cached news media is not downloaded offline, and the UI explains that media requires a connection.
