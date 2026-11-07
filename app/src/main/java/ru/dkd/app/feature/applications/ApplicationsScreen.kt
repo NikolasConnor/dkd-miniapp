@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -244,7 +245,7 @@ internal fun ApplicationsScreen(token: String, onBack: () -> Unit, onError: (Str
         } else if (state.applications.isEmpty()) {
             item { ApplicationNotice("Заявлений пока нет", "Поданные обращения и решения по ним появятся здесь.") }
         }
-        items(state.applications, key = { it.optInt("id") }) { application ->
+        itemsIndexed(state.applications, key = { index, _ -> "application-$index" }) { _, application ->
             val status = application.string("status")
             val label = when (status) {
                 "pending" -> "На рассмотрении"
