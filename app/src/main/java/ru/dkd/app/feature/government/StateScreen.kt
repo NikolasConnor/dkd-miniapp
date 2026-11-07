@@ -42,9 +42,7 @@ internal fun StateScreen(token: String, onError: (String) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         item {
-            Text("ГОСУДАРСТВЕННЫЕ ИНСТИТУТЫ", color = Pink, fontSize = 9.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
-            Text("Государство", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-            Text("Органы власти и государственное устройство ДКД", color = Muted, fontSize = 12.sp)
+            DkdPageHeader("ИНСТИТУТЫ ВЛАСТИ", "Государство", "Органы власти и государственное устройство ДКД", "🏛")
         }
 
         if (state.fromCache) {
