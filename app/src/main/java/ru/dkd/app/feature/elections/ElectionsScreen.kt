@@ -26,7 +26,7 @@ internal fun ElectionsScreen(token: String, onError: (String) -> Unit) {
     val viewModel: ElectionsViewModel = viewModel()
     val state by viewModel.state.collectAsState()
     var refresh by remember { mutableIntStateOf(0) }
-    var pendingVote by remember { mutableStateOf<Triple<Int, String, String>?>(null) }
+    var pendingVote by remember { mutableStateOf<PendingElectionVote?>(null) }
 
     LaunchedEffect(token, refresh) { viewModel.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -60,12 +60,16 @@ internal fun ElectionsScreen(token: String, onError: (String) -> Unit) {
 
         if (state.presidential.isNotEmpty()) {
             item { ElectionSectionTitle("Президентские выборы", state.presidential.size) }
-            items(state.presidential.size) { index -> ElectionCard(state.presidential[index], "presidential", state.busy) { id, option, label -> pendingVote = Triple(id, option, label) } }
+            items(state.presidential.size) { index -> ElectionCard(state.presidential[index], "presidential", state.busy) { id, option, label ->
+                pendingVote = PendingElectionVote("presidential", id, option, label)
+            } }
         }
 
         if (state.duma.isNotEmpty()) {
             item { ElectionSectionTitle("Выборы в Государственную Думу", state.duma.size) }
-            items(state.duma.size) { index -> ElectionCard(state.duma[index], "duma", state.busy) { _, _, _ -> } }
+            items(state.duma.size) { index -> ElectionCard(state.duma[index], "duma", state.busy) { id, option, label ->
+                pendingVote = PendingElectionVote("duma", id, option, label)
+            } }
         }
 
         state.message?.let { message -> item { ElectionEmptyState("Голос принят", message) } }
@@ -82,10 +86,14 @@ internal fun ElectionsScreen(token: String, onError: (String) -> Unit) {
             onDismissRequest = { if (!state.busy) pendingVote = null },
             containerColor = Panel,
             title = { Text("Подтвердить голос?", color = White) },
-            text = { Text("Вы выбираете кандидата «${vote.third}». После отправки изменить голос будет нельзя.", color = Muted, fontSize = 12.sp) },
+            text = { Text(
+                if (vote.kind == "duma") "Вы выбираете партию «${vote.label}». После отправки изменить голос будет нельзя."
+                else "Вы выбираете кандидата «${vote.label}». После отправки изменить голос будет нельзя.",
+                color = Muted, fontSize = 12.sp
+            ) },
             confirmButton = {
                 TextButton(enabled = !state.busy, onClick = {
-                    viewModel.castPresidentialVote(token, vote.first, vote.second)
+                    viewModel.castVote(token, vote.kind, vote.electionId, vote.option)
                     pendingVote = null
                 }) { Text("Подтвердить", color = Purple) }
             },
@@ -95,6 +103,13 @@ internal fun ElectionsScreen(token: String, onError: (String) -> Unit) {
 }
 
 @Composable
+private data class PendingElectionVote(
+    val kind: String,
+    val electionId: Int,
+    val option: String,
+    val label: String
+)
+
 private fun ElectionCard(election: JSONObject, kind: String, busy: Boolean, onVote: (Int, String, String) -> Unit) {
     val status = election.string("status")
     val isActive = status == "active"
@@ -196,7 +211,17 @@ private fun ElectionCard(election: JSONObject, kind: String, busy: Boolean, onVo
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(party.string("party_emoji", "🎭"), fontSize = 20.sp)
                             Spacer(Modifier.width(8.dp))
-                            Text(party.string("party_name", "Партия"), color = White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(party.string("party_name", "Партия"), color = White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            if (isActive && !hasVoted) {
+                                TextButton(
+                                    enabled = !busy,
+                                    onClick = {
+                                        val option = party.string("party_name")
+                                        if (option.isNotBlank()) onVote(election.optInt("id"), option, option)
+                                    },
+                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                ) { Text("Голосовать", color = Purple, fontSize = 10.sp) }
+                            }
                         }
                         val candidates = candidateNames(party.optJSONArray("candidates"))
                         if (candidates.isNotEmpty()) {
@@ -233,7 +258,7 @@ private fun ElectionCard(election: JSONObject, kind: String, busy: Boolean, onVo
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        if (kind == "duma") "Голосование в Android временно отключено: сервер должен отдельно гарантировать запрет председателю партии голосовать на думских выборах." else "Выберите кандидата выше и подтвердите отправку голоса.",
+                        if (kind == "duma") "Выберите партийный список и подтвердите голос. Сервер проверит право голоса и не примет повторный бюллетень." else "Выберите кандидата выше и подтвердите отправку голоса.",
                         color = Color(0xFFD7D2FF), fontSize = 10.sp, lineHeight = 15.sp,
                         modifier = Modifier.padding(11.dp)
                     )
