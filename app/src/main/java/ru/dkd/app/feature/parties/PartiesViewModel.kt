@@ -71,6 +71,28 @@ internal class PartiesViewModel : ViewModel() {
         }
     }
 
+    fun updateSettings(token: String, partyId: Int, name: String, emoji: String, description: String, color: String) {
+        viewModelScope.launch {
+            if (mutableState.value.busy) return@launch
+            mutableState.value = mutableState.value.copy(busy = true, error = null, message = null)
+            val result = apiCall(
+                token, "PUT", "/api/parties/$partyId",
+                JSONObject().put("name", name.trim()).put("emoji", emoji.trim())
+                    .put("description", description.trim()).put("color", color)
+            )
+            if (result.error != null) {
+                mutableState.value = mutableState.value.copy(busy = false, error = result.error)
+            } else {
+                val refreshed = repository.load(token)
+                mutableState.value = mutableState.value.copy(
+                    loading = false, busy = false, parties = refreshed.parties,
+                    isCitizen = refreshed.isCitizen, myPartyId = refreshed.myPartyId,
+                    error = refreshed.error, message = "Настройки партии сохранены."
+                )
+            }
+        }
+    }
+
     fun join(token: String, partyId: Int) {
         mutate(token, "/api/parties/$partyId/join", "POST", "Вы вступили в партию.")
     }
