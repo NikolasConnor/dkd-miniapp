@@ -240,6 +240,8 @@ private fun DumaLawCard(law: JSONObject, busy: Boolean, onVote: (String) -> Unit
                 }
             } else if (law.bool("has_voted")) {
                 Text("Вы уже проголосовали", color = Good, fontSize = 9.sp)
+            } else if (law.bool("session_closed")) {
+                Text("Голосование закрыто вместе с заседанием.", color = Muted, fontSize = 9.sp)
             }
         }
     }
