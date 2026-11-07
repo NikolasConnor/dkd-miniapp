@@ -31,11 +31,10 @@ internal fun ProfileScreen(token: String, onLogout: () -> Unit, onError: (String
 
     val profile = state.profile
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 17.dp, vertical = 18.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("ЛИЧНЫЙ КАБИНЕТ", color = Pink, fontSize = 9.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
-        Text("Профиль", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
+        DkdPageHeader("ЛИЧНЫЙ КАБИНЕТ", "Профиль", "Ваши данные, гражданство и статус в ДКД", "◉")
 
         if (state.loading && profile == null) {
             Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
