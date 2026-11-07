@@ -44,8 +44,29 @@ private val retrofitService: DkdApiService by lazy {
 
 internal data class ApiResult(val token: String? = null, val error: String? = null)
 internal data class NetResult(val data: JSONObject? = null, val error: String? = null)
+internal data class DtoResult<T>(val data: T? = null, val error: String? = null)
 
-private fun exceptionMessage(error: Exception): String = when (error) {
+internal suspend fun loadPassportDto(token: String): DtoResult<PassportEnvelopeDto> = withContext(Dispatchers.IO) {
+    try {
+        val response = retrofitService.getPassport("Bearer $token")
+        if (response.isSuccessful) DtoResult(data = response.body())
+        else DtoResult(error = errorFrom(response.code(), response.errorBody()?.string().orEmpty()))
+    } catch (e: Exception) {
+        DtoResult(error = exceptionMessage(e))
+    }
+}
+
+internal suspend fun loadDocumentsDto(token: String): DtoResult<DocumentsEnvelopeDto> = withContext(Dispatchers.IO) {
+    try {
+        val response = retrofitService.getDocuments("Bearer $token")
+        if (response.isSuccessful) DtoResult(data = response.body())
+        else DtoResult(error = errorFrom(response.code(), response.errorBody()?.string().orEmpty()))
+    } catch (e: Exception) {
+        DtoResult(error = exceptionMessage(e))
+    }
+}
+
+internal fun exceptionMessage(error: Exception): String = when (error) {
     is UnknownHostException -> "Нет соединения с сервером ДКД. Проверьте интернет."
     is SocketTimeoutException -> "Сервер ДКД не ответил вовремя. Попробуйте ещё раз."
     else -> "Не удалось связаться с сервером ДКД. Проверьте подключение."
