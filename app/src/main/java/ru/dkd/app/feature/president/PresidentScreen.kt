@@ -315,9 +315,19 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                     modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(16.dp))) {
                     Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(application.string("full_name", "Заявитель"), color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(if (application.string("kind") == "citizenship") "Заявление на гражданство" else "Обращение гражданина",
-                            color = Pink, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        Text(application.string("details").ifBlank { "Дополнительная информация не указана." }, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+                        val kind = application.string("kind")
+                        val detailsText = if (kind == "party_creation") {
+                            runCatching {
+                                val party = JSONObject(application.string("details"))
+                                "Партия: ${party.optString("party_name")} ${party.optString("emoji")}\nОписание: ${party.optString("description").ifBlank { "не указано" }}"
+                            }.getOrDefault("Данные заявки на партию не удалось прочитать.")
+                        } else application.string("details").ifBlank { "Дополнительная информация не указана." }
+                        Text(when (kind) {
+                            "citizenship" -> "Заявление на гражданство"
+                            "party_creation" -> "Заявка на создание партии"
+                            else -> "Обращение гражданина"
+                        }, color = Pink, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        Text(detailsText, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
                         Text("Статус: " + when (status) {
                             "pending" -> "На рассмотрении"
                             "approved" -> "Одобрено"
@@ -542,7 +552,7 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
             containerColor = Panel,
             title = { Text(if (decision.second == "approved") "Одобрить заявление?" else "Отклонить заявление?", color = White) },
             text = { Text(
-                if (decision.second == "approved") "При одобрении заявления на гражданство сервер выдаст гражданство и паспорт заявителю."
+                if (decision.second == "approved") "При одобрении сервер выполнит действие, соответствующее типу заявления: выдаст гражданство или создаст партию заявителя."
                 else "Заявление будет отклонено, а заявитель получит уведомление.",
                 color = Muted, fontSize = 12.sp
             ) },
