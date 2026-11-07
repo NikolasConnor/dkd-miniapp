@@ -385,3 +385,11 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - Added MockWebServer tests for Bearer token propagation and deserialization of passport, mandate and signed-law collections.
 - The server remains authoritative for document eligibility: it returns current mandates/certificates only for active office holders and only signed laws in the laws collection.
 - Hardened the public offline parliament snapshot: Telegram user IDs are stripped before persistence; only display fields needed by the public State screen are retained.
+
+
+## Typed profile API
+
+- Added typed Retrofit/Gson models for the profile envelope and unread-notification summary.
+- Migrated the home greeting/profile summary and citizen profile repository away from generic JSONObject parsing for their read endpoints.
+- Added MockWebServer tests for profile fields, notification unread count and Bearer authorization.
+- Profile mutations remain explicit authenticated API calls; no UI setting is presented as saved until the backend confirms it.
