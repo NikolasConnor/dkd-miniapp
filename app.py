@@ -930,6 +930,11 @@ def president_review_application(application_id: int, payload: PresidentApplicat
 def president_create_duma_election(payload: PresidentElectionCreate, user: dict = Depends(president_user)):
     return {"ok": True, "election": core.president_create_duma_election(user["id"], payload.title, payload.starts_at, payload.ends_at)}
 
+
+@app.post("/api/president/elections/duma/{election_id}/close")
+def president_close_duma_election(election_id: int, user: dict = Depends(president_user)):
+    return core.president_close_duma_election(user["id"], election_id)
+
 @app.get("/api/elections/duma/party-lists")
 def duma_party_lists(user: dict = Depends(auth_user)):
     return core.list_duma_elections_for_party(user)
