@@ -293,3 +293,13 @@ Added a native President section on the Android working branch. It first request
 - Dissolve the Duma after an explicit confirmation: `POST /api/president/parliament/dissolve`; the backend enforces the once-per-30-days restriction and active-parliament preconditions.
 
 The screen is linked from the Home government services. These operations have not yet been exercised with a real President account on a device. The app does not bypass server authorization, and no backend or production configuration was changed.
+
+
+### Stage 3 implementation log — parliamentary and citizen applications
+
+- Added a native Duma workspace backed by the production-confirmed `GET /api/duma`, `POST /api/duma/sessions`, `POST /api/duma/sessions/{id}/close`, `POST /api/duma/sessions/{id}/laws`, and `POST /api/duma/laws/{id}/vote` routes.
+- The Duma screen only exposes parliamentary controls after the API authorizes the current account as a deputy or administrator. Vote buttons are rendered only when the server returns `can_vote=true`; the server remains responsible for one-vote-per-deputy, session state, and vote validation.
+- Added a citizen applications screen backed by `GET /api/applications`, `POST /api/applications`, and `GET /api/profile`. It displays server-authoritative citizenship status, blocks a duplicate pending citizenship request in the UI, and shows application history and review notes. The backend remains the authoritative duplicate/citizenship guard.
+- Added the President administration and citizen applications / Duma entries to the native Home services grid.
+
+These new write flows have not yet been exercised using real citizen, deputy, and President accounts on a physical Android device. CI build verification is pending for the latest feature head. No production backend, database, or Mini App files were modified.
