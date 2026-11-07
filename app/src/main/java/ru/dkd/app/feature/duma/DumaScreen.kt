@@ -27,7 +27,7 @@ import ru.dkd.app.core.common.string
 import ru.dkd.app.core.design.*
 import ru.dkd.app.core.network.apiCall
 
-private data class DumaState(
+internal data class DumaState(
     val loading: Boolean = true,
     val authorized: Boolean = false,
     val sessions: List<JSONObject> = emptyList(),
