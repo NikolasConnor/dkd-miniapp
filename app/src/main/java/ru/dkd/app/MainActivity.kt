@@ -1,57 +1,35 @@
 package ru.dkd.app
 
-import ru.dkd.app.core.network.API_BASE_URL
-import ru.dkd.app.core.design.Navy
-import ru.dkd.app.core.design.Panel
-import ru.dkd.app.core.design.Blue
-import ru.dkd.app.core.design.Muted
-import ru.dkd.app.core.design.White
-import ru.dkd.app.core.common.string
-import ru.dkd.app.core.common.int
-import ru.dkd.app.core.common.bool
-import ru.dkd.app.core.common.array
-import ru.dkd.app.core.common.obj
-import ru.dkd.app.core.network.apiCall
-import ru.dkd.app.core.network.apiUpload
-import ru.dkd.app.core.network.redeemLoginCode
-import ru.dkd.app.core.network.revokeSession
-import ru.dkd.app.core.security.SessionStore
-import ru.dkd.app.feature.auth.LoginScreen
-import ru.dkd.app.feature.home.StubHomeScreen
-import ru.dkd.app.feature.home.StubGovernmentScreen
-import ru.dkd.app.feature.home.StubProfileScreen
-import ru.dkd.app.feature.home.StubServiceScreen
-import ru.dkd.app.feature.notifications.NotificationsScreen
-
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
-import org.json.JSONObject
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
+import ru.dkd.app.core.common.string
+import ru.dkd.app.core.design.*
+import ru.dkd.app.core.network.apiCall
+import ru.dkd.app.core.network.redeemLoginCode
+import ru.dkd.app.core.network.revokeSession
+import ru.dkd.app.core.security.SessionStore
+import ru.dkd.app.feature.auth.LoginScreen
+import ru.dkd.app.feature.home.StubGovernmentScreen
+import ru.dkd.app.feature.home.StubHomeScreen
+import ru.dkd.app.feature.home.StubProfileScreen
+import ru.dkd.app.feature.home.StubServiceScreen
+import ru.dkd.app.feature.notifications.NotificationsScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -73,8 +51,9 @@ private fun DKDApp() {
 
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = Blue, onPrimary = Navy, background = Navy,
-            surface = Panel, onSurface = White, secondary = Muted
+            primary = Purple, onPrimary = White, background = Navy,
+            surface = Panel, onSurface = White, secondary = Blue,
+            error = Bad
         )
     ) {
         if (token.isNullOrBlank()) {
@@ -122,7 +101,6 @@ private fun DKDApp() {
     }
 }
 
-
 @Composable
 private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -> Unit) {
     var tab by remember { mutableIntStateOf(0) }
@@ -130,74 +108,179 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
     var toast by remember { mutableStateOf(logoutError) }
     var name by remember { mutableStateOf("Гражданин") }
     var role by remember { mutableStateOf("Участник ДКД") }
+    var unreadCount by remember { mutableIntStateOf(0) }
+    val scope = rememberCoroutineScope()
+
+    BackHandler(enabled = detail != null) { detail = null }
+
     LaunchedEffect(token) {
-        val result = apiCall(token, "GET", "/api/profile")
-        val p = result.data?.optJSONObject("profile") ?: result.data
-        val full = p?.optString("full_name").orEmpty()
-        if (full.isNotBlank() && full != "null") name = full.trim().split(Regex("\\s+")).first()
-        role = p?.optString("role")?.takeIf { !it.isNullOrBlank() && it != "null" } ?: "Участник ДКД"
+        val profileResult = apiCall(token, "GET", "/api/profile")
+        val profile = profileResult.data?.optJSONObject("profile") ?: profileResult.data
+        val full = profile?.optString("full_name").orEmpty()
+        if (full.isNotBlank() && full != "null") {
+            name = full.trim().split(Regex("\\s+")).first()
+        }
+        role = profile?.optString("role")
+            ?.takeIf { !it.isNullOrBlank() && it != "null" } ?: "Участник ДКД"
+
+        val notifications = apiCall(token, "GET", "/api/notifications")
+        unreadCount = notifications.data?.optInt("unread_count", 0) ?: 0
     }
-    MaterialTheme(colorScheme = darkColorScheme(
-        primary = Blue, onPrimary = Navy, background = Navy,
-        surface = Panel, onSurface = White, secondary = Muted
-    )) {
-        Scaffold(containerColor = Navy, bottomBar = {
-            Row(
-                Modifier.fillMaxWidth().background(Color(0xFF0D1420))
-                    .navigationBarsPadding().padding(start = 8.dp, end = 8.dp, top = 9.dp, bottom = 5.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                val labels = listOf("Главная", "Государство", "Документы", "Выборы", "Профиль")
-                val icons = listOf("⌂", "⌘", "▤", "☑", "◉")
-                labels.forEachIndexed { i, label ->
-                    val active = tab == i && detail == null
-                    Column(
-                        Modifier.weight(1f).clip(RoundedCornerShape(15.dp))
-                            .background(if (active) Color(0xFF1B2D49) else Color.Transparent)
-                            .clickable { tab = i; detail = null }.padding(vertical = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text(icons[i], color = if (active) Blue else Muted, fontSize = 20.sp)
-                        Text(label, color = if (active) Blue else Muted, fontSize = 9.sp, maxLines = 1)
-                    }
-                }
-            }
-        }) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding)) {
+
+    MaterialTheme(
+        colorScheme = darkColorScheme(
+            primary = Purple, onPrimary = White, background = Navy,
+            surface = Panel, onSurface = White, secondary = Blue,
+            error = Bad
+        )
+    ) {
+        Scaffold(
+            containerColor = Navy,
+            bottomBar = {
                 Row(
-                    Modifier.fillMaxWidth().background(Color(0xFF0D1420))
-                        .padding(horizontal = 19.dp, vertical = 13.dp),
+                    Modifier.fillMaxWidth()
+                        .background(Brush.verticalGradient(listOf(Panel, Navy)))
+                        .navigationBarsPadding()
+                        .padding(start = 7.dp, end = 7.dp, top = 8.dp, bottom = 5.dp),
+                    horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(Modifier.size(38.dp).background(Color(0xFF1C2B45), RoundedCornerShape(13.dp)),
-                        contentAlignment = Alignment.Center) {
-                        Text("N", color = Blue, fontSize = 22.sp, fontWeight = FontWeight.Black)
-                    }
-                    Spacer(Modifier.width(11.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                        Text("ДКД", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                        Text("NEXORA GROUP", color = Muted, fontSize = 8.sp, letterSpacing = 2.sp)
-                    }
-                    TextButton(onClick = onLogout) { Text("Выйти", color = Muted, fontSize = 11.sp) }
-                }
-                if (toast != null) {
-                    Surface(color = Color(0xFF332632), modifier = Modifier.fillMaxWidth()) {
-                        Row(Modifier.padding(horizontal = 14.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Text(toast!!, color = White, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { toast = null }) { Text("Закрыть", color = Blue) }
+                    val labels = listOf("Главная", "Государство", "Документы", "Выборы", "Профиль")
+                    val icons = listOf("⌂", "⌘", "▤", "☑", "◉")
+                    labels.forEachIndexed { index, label ->
+                        val active = tab == index && detail == null
+                        Column(
+                            Modifier.weight(1f)
+                                .background(
+                                    if (active) Color(0x338B7CFF) else Color.Transparent,
+                                    RoundedCornerShape(14.dp)
+                                )
+                                .clickable { tab = index; detail = null }
+                                .padding(vertical = 8.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                icons[index],
+                                color = if (active) Pink else Muted,
+                                fontSize = 20.sp
+                            )
+                            Text(
+                                label,
+                                color = if (active) White else Muted,
+                                fontSize = 9.sp,
+                                maxLines = 1
+                            )
                         }
                     }
                 }
-                if (detail != null) {
-                    StubServiceScreen(detail!!, onBack = { detail = null }, onInfo = { toast = it })
-                } else when (tab) {
-                    0 -> StubHomeScreen(name, role, onOpen = { detail = it }, onState = { tab = 1 })
-                    1 -> StubGovernmentScreen(onOpen = { detail = it })
-                    2 -> StubServiceScreen("Документы", onBack = { detail = null }, onInfo = { toast = it })
-                    3 -> StubServiceScreen("Выборы", onBack = { detail = null }, onInfo = { toast = it })
-                    else -> StubProfileScreen(name, role, onLogout = onLogout, onOpen = { detail = it })
+            }
+        ) { padding ->
+            Column(
+                Modifier.fillMaxSize()
+                    .background(Brush.verticalGradient(listOf(Color(0xFF171638), Navy, Navy)))
+                    .padding(padding)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth()
+                        .background(Panel.copy(alpha = .94f))
+                        .padding(horizontal = 17.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        Modifier.size(39.dp)
+                            .background(
+                                Brush.linearGradient(listOf(Blue, Purple)),
+                                RoundedCornerShape(13.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("Д", color = White, fontSize = 21.sp, fontWeight = FontWeight.Black)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Column(
+                        Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(1.dp)
+                    ) {
+                        Text("ДКД", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("NEXORA GROUP", color = Muted, fontSize = 8.sp, letterSpacing = 2.sp)
+                    }
+                    Box {
+                        TextButton(onClick = { detail = "Уведомления" }) {
+                            Text("♧", color = White, fontSize = 21.sp)
+                        }
+                        if (unreadCount > 0) {
+                            Box(
+                                Modifier.align(Alignment.TopEnd)
+                                    .defaultMinSize(minWidth = 17.dp, minHeight = 17.dp)
+                                    .background(Bad, RoundedCornerShape(20.dp))
+                                    .padding(horizontal = 4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    if (unreadCount > 99) "99+" else unreadCount.toString(),
+                                    color = White, fontSize = 9.sp, fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                    TextButton(onClick = onLogout) {
+                        Text("Выйти", color = Muted, fontSize = 10.sp)
+                    }
+                }
+
+                if (toast != null) {
+                    Surface(
+                        color = Color(0xFF3A263F),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(toast!!, color = White, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { toast = null }) {
+                                Text("Закрыть", color = Pink)
+                            }
+                        }
+                    }
+                }
+
+                when {
+                    detail == "Уведомления" -> NotificationsScreen(
+                        token = token,
+                        onBack = { detail = null },
+                        onUnreadChanged = { unreadCount = it },
+                        onError = { toast = it }
+                    )
+                    detail != null -> StubServiceScreen(
+                        title = detail!!,
+                        onBack = { detail = null },
+                        onInfo = { toast = it }
+                    )
+                    tab == 0 -> StubHomeScreen(
+                        name = name,
+                        role = role,
+                        onOpen = { detail = it },
+                        onState = { tab = 1 }
+                    )
+                    tab == 1 -> StubGovernmentScreen(onOpen = { detail = it })
+                    tab == 2 -> StubServiceScreen(
+                        "Документы",
+                        onBack = { detail = null },
+                        onInfo = { toast = it }
+                    )
+                    tab == 3 -> StubServiceScreen(
+                        "Выборы",
+                        onBack = { detail = null },
+                        onInfo = { toast = it }
+                    )
+                    else -> StubProfileScreen(
+                        name = name,
+                        role = role,
+                        onLogout = onLogout,
+                        onOpen = { detail = it }
+                    )
                 }
             }
         }
