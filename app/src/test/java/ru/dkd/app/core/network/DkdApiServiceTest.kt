@@ -174,6 +174,22 @@ class DkdApiServiceTest {
     }
 
     @Test
+    fun dumaVoteUsesSameTypedContractAndPartyOption() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(200).setBody(
+            """{"ok":true,"message":"Ваш голос сохранён."}"""
+        ))
+        val response = service.castVote(
+            "Bearer voter-token", "duma", 18, CastVoteRequest("Единая Конфедерация")
+        )
+        val request = server.takeRequest(1, TimeUnit.SECONDS)
+        assertTrue(response.isSuccessful)
+        assertEquals("/api/votes/duma/18/cast", request?.path)
+        assertEquals("Bearer voter-token", request?.getHeader("Authorization"))
+        assertEquals("""{"option":"Единая Конфедерация"}""", request?.body?.readUtf8())
+        assertEquals(true, response.body()?.ok)
+    }
+
+    @Test
     fun postSendsJsonBodyWithoutAutomaticRetry() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(403).setBody("""{"detail":"Запрещено"}"""))
         val body = """{"vote":"candidate"}""".toRequestBody("application/json".toMediaType())
