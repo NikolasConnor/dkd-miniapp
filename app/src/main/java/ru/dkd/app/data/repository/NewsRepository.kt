@@ -3,8 +3,7 @@ package ru.dkd.app.data.repository
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
-import ru.dkd.app.core.common.array
-import ru.dkd.app.core.network.apiCall
+import ru.dkd.app.core.network.loadNewsDto
 import ru.dkd.app.data.local.DkdDatabase
 import ru.dkd.app.data.local.PublicCacheEntity
 
@@ -19,17 +18,20 @@ internal class NewsRepository(context: Context) {
     private val cache = DkdDatabase.get(context).publicCacheDao()
 
     suspend fun load(token: String): NewsData {
-        val response = apiCall(token, "GET", "/api/news")
-        val remote = response.data?.array("news")
+        val response = loadNewsDto(token)
+        val remote = response.data?.news?.map { article ->
+            JSONObject()
+                .put("id", article.id).put("text", article.text).put("created_at", article.createdAt)
+                .put("title", article.title).put("category", article.category)
+                .put("importance", article.importance).put("media_type", article.mediaType)
+        }
         if (remote != null) {
             runCatching {
-                cache.put(
-                    PublicCacheEntity(
-                        cacheKey = NEWS_KEY,
-                        payload = JSONArray(remote).toString(),
-                        updatedAtEpochMs = System.currentTimeMillis()
-                    )
-                )
+                cache.put(PublicCacheEntity(
+                    cacheKey = NEWS_KEY,
+                    payload = JSONArray(remote).toString(),
+                    updatedAtEpochMs = System.currentTimeMillis()
+                ))
             }
             return NewsData(articles = remote)
         }
@@ -49,7 +51,5 @@ internal class NewsRepository(context: Context) {
         )
     }
 
-    private companion object {
-        const val NEWS_KEY = "public_news_feed"
-    }
+    private companion object { const val NEWS_KEY = "public_news_feed" }
 }
