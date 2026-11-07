@@ -885,6 +885,22 @@ class DecreeCreate(BaseModel):
     secret_for_user_id: int | None = Field(default=None, gt=0)
 
 
+class DecreeExecutionUpdate(BaseModel):
+    status: str = Field(pattern="^(in_progress|completed|suspended)$")
+    note: str = Field(default="", max_length=2000)
+
+
+@app.get("/api/president/decrees")
+def president_list_decrees(user: dict = Depends(president_user)):
+    return core.president_list_decrees(user["id"])
+
+
+@app.patch("/api/president/decrees/{decree_id}/execution")
+def president_update_decree_execution(decree_id: int, payload: DecreeExecutionUpdate,
+                                      user: dict = Depends(president_user)):
+    return core.president_update_decree_execution(user["id"], decree_id, payload.status, payload.note)
+
+
 @app.post("/api/president/parliament/dissolve")
 def president_dissolve_parliament(user: dict = Depends(president_user)):
     return core.president_dissolve_parliament(user["id"])
