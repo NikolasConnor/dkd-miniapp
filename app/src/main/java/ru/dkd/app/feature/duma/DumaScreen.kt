@@ -145,6 +145,14 @@ internal fun DumaScreen(token: String, onBack: () -> Unit, onError: (String) -> 
                         Text(session.string("title", "Заседание Государственной Думы"), color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
                         Text(if (closed) "ЗАСЕДАНИЕ ЗАКРЫТО" else "ЗАСЕДАНИЕ ОТКРЫТО", color = if (closed) Muted else Good, fontSize = 8.sp, fontWeight = FontWeight.Bold)
                         Text(session.string("created_at").take(16).replace("T", " "), color = Muted, fontSize = 9.sp)
+                        val closesAt = session.string("closes_at")
+                        if (closesAt.isNotBlank()) {
+                            Text(
+                                if (closed) "Заседание завершено · срок до ${closesAt.take(16).replace("T", " ")}"
+                                else "Автоматическое закрытие: ${closesAt.take(16).replace("T", " ")}",
+                                color = Muted, fontSize = 9.sp
+                            )
+                        }
                         if (!closed) {
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                                 OutlinedButton(onClick = { submitFor = sessionId }, enabled = !state.busy,
