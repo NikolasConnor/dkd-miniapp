@@ -34,6 +34,8 @@ private data class PresidentUiState(
     val term: JSONObject? = null,
     val laws: List<JSONObject> = emptyList(),
     val applications: List<JSONObject> = emptyList(),
+    val subjects: List<JSONObject> = emptyList(),
+    val assignableRoles: List<JSONObject> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
     val message: String? = null
@@ -66,13 +68,18 @@ private class PresidentViewModel : ViewModel() {
         }
         val lawsResult = apiCall(token, "GET", "/api/president/laws")
         val applicationsResult = apiCall(token, "GET", "/api/president/applications")
+        val subjectsResult = apiCall(token, "GET", "/api/president/subjects")
+        val allowedRoleNames = setOf("Премьер-министр", "Министр иностранных дел")
         mutable.value = PresidentUiState(
             loading = false, authorized = true,
             isAdmin = statusJson.bool("is_admin"),
             term = statusJson.optJSONObject("term"),
             laws = lawsResult.data?.array("laws") ?: emptyList(),
             applications = applicationsResult.data?.array("applications") ?: emptyList(),
-            error = lawsResult.error ?: applicationsResult.error,
+            subjects = subjectsResult.data?.array("subjects") ?: emptyList(),
+            assignableRoles = (subjectsResult.data?.array("roles") ?: emptyList())
+                .filter { it.string("name") in allowedRoleNames },
+            error = lawsResult.error ?: applicationsResult.error ?: subjectsResult.error,
             message = successMessage
         )
     }
@@ -88,6 +95,14 @@ private class PresidentViewModel : ViewModel() {
                 load(token, success)
             }
         }
+    }
+
+    fun assignRole(token: String, subjectId: Int, roleId: Int) {
+        submit(
+            token, "PUT", "/api/president/roles",
+            JSONObject().put("subject_id", subjectId).put("role_id", roleId).put("assigned", true),
+            "Должность назначена. Сервер проверил полномочия и ограничение одной должности на человека."
+        )
     }
 
     fun reviewApplication(token: String, id: Int, status: String) {
@@ -136,6 +151,11 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
     var dissolveDialog by remember { mutableStateOf(false) }
     var lawToDecide by remember { mutableStateOf<Pair<Int, String>?>(null) }
     var applicationToReview by remember { mutableStateOf<Pair<Int, String>?>(null) }
+    var appointmentDialog by remember { mutableStateOf(false) }
+    var selectedSubject by remember { mutableStateOf<JSONObject?>(null) }
+    var selectedRole by remember { mutableStateOf<JSONObject?>(null) }
+    var subjectMenuExpanded by remember { mutableStateOf(false) }
+    var roleMenuExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(token, refresh) { vm.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -184,6 +204,32 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Bad),
                             modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp)) {
                             Text("Рассмотреть роспуск")
+                        }
+                    }
+                }
+            }
+            item {
+                PresidentAction(
+                    "Кадровые назначения",
+                    "Премьер-министр и министр иностранных дел",
+                    Modifier.fillMaxWidth(), !state.busy
+                ) { appointmentDialog = true }
+            }
+            item { Text("НАЗНАЧЕННЫЕ ДОЛЖНОСТИ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
+            val appointed = state.subjects.filter { subject ->
+                subject.array("roles").any { role -> role.string("name") in setOf("Премьер-министр", "Министр иностранных дел") }
+            }
+            if (appointed.isEmpty()) {
+                item { PresidentNotice("Должности пока не назначены", "Президент может назначить Премьер-министра и Министра иностранных дел.") }
+            } else {
+                items(appointed, key = { "appointment-${it.optInt("id")}" }) { subject ->
+                    val roleNames = subject.array("roles").map { it.string("name") }
+                        .filter { it == "Премьер-министр" || it == "Министр иностранных дел" }
+                    Surface(color = CardColor, shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(14.dp))) {
+                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(subject.string("full_name", "Должностное лицо"), color = White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(roleNames.joinToString(" · "), color = Pink, fontSize = 9.sp)
                         }
                     }
                 }
@@ -313,6 +359,66 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                 TextButton(enabled = !state.busy, onClick = { vm.dissolve(token); dissolveDialog = false }) { Text("Да, распустить", color = Bad) }
             },
             dismissButton = { TextButton(onClick = { dissolveDialog = false }) { Text("Отмена", color = Muted) } }
+        )
+    }
+
+    if (appointmentDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) appointmentDialog = false },
+            containerColor = Panel,
+            title = { Text("Кадровое назначение", color = White) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("Президент может назначить только Премьер-министра и Министра иностранных дел. Каждая должность может принадлежать одному человеку.", color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
+                    Box {
+                        OutlinedButton(onClick = { roleMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(selectedRole?.string("name") ?: "Выберите должность", color = White)
+                        }
+                        DropdownMenu(expanded = roleMenuExpanded, onDismissRequest = { roleMenuExpanded = false }) {
+                            state.assignableRoles.forEach { role ->
+                                DropdownMenuItem(
+                                    text = { Text(role.string("name")) },
+                                    onClick = { selectedRole = role; roleMenuExpanded = false }
+                                )
+                            }
+                        }
+                    }
+                    Box {
+                        OutlinedButton(onClick = { subjectMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text(selectedSubject?.string("full_name") ?: "Выберите человека", color = White)
+                        }
+                        DropdownMenu(
+                            expanded = subjectMenuExpanded,
+                            onDismissRequest = { subjectMenuExpanded = false }
+                        ) {
+                            state.subjects.forEach { subject ->
+                                DropdownMenuItem(
+                                    text = { Text(subject.string("full_name", "Участник ДКД")) },
+                                    onClick = { selectedSubject = subject; subjectMenuExpanded = false }
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = selectedRole != null && selectedSubject != null && !state.busy,
+                    onClick = {
+                        vm.assignRole(token, selectedSubject!!.optInt("id"), selectedRole!!.optInt("id"))
+                        appointmentDialog = false
+                        selectedRole = null
+                        selectedSubject = null
+                    }
+                ) { Text("Назначить", color = Purple) }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    appointmentDialog = false
+                    selectedRole = null
+                    selectedSubject = null
+                }) { Text("Отмена", color = Muted) }
+            }
         )
     }
 
