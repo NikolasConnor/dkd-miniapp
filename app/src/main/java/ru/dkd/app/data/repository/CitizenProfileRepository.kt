@@ -1,6 +1,5 @@
 package ru.dkd.app.data.repository
 
-import org.json.JSONObject
 import ru.dkd.app.core.network.apiCall
 
 internal data class CitizenProfile(
@@ -33,13 +32,5 @@ internal class CitizenProfileRepository {
             ),
             error = response.error
         )
-    }
-
-    suspend fun setNewsNotifications(token: String, enabled: Boolean): String? {
-        val response = apiCall(
-            token, "PATCH", "/api/profile/news-preferences",
-            JSONObject().put("enabled", enabled)
-        )
-        return response.error
     }
 }
