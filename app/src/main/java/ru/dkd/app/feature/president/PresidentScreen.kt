@@ -71,14 +71,19 @@ private class PresidentViewModel : ViewModel() {
         if (!allowed) {
             mutable.value = PresidentUiState(
                 loading = false, authorized = false,
-                isAdmin = statusJson.bool("is_admin"),
+                isAdmin = isAdmin,
                 term = statusJson.optJSONObject("term")
             )
             return
         }
+        val isAdmin = statusJson.bool("is_admin")
         val lawsResult = apiCall(token, "GET", "/api/president/laws")
-        val applicationsResult = apiCall(token, "GET", "/api/president/applications")
-        val subjectsResult = apiCall(token, "GET", "/api/president/subjects")
+        // Главный администратор использует административные маршруты,
+        // доступные в опубликованном API; Президент — президентские маршруты.
+        val applicationsResult = apiCall(token, "GET",
+            if (isAdmin) "/api/admin/applications" else "/api/president/applications")
+        val subjectsResult = apiCall(token, "GET",
+            if (isAdmin) "/api/admin/subjects" else "/api/president/subjects")
         val electionsResult = apiCall(token, "GET", "/api/votes")
         val decreesResult = apiCall(token, "GET", "/api/president/decrees")
         val activityResult = apiCall(token, "GET", "/api/president/activity")
@@ -124,24 +129,30 @@ private class PresidentViewModel : ViewModel() {
 
     fun assignRole(token: String, subjectId: Int, roleId: Int) {
         submit(
-            token, "PUT", "/api/president/roles",
-            JSONObject().put("subject_id", subjectId).put("role_id", roleId).put("assigned", true),
+            token, "PUT",
+            if (mutable.value.isAdmin) "/api/admin/subjects/$subjectId/roles" else "/api/president/roles",
+            if (mutable.value.isAdmin) JSONObject().put("role_id", roleId).put("assigned", true)
+            else JSONObject().put("subject_id", subjectId).put("role_id", roleId).put("assigned", true),
             "Должность назначена. Сервер проверил полномочия и ограничение одной должности на человека."
         )
     }
 
     fun removeRole(token: String, subjectId: Int, roleId: Int) {
         submit(
-            token, "PUT", "/api/president/roles",
-            JSONObject().put("subject_id", subjectId).put("role_id", roleId).put("assigned", false),
+            token, "PUT",
+            if (mutable.value.isAdmin) "/api/admin/subjects/$subjectId/roles" else "/api/president/roles",
+            if (mutable.value.isAdmin) JSONObject().put("role_id", roleId).put("assigned", false)
+            else JSONObject().put("subject_id", subjectId).put("role_id", roleId).put("assigned", false),
             "Полномочия должностного лица прекращены."
         )
     }
 
     fun reviewApplication(token: String, id: Int, status: String) {
         submit(
-            token, "PATCH", "/api/president/applications/$id",
-            JSONObject().put("status", status).put("note", ""),
+            token, "PATCH",
+            if (mutable.value.isAdmin) "/api/admin/applications/$id" else "/api/president/applications/$id",
+            if (mutable.value.isAdmin) JSONObject().put("status", status).put("review_note", "")
+            else JSONObject().put("status", status).put("note", ""),
             if (status == "approved") "Заявление одобрено." else "Заявление отклонено."
         )
     }
