@@ -245,10 +245,12 @@ Applied in the native client:
 - App shell now has a matching branded header, five agreed government tabs, and a notification bell with unread count.
 - Notifications are wired into the native navigation graph and styled with the same card/border treatment.
 - Documents tab is now connected to the production-confirmed `GET /api/passport` and `GET /api/documents` contracts through a repository and ViewModel. It renders the citizen passport, current deputy mandate, presidential certificate, published presidential decrees, and only signed laws returned by the server. Document status is read from the server; a failed request is not misrepresented as an empty collection.
+- Elections tab now reads `/api/votes` through its own repository and ViewModel and renders presidential candidates, party lists, campaign status, and closed results in native cards.
+- Election casting is deliberately not enabled yet: production `core.cast_vote` does not enforce the agreed ban on party leaders voting in Duma elections. Hiding the button in Android is not a security boundary. The server-side rule must be implemented and deployed before native Duma voting is enabled.
 - Version bumped to `0.6.0` / versionCode `6`.
 
 Still outstanding in Stage 3:
-- Elections still leads to a clearly marked demonstration screen; its API contracts and native ballot interaction are not yet ported. Documents are now connected, but require live-account verification on a device.
+- Election lists/results are connected, but ballot submission remains disabled pending server-side enforcement of election eligibility, especially the party-leader Duma voting restriction. Documents and elections still require live-account verification on a device.
 - Remaining feature screens (President, Government, Duma, parties, laws, applications, and citizen services) still need individual native designs and API contract verification.
 - Need screenshot comparison on a real Android device against the Mini App at equivalent viewport sizes, then spacing/typography refinements.
 - Do not treat any placeholder action as a completed government service.
