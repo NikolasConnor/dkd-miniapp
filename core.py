@@ -23,6 +23,7 @@ import urllib.request
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable
+from election_rules import is_party_leader
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qsl
 
@@ -1676,6 +1677,10 @@ def cast_vote(user: dict, kind: str, election_id: int, option: str) -> dict:
     subject = get_subject(uid)
     if not subject or not subject.get("is_citizen"):
         raise DKDError(403, "Голосовать могут только граждане ДКД.")
+    if kind == "duma":
+        membership, party = active_membership(uid)
+        if is_party_leader(membership, party, uid):
+            raise DKDError(403, "Председатель политической партии не может голосовать на выборах в Государственную Думу.")
     election = one(db().table(ELECTION_TABLES[kind]).select(ELECTION_COLS).eq("id", int(election_id)).limit(1))
     if not election:
         raise DKDError(404, "Выборы не найдены.")
