@@ -34,7 +34,7 @@ import ru.dkd.app.feature.auth.LoginScreen
 import ru.dkd.app.feature.documents.DocumentsScreen
 import ru.dkd.app.feature.elections.ElectionsScreen
 import ru.dkd.app.feature.government.StateScreen
-import ru.dkd.app.feature.home.StubHomeScreen
+import ru.dkd.app.feature.home.HomeScreen
 import ru.dkd.app.feature.home.StubServiceScreen
 import ru.dkd.app.feature.notifications.NotificationsScreen
 import ru.dkd.app.feature.news.NewsScreen
@@ -237,13 +237,13 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                     modifier = Modifier.fillMaxSize()
                 ) {
                     composable("home") {
-                        StubHomeScreen(
+                        HomeScreen(
                             name = uiState.name,
                             role = uiState.role,
                             onOpen = {
                                 when (it) {
                                     "Новости" -> navController.navigate("news")
-                                    "Статус гражданина" -> navController.navigate("profile")
+                                    "Профиль" -> navController.navigate("profile")
                                     "Документы" -> navController.navigate("documents")
                                     "Выборы" -> navController.navigate("elections")
                                     "Государство" -> navController.navigate("government")
