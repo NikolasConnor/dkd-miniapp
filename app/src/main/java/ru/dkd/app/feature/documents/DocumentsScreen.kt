@@ -35,6 +35,8 @@ private data class DocumentItem(
 internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
     var loading by remember { mutableStateOf(true) }
     var hasPassport by remember { mutableStateOf(false) }
+    var passportLoadFailed by remember { mutableStateOf(false) }
+    var documentsLoadFailed by remember { mutableStateOf(false) }
     var passport by remember { mutableStateOf<JSONObject?>(null) }
     var mandates by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var presidentCertificates by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
@@ -48,10 +50,12 @@ internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
         val passportResult = apiCall(token, "GET", "/api/passport")
         val passportData = passportResult.data
         hasPassport = passportData?.optBoolean("has_passport", false) ?: false
+        passportLoadFailed = passportResult.error != null || passportData == null
         passport = passportData?.optJSONObject("passport")
 
         val documentsResult = apiCall(token, "GET", "/api/documents")
         val data = documentsResult.data
+        documentsLoadFailed = documentsResult.error != null || data == null
         mandates = data?.array("mandates") ?: emptyList()
         presidentCertificates = data?.array("president_certificate") ?: emptyList()
         decrees = data?.array("decrees") ?: emptyList()
@@ -83,6 +87,8 @@ internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
                         Text("Загружаем документы…", color = Muted, fontSize = 12.sp)
                     }
                 }
+            } else if (passportLoadFailed) {
+                EmptyDocumentNote("Паспорт не удалось загрузить", "Проверьте подключение и повторите обновление. Статус документа пока неизвестен.")
             } else if (hasPassport && passport != null) {
                 PassportCard(passport = passport!!)
             } else {
@@ -132,7 +138,7 @@ internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
         }
 
         item { SectionHeading("Президентские указы", decrees.size) }
-        if (decrees.isEmpty()) item { EmptyDocumentNote("Указов пока нет", "Здесь отображаются опубликованные президентские указы, доступные вашему аккаунту.") }
+        if (decrees.isEmpty() && !documentsLoadFailed) item { EmptyDocumentNote("Указов пока нет", "Здесь отображаются опубликованные президентские указы, доступные вашему аккаунту.") }
         items(decrees, key = { "decree-${it.optInt("id")}" }) { doc ->
             DocumentRow(
                 icon = "§",
@@ -147,7 +153,7 @@ internal fun DocumentsScreen(token: String, onError: (String) -> Unit) {
         }
 
         item { SectionHeading("Законы, подписанные Президентом", laws.size) }
-        if (laws.isEmpty()) item { EmptyDocumentNote("Подписанных законов пока нет", "В этот список попадают только законы со статусом «подписан».") }
+        if (laws.isEmpty() && !documentsLoadFailed) item { EmptyDocumentNote("Подписанных законов пока нет", "В этот список попадают только законы со статусом «подписан».") }
         items(laws, key = { "law-${it.optInt("id")}" }) { doc ->
             DocumentRow(
                 icon = "⚖",
