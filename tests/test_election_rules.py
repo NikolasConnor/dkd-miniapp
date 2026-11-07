@@ -1,6 +1,6 @@
 import unittest
 
-from election_rules import is_party_leader, president_can_close_duma_election
+from election_rules import is_party_leader, president_can_close_duma_election, president_can_decide_law
 
 
 class PartyLeaderEligibilityTests(unittest.TestCase):
@@ -50,6 +50,12 @@ class PresidentDumaElectionControlTests(unittest.TestCase):
         self.assertFalse(president_can_close_duma_election("scheduled"))
         self.assertFalse(president_can_close_duma_election("closed"))
         self.assertFalse(president_can_close_duma_election("unknown"))
+
+    def test_president_can_decide_only_duma_approved_law(self):
+        self.assertTrue(president_can_decide_law("awaiting_president"))
+        self.assertFalse(president_can_decide_law("under_duma_review"))
+        self.assertFalse(president_can_decide_law("active"))
+        self.assertFalse(president_can_decide_law("signed"))
 
 
 if __name__ == "__main__":
