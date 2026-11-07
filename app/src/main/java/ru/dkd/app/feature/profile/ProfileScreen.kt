@@ -22,6 +22,7 @@ internal fun ProfileScreen(token: String, onLogout: () -> Unit, onError: (String
     val viewModel: ProfileViewModel = viewModel()
     val state by viewModel.state.collectAsState()
     var refresh by remember { mutableIntStateOf(0) }
+    var editOpen by remember { mutableStateOf(false) }
 
     LaunchedEffect(token, refresh) { viewModel.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -72,6 +73,13 @@ internal fun ProfileScreen(token: String, onLogout: () -> Unit, onError: (String
                 }
             }
 
+            OutlinedButton(
+                onClick = { editOpen = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(13.dp),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Purple)
+            ) { Text("Изменить ФИО и аватар") }
+
             ProfileInfoRow("ГРАЖДАНСТВО", profile.citizenship)
             ProfileInfoRow("ПОЛИТИЧЕСКАЯ ПАРТИЯ", profile.partyName ?: "Не состоит в партии")
             Surface(color = CardColor, shape = RoundedCornerShape(17.dp),
@@ -89,6 +97,69 @@ internal fun ProfileScreen(token: String, onLogout: () -> Unit, onError: (String
                     )
                 }
             }
+        }
+
+        if (editOpen && profile != null) {
+            var editedName by remember(profile.fullName) { mutableStateOf(profile.fullName) }
+            var editedAvatar by remember(profile.avatarEmoji) { mutableStateOf(profile.avatarEmoji) }
+            val avatarRows = listOf(
+                listOf("👤", "👑", "🤴", "👸", "🫅", "🎖️", "🏛️", "⚖️", "🗳️"),
+                listOf("🏅", "🛡️", "😎", "🤓", "🧐", "🤠", "🤖", "👽", "🐺"),
+                listOf("🦊", "🦁", "🐯", "🐻", "🐼", "🦉", "🐉", "🦄", "🚀")
+            )
+            AlertDialog(
+                onDismissRequest = { if (!state.savingProfile) editOpen = false },
+                containerColor = Panel,
+                title = { Text("Редактировать профиль", color = White) },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        OutlinedTextField(
+                            value = editedName,
+                            onValueChange = { editedName = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            label = { Text("Фамилия, имя, отчество") }
+                        )
+                        Text("ВЫБЕРИТЕ АВАТАР", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                        avatarRows.forEach { row ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                row.forEach { emoji ->
+                                    Surface(
+                                        color = if (editedAvatar == emoji) Color(0x554F478F) else CardColor,
+                                        shape = RoundedCornerShape(9.dp),
+                                        modifier = Modifier.weight(1f).border(
+                                            1.dp,
+                                            if (editedAvatar == emoji) Purple else LineColor,
+                                            RoundedCornerShape(9.dp)
+                                        ).clickable { editedAvatar = emoji }
+                                    ) {
+                                        Text(
+                                            emoji,
+                                            modifier = Modifier.padding(vertical = 7.dp),
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                            fontSize = 18.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !state.savingProfile && editedName.trim().length >= 2,
+                        onClick = {
+                            viewModel.updateIdentity(token, editedName, editedAvatar)
+                            editOpen = false
+                        }
+                    ) { Text("Сохранить", color = Purple) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { editOpen = false }, enabled = !state.savingProfile) {
+                        Text("Отмена", color = Muted)
+                    }
+                }
+            )
         }
 
         Spacer(Modifier.weight(1f))
