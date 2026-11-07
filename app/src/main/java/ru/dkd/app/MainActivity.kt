@@ -183,6 +183,7 @@ private fun ConnectedApp(token: String, onLogout: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val baseUrl = BuildConfig.DKD_API_BASE_URL.trimEnd('/')
     LaunchedEffect(token) {
+        context.getSharedPreferences("dkd_session", Context.MODE_PRIVATE).edit().putString("session_token", token).apply()
         FirebaseMessaging.getInstance().token
             .addOnSuccessListener { fcmToken -> PushTokenRegistrar.register(context, token, fcmToken) }
     }
