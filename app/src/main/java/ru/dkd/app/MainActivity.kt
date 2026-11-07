@@ -345,7 +345,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         )
                     }
                     composable("admin") {
-                        AdminScreen(token = token, onBack = { navController.popBackStack() }, onError = { appViewModel.setError(it) })
+                        AdminScreen(token = token, onBack = { navController.popBackStack() }, onError = { appViewModel.setError(it) }, onNavigate = { route -> navController.navigate(route) })
                     }
                     composable("president") {
                         PresidentScreen(
