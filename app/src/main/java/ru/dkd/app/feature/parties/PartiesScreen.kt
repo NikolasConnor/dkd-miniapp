@@ -31,6 +31,7 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit, onManageCan
     var createOpen by remember { mutableStateOf(false) }
     var editParty by remember { mutableStateOf<JSONObject?>(null) }
     var kickTarget by remember { mutableStateOf<Triple<Int, Int, String>?>(null) }
+    var disbandTarget by remember { mutableStateOf<Pair<Int, String>?>(null) }
 
     LaunchedEffect(token, refresh) { viewModel.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -87,6 +88,7 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit, onManageCan
                     onLeave = { confirmLeave = true },
                     onEdit = { editParty = party },
                     onKick = { memberId, memberName -> kickTarget = Triple(party.optInt("id"), memberId, memberName) },
+                    onDisband = { disbandTarget = party.optInt("id") to party.string("name", "эту партию") },
                     onManageCandidates = onManageCandidates
                 )
             }
@@ -211,6 +213,31 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit, onManageCan
         )
     }
 
+    disbandTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) disbandTarget = null },
+            containerColor = Panel,
+            title = { Text("Распустить партию?", color = White) },
+            text = {
+                Text(
+                    "Партия «${target.second}» будет распущена, а её действующий состав удалён. Это действие нельзя отменить.",
+                    color = Muted, fontSize = 12.sp
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = !state.busy, onClick = {
+                    viewModel.disband(token, target.first)
+                    disbandTarget = null
+                }) { Text("Распустить", color = Bad) }
+            },
+            dismissButton = {
+                TextButton(onClick = { disbandTarget = null }, enabled = !state.busy) {
+                    Text("Отмена", color = Muted)
+                }
+            }
+        )
+    }
+
     if (confirmLeave) {
         AlertDialog(
             onDismissRequest = { confirmLeave = false },
@@ -238,6 +265,7 @@ private fun PartyCard(
     onLeave: () -> Unit,
     onEdit: () -> Unit,
     onKick: (Int, String) -> Unit,
+    onDisband: () -> Unit,
     onManageCandidates: () -> Unit
 ) {
     val id = party.optInt("id")
@@ -301,6 +329,13 @@ private fun PartyCard(
                     shape = RoundedCornerShape(11.dp)) {
                     Text("Настроить партию", color = Purple, fontSize = 11.sp)
                 }
+            }
+            if (canManage) {
+                OutlinedButton(
+                    onClick = onDisband, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(11.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Bad)
+                ) { Text("Распустить партию", fontSize = 11.sp) }
             }
             if (isMine) {
                 OutlinedButton(onClick = onLeave, enabled = !busy, modifier = Modifier.fillMaxWidth(),
