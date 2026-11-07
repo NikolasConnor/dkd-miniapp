@@ -30,54 +30,49 @@ internal fun StubSectionTitle(title: String, action: String? = null, onAction: (
 }
 
 @Composable
-internal fun StubHomeScreen(name: String, role: String, onOpen: (String) -> Unit, onState: () -> Unit) {
+internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, onState: () -> Unit) {
+    val services = listOf(
+        Triple("Выборы", "Голосования и официальные итоги", "☑"),
+        Triple("Документы", "Паспорт и действующие удостоверения", "▤"),
+        Triple("Государство", "Парламент и органы власти", "⌘"),
+        Triple("Партии", "Политические объединения ДКД", "♟")
+    )
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 17.dp)) {
         Spacer(Modifier.height(18.dp))
         Text("ЦИФРОВОЕ ГОСУДАРСТВО  ·  ДКД", color = Pink, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
         Spacer(Modifier.height(6.dp))
         Text("Привет, $name", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-        Text("Рады видеть вас снова", color = Muted, fontSize = 12.sp)
+        Text("Ваше пространство гражданина ДКД", color = Muted, fontSize = 12.sp)
         Spacer(Modifier.height(17.dp))
         Surface(
             shape = RoundedCornerShape(25.dp),
             color = Panel2,
-            modifier = Modifier.fillMaxWidth().border(
-                1.dp, Color(0xFF55508E), RoundedCornerShape(25.dp)
-            ).clickable { onOpen("Статус гражданина") }
+            modifier = Modifier.fillMaxWidth().border(1.dp, Color(0xFF55508E), RoundedCornerShape(25.dp))
+                .clickable { onOpen("Профиль") }
         ) {
             Box(
-                Modifier.background(
-                    Brush.linearGradient(listOf(Color(0xFF292B60), Color(0xFF25234D), Color(0xFF3B2860)))
-                ).padding(19.dp)
+                Modifier.background(Brush.linearGradient(listOf(Color(0xFF292B60), Color(0xFF25234D), Color(0xFF3B2860))))
+                    .padding(19.dp)
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Text("ВАШ ЦИФРОВОЙ СТАТУС", color = Color(0xFFC5C7FF), fontSize = 9.sp, letterSpacing = 1.4.sp, fontWeight = FontWeight.Bold)
+                    Text("ВАШ СТАТУС В ДКД", color = Color(0xFFC5C7FF), fontSize = 9.sp, letterSpacing = 1.4.sp, fontWeight = FontWeight.Bold)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("Гражданин ДКД", color = White, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                            Text(role, color = Color(0xFFD0D3F3), fontSize = 12.sp)
+                            Text(role, color = White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                            Text("Статус из вашего профиля", color = Color(0xFFD0D3F3), fontSize = 12.sp)
                         }
-                        Box(
-                            Modifier.size(57.dp).background(Color(0x338B7CFF), RoundedCornerShape(18.dp)),
-                            contentAlignment = Alignment.Center
-                        ) { Text("✦", color = Pink, fontSize = 31.sp) }
+                        Box(Modifier.size(57.dp).background(Color(0x338B7CFF), RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
+                            Text("✦", color = Pink, fontSize = 31.sp)
+                        }
                     }
                     Spacer(Modifier.height(5.dp))
-                    Text("Открыть цифровой профиль   ↗", color = Color(0xFFC5C7FF), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Открыть профиль  ↗", color = Color(0xFFC5C7FF), fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
         Spacer(Modifier.height(21.dp))
-        StubSectionTitle("Государственные услуги", "Все услуги", onState)
+        StubSectionTitle("Государственные разделы", "Государство", onState)
         Spacer(Modifier.height(10.dp))
-        val services = listOf(
-            Triple("Выборы", "Голосования и итоги", "☑"),
-            Triple("Документы", "Ваши удостоверения", "▤"),
-            Triple("Государство", "Органы власти", "⌘"),
-            Triple("Партии", "Политические объединения", "♟"),
-            Triple("Законы", "Законодательство", "§"),
-            Triple("Обращения", "Заявления граждан", "✉")
-        )
         services.chunked(2).forEach { pair ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 pair.forEach { item ->
@@ -96,28 +91,22 @@ internal fun StubHomeScreen(name: String, role: String, onOpen: (String) -> Unit
                 }
             }
         }
-        Spacer(Modifier.height(7.dp))
-        StubSectionTitle("Новости государства", "Все новости") { onOpen("Новости") }
-        Spacer(Modifier.height(9.dp))
+        Spacer(Modifier.height(5.dp))
         Surface(
             color = CardColor, shape = RoundedCornerShape(20.dp),
             modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(20.dp))
                 .clickable { onOpen("Новости") }
         ) {
-            Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                Box(
-                    Modifier.fillMaxWidth().height(112.dp).clip(RoundedCornerShape(15.dp))
-                        .background(Brush.linearGradient(listOf(Color(0xFF292B60), Color(0xFF3B2860)))),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text("ДКД", color = Color(0xFFBBD2F7), fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = 5.sp)
-                        Text("DIGITAL STATE", color = Color(0xFFC5C7FF), fontSize = 8.sp, letterSpacing = 3.sp)
-                    }
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(45.dp).background(Color(0x338B7CFF), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) {
+                    Text("✧", color = Pink, fontSize = 24.sp)
                 }
-                Text("Главные события ДКД", color = White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text("Официальные сообщения, решения и обновления государства", color = Muted, fontSize = 11.sp)
-                Text("ОТКРЫТЬ НОВОСТИ  →", color = Purple, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("Новости государства", color = White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Официальные сообщения и события ДКД", color = Muted, fontSize = 11.sp)
+                }
+                Text("→", color = Purple, fontSize = 20.sp)
             }
         }
         Spacer(Modifier.height(23.dp))
