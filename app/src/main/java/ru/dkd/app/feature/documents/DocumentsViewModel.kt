@@ -6,17 +6,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.json.JSONObject
+import ru.dkd.app.core.network.DkdDocumentDto
+import ru.dkd.app.core.network.PassportDto
 import ru.dkd.app.data.repository.DocumentsRepository
 
 internal data class DocumentsUiState(
     val loading: Boolean = true,
     val hasPassport: Boolean = false,
-    val passport: JSONObject? = null,
-    val mandates: List<JSONObject> = emptyList(),
-    val presidentCertificates: List<JSONObject> = emptyList(),
-    val decrees: List<JSONObject> = emptyList(),
-    val laws: List<JSONObject> = emptyList(),
+    val passport: PassportDto? = null,
+    val mandates: List<DkdDocumentDto> = emptyList(),
+    val presidentCertificates: List<DkdDocumentDto> = emptyList(),
+    val decrees: List<DkdDocumentDto> = emptyList(),
+    val laws: List<DkdDocumentDto> = emptyList(),
     val passportLoadFailed: Boolean = false,
     val documentsLoadFailed: Boolean = false,
     val error: String? = null
