@@ -122,9 +122,7 @@ internal fun AdminScreen(token: String, onBack: () -> Unit, onError: (String) ->
     ) {
         item {
             TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) { Text("← Назад", color = Purple) }
-            Text("СЛУЖЕБНЫЙ РАЗДЕЛ", color = Pink, fontSize = 9.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
-            Text("Панель администратора", color = White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-            Text("Управление участниками, должностями, гражданством и заявлениями.", color = Muted, fontSize = 11.sp)
+            DkdPageHeader("ЦЕНТР УПРАВЛЕНИЯ", "Администрирование", "Участники, должности, гражданство и заявления", "⚙")
         }
         if (state.loading) {
             item { AdminNotice("Проверяем доступ", "Получаем права и данные административной панели с сервера.") }
