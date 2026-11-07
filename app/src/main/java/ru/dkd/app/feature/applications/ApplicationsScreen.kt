@@ -65,6 +65,33 @@ private class ApplicationsViewModel : ViewModel() {
         }
     }
 
+    fun submitParty(token: String, name: String, emoji: String, description: String) {
+        viewModelScope.launch {
+            mutable.value = mutable.value.copy(sending = true, error = null, message = null)
+            val result = apiCall(
+                token, "POST", "/api/parties/applications",
+                JSONObject().put("name", name.trim()).put("emoji", emoji.trim().ifBlank { "🎭" })
+                    .put("description", description.trim())
+            )
+            if (result.error != null) {
+                mutable.value = mutable.value.copy(sending = false, error = result.error)
+            } else {
+                mutable.value = mutable.value.copy(
+                    sending = false, loading = true, applicationsLoaded = false,
+                    message = "Заявка на создание партии отправлена Президенту."
+                )
+                val refreshed = apiCall(token, "GET", "/api/applications")
+                val loaded = refreshed.error == null && refreshed.data?.has("applications") == true
+                mutable.value = mutable.value.copy(
+                    loading = false,
+                    applications = if (loaded) refreshed.data!!.array("applications") else mutable.value.applications,
+                    applicationsLoaded = loaded,
+                    error = refreshed.error
+                )
+            }
+        }
+    }
+
     fun submit(token: String, fullName: String, details: String) {
         viewModelScope.launch {
             mutable.value = mutable.value.copy(sending = true, error = null, message = null)
@@ -102,12 +129,16 @@ internal fun ApplicationsScreen(token: String, onBack: () -> Unit, onError: (Str
     val state by vm.state.collectAsState()
     var fullName by remember { mutableStateOf("") }
     var details by remember { mutableStateOf("") }
+    var partyName by remember { mutableStateOf("") }
+    var partyEmoji by remember { mutableStateOf("🎭") }
+    var partyDescription by remember { mutableStateOf("") }
     var refresh by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(token, refresh) { vm.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
 
     val pending = state.applications.any { it.string("kind") == "citizenship" && it.string("status") == "pending" }
+    val partyPending = state.applications.any { it.string("kind") == "party_creation" && it.string("status") == "pending" }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -171,6 +202,35 @@ internal fun ApplicationsScreen(token: String, onBack: () -> Unit, onError: (Str
                 }
             }
         }
+        if (state.profileLoaded && state.applicationsLoaded && state.isCitizen) {
+            item {
+                Surface(color = CardColor, shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(18.dp))) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Text("ЗАЯВКА НА СОЗДАНИЕ ПАРТИИ", color = Pink, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("Учредить политическую партию", color = White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text("Партия появится только после одобрения Президентом. Председателем станет заявитель.", color = Muted, fontSize = 10.sp, lineHeight = 15.sp)
+                        if (partyPending) {
+                            ApplicationNotice("Заявка уже у Президента", "Дождитесь решения по текущей заявке.")
+                        } else {
+                            OutlinedTextField(value = partyName, onValueChange = { partyName = it },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Название партии") })
+                            OutlinedTextField(value = partyEmoji, onValueChange = { partyEmoji = it.take(8) },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Эмодзи партии") })
+                            OutlinedTextField(value = partyDescription, onValueChange = { partyDescription = it },
+                                modifier = Modifier.fillMaxWidth(), minLines = 2, label = { Text("Программа / описание") })
+                            Button(onClick = { vm.submitParty(token, partyName, partyEmoji, partyDescription) },
+                                enabled = partyName.trim().length >= 2 && !state.sending,
+                                modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Purple)) {
+                                if (state.sending) CircularProgressIndicator(Modifier.size(17.dp), color = White, strokeWidth = 2.dp)
+                                else Text("Отправить Президенту", color = White)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         state.message?.let { msg -> item { ApplicationNotice("Готово", msg) } }
         item { Text("ИСТОРИЯ ЗАЯВЛЕНИЙ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
         if (state.loading && state.applications.isEmpty()) {
@@ -200,7 +260,11 @@ internal fun ApplicationsScreen(token: String, onBack: () -> Unit, onError: (Str
             Surface(color = CardColor, shape = RoundedCornerShape(15.dp),
                 modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(15.dp))) {
                 Column(Modifier.padding(13.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(if (application.string("kind") == "citizenship") "Гражданство ДКД" else "Обращение", color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(when (application.string("kind")) {
+                        "citizenship" -> "Гражданство ДКД"
+                        "party_creation" -> "Создание политической партии"
+                        else -> "Обращение"
+                    }, color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     Text(application.string("created_at").take(10), color = Muted, fontSize = 9.sp)
                     application.string("review_note").takeIf { it.isNotBlank() }?.let {
