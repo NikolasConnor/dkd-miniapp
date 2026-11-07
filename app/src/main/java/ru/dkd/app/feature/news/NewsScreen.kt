@@ -5,6 +5,16 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.media3.common.MediaItem
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.ui.PlayerView
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -111,6 +121,61 @@ internal fun NewsScreen(token: String, onError: (String) -> Unit) {
     }
 }
 
+@OptIn(UnstableApi::class)
+@Composable
+private fun NewsVideoPlayer(url: String, token: String) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val player = remember(url, token) {
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setDefaultRequestProperties(mapOf("Authorization" to "Bearer $token"))
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .build()
+            .apply {
+                setMediaItem(MediaItem.fromUri(url))
+                prepare()
+                playWhenReady = false
+            }
+    }
+
+    DisposableEffect(player, lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> player.pause()
+                Lifecycle.Event.ON_RESUME -> Unit
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            player.release()
+        }
+    }
+
+    Surface(
+        color = Color.Black,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        AndroidView(
+            factory = { viewContext ->
+                PlayerView(viewContext).apply {
+                    this.player = player
+                    useController = true
+                    controllerAutoShow = true
+                    setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING)
+                    resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                }
+            },
+            update = { it.player = player },
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+        )
+    }
+}
+
 @Composable
 private fun NewsCard(article: JSONObject, token: String, mediaEnabled: Boolean, onClick: () -> Unit) {
     val importance = article.string("importance")
@@ -152,11 +217,15 @@ private fun NewsCard(article: JSONObject, token: String, mediaEnabled: Boolean, 
                     contentScale = ContentScale.Crop
                 )
             } else if (mediaType == "video") {
-                Surface(color = Panel2, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
-                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("▶", color = Pink, fontSize = 22.sp)
-                        Spacer(Modifier.width(9.dp))
-                        Text("К новости прикреплено видео. Просмотр видео появится в следующем обновлении.", color = Muted, fontSize = 10.sp)
+                if (mediaEnabled) {
+                    NewsVideoPlayer(
+                        url = ru.dkd.app.core.network.API_BASE_URL + "/api/news/" + article.optInt("id") + "/media",
+                        token = token
+                    )
+                } else {
+                    Surface(color = Panel2, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                        Text("Видео будет доступно после восстановления соединения.", color = Muted,
+                            fontSize = 10.sp, modifier = Modifier.padding(12.dp))
                     }
                 }
             }
