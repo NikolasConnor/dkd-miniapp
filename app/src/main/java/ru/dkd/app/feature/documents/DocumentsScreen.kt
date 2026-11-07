@@ -250,25 +250,37 @@ private fun SectionHeading(title: String, count: Int) {
 @Composable
 private fun DocumentRow(icon: String, title: String, subtitle: String, status: String, onClick: () -> Unit) {
     Surface(
-        color = CardColor, shape = RoundedCornerShape(17.dp),
-        modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(17.dp)).clickable(onClick = onClick)
+        color = CardColor,
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth()
+            .border(1.dp, Color(0xFF55508E), RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick)
     ) {
-        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(43.dp).background(Color(0x338B7CFF), RoundedCornerShape(13.dp)),
-                contentAlignment = Alignment.Center
-            ) { Text(icon, color = Pink, fontSize = 21.sp) }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2)
-                Text(subtitle, color = Muted, fontSize = 10.sp, maxLines = 2)
-                Text(status, color = Good, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("ДКД  /  DIGITAL DOCUMENT", color = Pink, fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp,
+                    modifier = Modifier.weight(1f))
+                Text(status.uppercase(), color = Good, fontSize = 8.sp, fontWeight = FontWeight.Bold)
             }
-            Text("›", color = Purple, fontSize = 24.sp)
+            HorizontalDivider(color = Color.White.copy(alpha = .13f))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    Modifier.size(54.dp).background(Color(0x338B7CFF), RoundedCornerShape(15.dp)),
+                    contentAlignment = Alignment.Center
+                ) { Text(icon, color = Pink, fontSize = 27.sp) }
+                Spacer(Modifier.width(13.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, color = White, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                    Text(subtitle, color = Muted, fontSize = 10.sp, maxLines = 2)
+                }
+                Text("›", color = Purple, fontSize = 25.sp)
+            }
+            HorizontalDivider(color = Color.White.copy(alpha = .13f))
+            Text("Нажмите, чтобы открыть документ", color = Color(0xFFC5C7FF), fontSize = 9.sp)
         }
     }
 }
-
 @Composable
 private fun EmptyDocumentNote(title: String, description: String) {
     Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
