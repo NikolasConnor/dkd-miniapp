@@ -36,10 +36,23 @@ internal class StateRepository(context: Context) {
                         updatedAtEpochMs = now
                     )
                 )
+                val publicParties = JSONArray().apply {
+                    remoteParties.orEmpty().forEach { party ->
+                        put(
+                            JSONObject()
+                                .put("id", party.optInt("id"))
+                                .put("name", party.optString("name"))
+                                .put("emoji", party.optString("emoji"))
+                                .put("description", party.optString("description"))
+                                .put("color", party.optString("color"))
+                                .put("members_count", party.optInt("members_count"))
+                        )
+                    }
+                }
                 cache.put(
                     PublicCacheEntity(
                         cacheKey = PARTIES_KEY,
-                        payload = JSONArray(remoteParties).toString(),
+                        payload = publicParties.toString(),
                         updatedAtEpochMs = now
                     )
                 )
