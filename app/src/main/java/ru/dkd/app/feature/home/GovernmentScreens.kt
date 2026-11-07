@@ -62,17 +62,17 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
                 Text("✦", color = White, fontSize = 29.sp)
             }
         }
-        Spacer(Modifier.height(17.dp))
+        Spacer(Modifier.height(19.dp))
         Surface(
-            color = Panel2, shape = RoundedCornerShape(25.dp),
+            color = Panel2, shape = RoundedCornerShape(27.dp),
             modifier = Modifier.fillMaxWidth()
-                .border(1.dp, Color(0x665E8BFF), RoundedCornerShape(25.dp))
+                .border(1.dp, Color(0x776D8FFF), RoundedCornerShape(27.dp))
                 .clickable { onOpen("Профиль") }
         ) {
             Box(Modifier.background(
                 Brush.linearGradient(listOf(Color(0xFF29386C), Color(0xFF302B60), Color(0xFF20264A)))
             )) {
-                Column(Modifier.padding(19.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.padding(horizontal = 21.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("ВАШ СТАТУС В ГОСУДАРСТВЕ", color = Color(0xFFD0D5FF),
                             fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp,
@@ -96,7 +96,7 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
                 }
             }
         }
-        Spacer(Modifier.height(23.dp))
+        Spacer(Modifier.height(26.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text("Государство", color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
@@ -155,8 +155,8 @@ private fun HomeFeatureCard(
         color = CardColor,
         shape = RoundedCornerShape(22.dp),
         modifier = modifier
-            .height(172.dp)
-            .border(1.dp, LineColor, RoundedCornerShape(22.dp))
+            .height(178.dp)
+            .border(1.dp, Color(0xFF3A426F), RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
     ) {
         Column(
@@ -164,11 +164,11 @@ private fun HomeFeatureCard(
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Box(
-                Modifier.size(49.dp)
-                    .background(Color(0x338B7CFF), RoundedCornerShape(16.dp)),
+                Modifier.size(54.dp)
+                    .background(Brush.linearGradient(listOf(Color(0x554F70D5), Color(0x558B7CFF))), RoundedCornerShape(17.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(icon, color = Pink, fontSize = 27.sp, fontWeight = FontWeight.Medium)
+                Text(icon, color = Pink, fontSize = 29.sp, fontWeight = FontWeight.Medium)
             }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
