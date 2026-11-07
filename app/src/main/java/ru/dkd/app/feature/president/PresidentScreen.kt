@@ -44,6 +44,7 @@ private data class PresidentUiState(
     val decreesLoaded: Boolean = false,
     val activity: List<JSONObject> = emptyList(),
     val activityLoaded: Boolean = false,
+    val decreeExecutionAvailable: Boolean = false,
     val assignableRoles: List<JSONObject> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
@@ -98,9 +99,12 @@ private class PresidentViewModel : ViewModel() {
             decreesLoaded = decreesResult.error == null && decreesResult.data?.has("decrees") == true,
             activity = activityResult.data?.array("activity") ?: emptyList(),
             activityLoaded = activityResult.error == null && activityResult.data?.has("activity") == true,
+            decreeExecutionAvailable = activityResult.error == null && activityResult.data?.has("activity") == true,
             assignableRoles = (subjectsResult.data?.array("roles") ?: emptyList())
                 .filter { it.string("name") in allowedRoleNames },
-            error = lawsResult.error ?: applicationsResult.error ?: subjectsResult.error ?: electionsResult.error ?: decreesResult.error ?: activityResult.error,
+            // Activity/decree-execution routes may be newer than the deployed backend.
+            // Keep core presidential actions usable while showing the unavailable history explicitly.
+            error = lawsResult.error ?: applicationsResult.error ?: subjectsResult.error ?: electionsResult.error ?: decreesResult.error,
             message = successMessage
         )
     }
@@ -267,7 +271,9 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                             decree.string("execution_note").takeIf { it.isNotBlank() }?.let {
                                 Text("Отметка: $it", color = Muted, fontSize = 9.sp)
                             }
-                            if (executionStatus != "completed") {
+                            if (!state.decreeExecutionAvailable) {
+                                Text("Контроль исполнения будет доступен после обновления серверного API.", color = Muted, fontSize = 9.sp)
+                            } else if (executionStatus != "completed") {
                                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                                     TextButton(enabled = !state.busy, onClick = {
                                         decreeToUpdate = Triple(decreeId, "in_progress", "Указ принят к исполнению")
