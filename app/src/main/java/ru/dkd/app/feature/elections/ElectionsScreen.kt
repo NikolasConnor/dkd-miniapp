@@ -115,6 +115,7 @@ private fun ElectionCard(election: JSONObject, kind: String, busy: Boolean, onVo
     val isActive = status == "active"
     val isClosed = status == "closed"
     val hasVoted = election.bool("has_voted")
+    val canVote = election.bool("can_vote", true)
     val options = election.array("candidate_details")
     val parties = election.array("party_lists")
     val results = election.optJSONObject("vote_counts")
@@ -212,7 +213,7 @@ private fun ElectionCard(election: JSONObject, kind: String, busy: Boolean, onVo
                             Text(party.string("party_emoji", "🎭"), fontSize = 20.sp)
                             Spacer(Modifier.width(8.dp))
                             Text(party.string("party_name", "Партия"), color = White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                            if (isActive && !hasVoted) {
+                            if (isActive && !hasVoted && canVote) {
                                 TextButton(
                                     enabled = !busy,
                                     onClick = {
@@ -258,7 +259,9 @@ private fun ElectionCard(election: JSONObject, kind: String, busy: Boolean, onVo
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        if (kind == "duma") "Выберите партийный список и подтвердите голос. Сервер проверит право голоса и не примет повторный бюллетень." else "Выберите кандидата выше и подтвердите отправку голоса.",
+                        if (kind == "duma" && !canVote) election.string("vote_block_reason", "Вы не можете голосовать на этих выборах.")
+                        else if (kind == "duma") "Выберите партийный список и подтвердите голос. Сервер проверит право голоса и не примет повторный бюллетень."
+                        else "Выберите кандидата выше и подтвердите отправку голоса.",
                         color = Color(0xFFD7D2FF), fontSize = 10.sp, lineHeight = 15.sp,
                         modifier = Modifier.padding(11.dp)
                     )
