@@ -41,6 +41,36 @@ internal class PartiesViewModel : ViewModel() {
         }
     }
 
+    fun create(token: String, name: String, emoji: String, description: String) {
+        viewModelScope.launch {
+            if (mutableState.value.busy) return@launch
+            val cleanName = name.trim()
+            if (cleanName.length !in 2..60) {
+                mutableState.value = mutableState.value.copy(error = "Название партии должно содержать от 2 до 60 символов.")
+                return@launch
+            }
+            mutableState.value = mutableState.value.copy(busy = true, error = null, message = null)
+            val result = apiCall(
+                token, "POST", "/api/parties",
+                JSONObject().put("name", cleanName).put("emoji", emoji).put("description", description.trim())
+            )
+            if (result.error != null) {
+                mutableState.value = mutableState.value.copy(busy = false, error = result.error)
+            } else {
+                val refreshed = repository.load(token)
+                mutableState.value = mutableState.value.copy(
+                    loading = false,
+                    busy = false,
+                    parties = refreshed.parties,
+                    isCitizen = refreshed.isCitizen,
+                    myPartyId = refreshed.myPartyId,
+                    error = refreshed.error,
+                    message = "Политическая партия создана."
+                )
+            }
+        }
+    }
+
     fun join(token: String, partyId: Int) {
         mutate(token, "/api/parties/$partyId/join", "POST", "Вы вступили в партию.")
     }
