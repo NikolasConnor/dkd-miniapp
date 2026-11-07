@@ -210,7 +210,14 @@ private fun PassportCard(passport: JSONObject) {
                     Text("НОМЕР ДОКУМЕНТА", color = Muted, fontSize = 8.sp, letterSpacing = .8.sp)
                     Text(passport.string("number"), color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
                 }
-                Text("ДЕЙСТВИТЕЛЕН", color = Good, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = .6.sp)
+                val active = passport.string("status") == "active"
+                Text(
+                    passport.string("status_label", if (active) "Действителен" else "Аннулирован").uppercase(),
+                    color = if (active) Good else Bad,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = .6.sp
+                )
             }
             HorizontalDivider(color = Color.White.copy(alpha = .16f))
             Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
