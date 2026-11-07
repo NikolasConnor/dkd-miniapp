@@ -39,7 +39,7 @@ private data class AdminUiState(
     val message: String? = null
 )
 
-private class AdminViewModel : ViewModel() {
+internal class AdminViewModel : ViewModel() {
     private val mutable = MutableStateFlow(AdminUiState())
     val state = mutable.asStateFlow()
 
