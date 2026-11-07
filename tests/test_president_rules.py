@@ -22,6 +22,21 @@ class PresidentRoleRulesTests(unittest.TestCase):
             {"in_progress", "completed", "suspended"},
         )
 
+    def test_president_activity_uses_the_actual_application_audit_action(self):
+        self.assertIn("president_application_reviewed", core.PRESIDENT_ACTIVITY_ACTIONS)
+        self.assertNotIn("application_reviewed", core.PRESIDENT_ACTIVITY_ACTIONS)
+
+    def test_personal_certificates_and_mandates_are_not_decrees(self):
+        self.assertFalse(core._is_presidential_decree_record(
+            {"title": "Удостоверение Президента ДКД"}
+        ))
+        self.assertFalse(core._is_presidential_decree_record(
+            {"title": "Мандат депутата Госдумы · созыв №2"}
+        ))
+        self.assertTrue(core._is_presidential_decree_record(
+            {"title": "О назначении государственного праздника"}
+        ))
+
 
 class PresidentApiPermissionTests(unittest.TestCase):
     def test_mutating_president_routes_require_president_dependency(self):
