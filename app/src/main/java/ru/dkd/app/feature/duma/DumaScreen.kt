@@ -39,7 +39,7 @@ private data class DumaState(
     val message: String? = null
 )
 
-private class DumaViewModel : ViewModel() {
+internal class DumaViewModel : ViewModel() {
     private val mutable = MutableStateFlow(DumaState())
     val state = mutable.asStateFlow()
 
