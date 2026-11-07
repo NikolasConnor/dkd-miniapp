@@ -12,6 +12,7 @@ import okhttp3.ResponseBody
 import org.json.JSONObject
 import retrofit2.Response
 import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 import ru.dkd.app.BuildConfig
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -36,6 +37,7 @@ private val retrofitService: DkdApiService by lazy {
     Retrofit.Builder()
         .baseUrl("$API_BASE_URL/")
         .client(httpClient)
+        .addConverterFactory(GsonConverterFactory.create())
         .build()
         .create(DkdApiService::class.java)
 }
@@ -102,12 +104,15 @@ private suspend fun executeApi(
 
 internal suspend fun redeemLoginCode(code: String): ApiResult = withContext(Dispatchers.IO) {
     try {
-        val payload = JSONObject().put("code", code.trim())
-        val result = executeApi(null, "POST", "/api/android/auth/redeem", payload)
-        val token = result.data?.optString("session_token")
-            ?.takeIf { it.isNotBlank() && it != "null" }
-        if (token == null) ApiResult(error = result.error ?: "Сервер не вернул токен сессии.")
-        else ApiResult(token = token)
+        val response = retrofitService.redeemLogin(RedeemLoginRequest(code.trim()))
+        if (!response.isSuccessful) {
+            val errorBody = response.errorBody()?.string().orEmpty()
+            ApiResult(error = errorFrom(response.code(), errorBody))
+        } else {
+            val token = response.body()?.session_token?.takeIf { it.isNotBlank() }
+            if (token == null) ApiResult(error = "Сервер не вернул токен сессии.")
+            else ApiResult(token = token)
+        }
     } catch (e: Exception) {
         ApiResult(error = exceptionMessage(e))
     }
