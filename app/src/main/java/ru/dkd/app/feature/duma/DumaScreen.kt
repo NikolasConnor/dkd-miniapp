@@ -110,14 +110,12 @@ internal fun DumaScreen(token: String, onBack: () -> Unit, onError: (String) -> 
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(horizontal = 17.dp, vertical = 17.dp),
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 19.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp)
     ) {
         item {
             TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) { Text("←  Назад", color = Purple) }
-            Text("ПАРЛАМЕНТ ДКД", color = Pink, fontSize = 9.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
-            Text("Государственная Дума", color = White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
-            Text("Заседания, законопроекты и парламентские голосования", color = Muted, fontSize = 11.sp)
+            DkdPageHeader("ЗАКОНОДАТЕЛЬНАЯ ВЛАСТЬ", "Государственная Дума", "Заседания, законопроекты и парламентские голосования", "⚖")
         }
         if (state.loading) {
             item { DumaNotice("Проверяем полномочия депутата…", "Доступ подтверждается сервером ДКД.") }
