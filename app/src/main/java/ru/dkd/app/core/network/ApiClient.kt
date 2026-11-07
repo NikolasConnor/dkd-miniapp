@@ -46,6 +46,26 @@ internal data class ApiResult(val token: String? = null, val error: String? = nu
 internal data class NetResult(val data: JSONObject? = null, val error: String? = null)
 internal data class DtoResult<T>(val data: T? = null, val error: String? = null)
 
+internal suspend fun loadProfileDto(token: String): DtoResult<ProfileEnvelopeDto> = withContext(Dispatchers.IO) {
+    try {
+        val response = retrofitService.getProfile("Bearer $token")
+        if (response.isSuccessful) DtoResult(data = response.body())
+        else DtoResult(error = errorFrom(response.code(), response.errorBody()?.string().orEmpty()))
+    } catch (e: Exception) {
+        DtoResult(error = exceptionMessage(e))
+    }
+}
+
+internal suspend fun loadNotificationSummaryDto(token: String): DtoResult<NotificationSummaryDto> = withContext(Dispatchers.IO) {
+    try {
+        val response = retrofitService.getNotificationSummary("Bearer $token")
+        if (response.isSuccessful) DtoResult(data = response.body())
+        else DtoResult(error = errorFrom(response.code(), response.errorBody()?.string().orEmpty()))
+    } catch (e: Exception) {
+        DtoResult(error = exceptionMessage(e))
+    }
+}
+
 internal suspend fun loadPassportDto(token: String): DtoResult<PassportEnvelopeDto> = withContext(Dispatchers.IO) {
     try {
         val response = retrofitService.getPassport("Bearer $token")
