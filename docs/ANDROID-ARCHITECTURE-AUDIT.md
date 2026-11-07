@@ -326,3 +326,12 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - The app uses Navigation Compose, feature ViewModels/StateFlow, repositories, and encrypted Keystore session/profile cache.
 - This is not yet a Retrofit + Kotlin Serialization typed-DTO architecture. Most endpoint payloads still use `JSONObject`.
 - Room cache, background sync, Gradle wrapper, complete service coverage, and physical device verification remain outstanding.
+
+
+### Stage 3 implementation log — party administration and parliamentary map
+
+- Party chairs can now edit party name, emoji, description, and color via `PUT /api/parties/{party_id}`. The backend remains authoritative and synchronizes the historical roster labels.
+- Party chairs and administrators with server management permission can remove ordinary members via `DELETE /api/parties/{party_id}/members/{member_id}`; the UI asks for confirmation and does not offer removal for the party leader.
+- The party chair can open a dedicated native candidate-list editor. It reads `GET /api/elections/duma/party-template` and saves selected member Telegram IDs with `PUT /api/elections/duma/party-template`. The backend verifies party leadership and membership, and synchronizes only unfinished Duma campaigns. This lets the chair prepare the list before an election is opened.
+- The State screen now renders a proportional seat-composition bar and party legend from `GET /api/parliament-roster`. It uses each party's current server-provided color, so changing a party color updates the parliament composition display on the next refresh.
+- These additions are source/API-contract reviewed; they are not considered build-verified or device-tested until the latest CI and physical-device checks complete.
