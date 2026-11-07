@@ -11,7 +11,6 @@ internal fun publicParliamentSnapshot(source: JSONObject): JSONObject {
             put(
                 JSONObject()
                     .put("full_name", member.optString("full_name"))
-                    .put("party_id", member.opt("party_id"))
                     .put("party_name", member.optString("party_name"))
                     .put("seats", member.optInt("seats"))
             )
