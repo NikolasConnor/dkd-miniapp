@@ -342,3 +342,12 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - The party candidate-list editor preserves the order in which candidates are selected and includes up/down controls to explicitly change their order before saving. The backend persists that order in the party template and propagates it to open campaigns.
 - The President administration now loads citizen applications from `GET /api/president/applications` and supports approve/reject decisions through `PATCH /api/president/applications/{application_id}`. Each decision requires confirmation; citizenship approval triggers passport issuance on the backend and the applicant receives a server notification.
 - This feature set remains pending the current Android build and real-account verification.
+
+
+### Stage 3 implementation log — presidential administration
+
+- The native President workspace now reads the President-only subject and assignable-role directory and supports appointment of the Prime Minister and Foreign Minister through `PUT /api/president/roles`.
+- The interface deliberately exposes only those two presidentially assignable positions; the backend enforces one holder per limited role and rejects unauthorized assignments.
+- The President can review citizen applications directly in Android: approval/rejection is confirmed before sending; approval of citizenship causes the server to issue the passport and notify the applicant.
+- The President can publish decrees, sign/veto laws, schedule Duma elections, and dissolve the Duma using the existing server-authorized routes. All actions require server-side role checks; no local role grants are performed.
+- These additions are awaiting the latest Android CI run and still require live-account testing.
