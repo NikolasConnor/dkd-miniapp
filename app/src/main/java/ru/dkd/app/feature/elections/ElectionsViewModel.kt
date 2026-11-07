@@ -43,13 +43,15 @@ internal class ElectionsViewModel : ViewModel() {
 
     fun refresh(token: String) {
         viewModelScope.launch {
+            val previousMessage = mutableState.value.message
             mutableState.value = mutableState.value.copy(loading = true, error = null)
             val result = repository.load(token)
             mutableState.value = ElectionsUiState(
                 loading = false,
                 presidential = result.presidential,
                 duma = result.duma,
-                error = result.error
+                error = result.error,
+                message = previousMessage
             )
         }
     }
