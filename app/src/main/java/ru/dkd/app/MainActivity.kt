@@ -1,8 +1,8 @@
 package ru.dkd.app
 
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -17,10 +17,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
-import ru.dkd.app.core.common.string
 import ru.dkd.app.core.design.*
-import ru.dkd.app.core.network.apiCall
 import ru.dkd.app.core.network.redeemLoginCode
 import ru.dkd.app.core.network.revokeSession
 import ru.dkd.app.core.security.SessionStore
@@ -30,6 +35,7 @@ import ru.dkd.app.feature.home.StubHomeScreen
 import ru.dkd.app.feature.home.StubProfileScreen
 import ru.dkd.app.feature.home.StubServiceScreen
 import ru.dkd.app.feature.notifications.NotificationsScreen
+import ru.dkd.app.feature.shell.DkdViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,8 +58,7 @@ private fun DKDApp() {
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Purple, onPrimary = White, background = Navy,
-            surface = Panel, onSurface = White, secondary = Blue,
-            error = Bad
+            surface = Panel, onSurface = White, secondary = Blue, error = Bad
         )
     ) {
         if (token.isNullOrBlank()) {
@@ -103,35 +108,18 @@ private fun DKDApp() {
 
 @Composable
 private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -> Unit) {
-    var tab by remember { mutableIntStateOf(0) }
-    var detail by remember { mutableStateOf<String?>(null) }
-    var toast by remember { mutableStateOf(logoutError) }
-    var name by remember { mutableStateOf("Гражданин") }
-    var role by remember { mutableStateOf("Участник ДКД") }
-    var unreadCount by remember { mutableIntStateOf(0) }
-    val scope = rememberCoroutineScope()
+    val navController = rememberNavController()
+    val appViewModel: DkdViewModel = viewModel()
+    val uiState by appViewModel.state.collectAsState()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = backStackEntry?.destination?.route
 
-    BackHandler(enabled = detail != null) { detail = null }
-
-    LaunchedEffect(token) {
-        val profileResult = apiCall(token, "GET", "/api/profile")
-        val profile = profileResult.data?.optJSONObject("profile") ?: profileResult.data
-        val full = profile?.optString("full_name").orEmpty()
-        if (full.isNotBlank() && full != "null") {
-            name = full.trim().split(Regex("\\s+")).first()
-        }
-        role = profile?.optString("role")
-            ?.takeIf { !it.isNullOrBlank() && it != "null" } ?: "Участник ДКД"
-
-        val notifications = apiCall(token, "GET", "/api/notifications")
-        unreadCount = notifications.data?.optInt("unread_count", 0) ?: 0
-    }
+    LaunchedEffect(token) { appViewModel.refresh(token) }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Purple, onPrimary = White, background = Navy,
-            surface = Panel, onSurface = White, secondary = Blue,
-            error = Bad
+            surface = Panel, onSurface = White, secondary = Blue, error = Bad
         )
     ) {
         Scaffold(
@@ -145,32 +133,34 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                     horizontalArrangement = Arrangement.SpaceAround,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val labels = listOf("Главная", "Государство", "Документы", "Выборы", "Профиль")
-                    val icons = listOf("⌂", "⌘", "▤", "☑", "◉")
-                    labels.forEachIndexed { index, label ->
-                        val active = tab == index && detail == null
+                    val tabs = listOf(
+                        Triple("Главная", "⌂", "home"),
+                        Triple("Государство", "⌘", "government"),
+                        Triple("Документы", "▤", "documents"),
+                        Triple("Выборы", "☑", "elections"),
+                        Triple("Профиль", "◉", "profile")
+                    )
+                    tabs.forEach { (label, icon, route) ->
+                        val active = currentRoute == route
                         Column(
                             Modifier.weight(1f)
                                 .background(
                                     if (active) Color(0x338B7CFF) else Color.Transparent,
                                     RoundedCornerShape(14.dp)
                                 )
-                                .clickable { tab = index; detail = null }
+                                .clickable {
+                                    navController.navigate(route) {
+                                        popUpTo("home") { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
                                 .padding(vertical = 8.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text(
-                                icons[index],
-                                color = if (active) Pink else Muted,
-                                fontSize = 20.sp
-                            )
-                            Text(
-                                label,
-                                color = if (active) White else Muted,
-                                fontSize = 9.sp,
-                                maxLines = 1
-                            )
+                            Text(icon, color = if (active) Pink else Muted, fontSize = 20.sp)
+                            Text(label, color = if (active) White else Muted, fontSize = 9.sp, maxLines = 1)
                         }
                     }
                 }
@@ -182,34 +172,27 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                     .padding(padding)
             ) {
                 Row(
-                    Modifier.fillMaxWidth()
-                        .background(Panel.copy(alpha = .94f))
+                    Modifier.fillMaxWidth().background(Panel.copy(alpha = .94f))
                         .padding(horizontal = 17.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
-                        Modifier.size(39.dp)
-                            .background(
-                                Brush.linearGradient(listOf(Blue, Purple)),
-                                RoundedCornerShape(13.dp)
-                            ),
+                        Modifier.size(39.dp).background(
+                            Brush.linearGradient(listOf(Blue, Purple)),
+                            RoundedCornerShape(13.dp)
+                        ),
                         contentAlignment = Alignment.Center
-                    ) {
-                        Text("Д", color = White, fontSize = 21.sp, fontWeight = FontWeight.Black)
-                    }
+                    ) { Text("Д", color = White, fontSize = 21.sp, fontWeight = FontWeight.Black) }
                     Spacer(Modifier.width(10.dp))
-                    Column(
-                        Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(1.dp)
-                    ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
                         Text("ДКД", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         Text("NEXORA GROUP", color = Muted, fontSize = 8.sp, letterSpacing = 2.sp)
                     }
                     Box {
-                        TextButton(onClick = { detail = "Уведомления" }) {
-                            Text("♧", color = White, fontSize = 21.sp)
+                        TextButton(onClick = { navController.navigate("notifications") }) {
+                            Text("♢", color = White, fontSize = 23.sp)
                         }
-                        if (unreadCount > 0) {
+                        if (uiState.unreadCount > 0) {
                             Box(
                                 Modifier.align(Alignment.TopEnd)
                                     .defaultMinSize(minWidth = 17.dp, minHeight = 17.dp)
@@ -218,69 +201,87 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    if (unreadCount > 99) "99+" else unreadCount.toString(),
+                                    if (uiState.unreadCount > 99) "99+" else uiState.unreadCount.toString(),
                                     color = White, fontSize = 9.sp, fontWeight = FontWeight.Bold
                                 )
                             }
                         }
                     }
-                    TextButton(onClick = onLogout) {
-                        Text("Выйти", color = Muted, fontSize = 10.sp)
-                    }
+                    TextButton(onClick = onLogout) { Text("Выйти", color = Muted, fontSize = 10.sp) }
                 }
 
-                if (toast != null) {
-                    Surface(
-                        color = Color(0xFF3A263F),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                val visibleError = uiState.error ?: logoutError
+                if (visibleError != null) {
+                    Surface(color = Color(0xFF3A263F), modifier = Modifier.fillMaxWidth()) {
                         Row(
                             Modifier.padding(horizontal = 13.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(toast!!, color = White, fontSize = 11.sp, modifier = Modifier.weight(1f))
-                            TextButton(onClick = { toast = null }) {
+                            Text(visibleError, color = White, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                            TextButton(onClick = { appViewModel.clearError() }) {
                                 Text("Закрыть", color = Pink)
                             }
                         }
                     }
                 }
 
-                when {
-                    detail == "Уведомления" -> NotificationsScreen(
-                        token = token,
-                        onBack = { detail = null },
-                        onUnreadChanged = { unreadCount = it },
-                        onError = { toast = it }
-                    )
-                    detail != null -> StubServiceScreen(
-                        title = detail!!,
-                        onBack = { detail = null },
-                        onInfo = { toast = it }
-                    )
-                    tab == 0 -> StubHomeScreen(
-                        name = name,
-                        role = role,
-                        onOpen = { detail = it },
-                        onState = { tab = 1 }
-                    )
-                    tab == 1 -> StubGovernmentScreen(onOpen = { detail = it })
-                    tab == 2 -> StubServiceScreen(
-                        "Документы",
-                        onBack = { detail = null },
-                        onInfo = { toast = it }
-                    )
-                    tab == 3 -> StubServiceScreen(
-                        "Выборы",
-                        onBack = { detail = null },
-                        onInfo = { toast = it }
-                    )
-                    else -> StubProfileScreen(
-                        name = name,
-                        role = role,
-                        onLogout = onLogout,
-                        onOpen = { detail = it }
-                    )
+                NavHost(
+                    navController = navController,
+                    startDestination = "home",
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    composable("home") {
+                        StubHomeScreen(
+                            name = uiState.name,
+                            role = uiState.role,
+                            onOpen = { navController.navigate("detail/\${Uri.encode(it)}") },
+                            onState = { navController.navigate("government") }
+                        )
+                    }
+                    composable("government") {
+                        StubGovernmentScreen(onOpen = { navController.navigate("detail/\${Uri.encode(it)}") })
+                    }
+                    composable("documents") {
+                        StubServiceScreen(
+                            "Документы",
+                            onBack = { navController.popBackStack() },
+                            onInfo = { appViewModel.setError(it) }
+                        )
+                    }
+                    composable("elections") {
+                        StubServiceScreen(
+                            "Выборы",
+                            onBack = { navController.popBackStack() },
+                            onInfo = { appViewModel.setError(it) }
+                        )
+                    }
+                    composable("profile") {
+                        StubProfileScreen(
+                            name = uiState.name,
+                            role = uiState.role,
+                            onLogout = onLogout,
+                            onOpen = { navController.navigate("detail/\${Uri.encode(it)}") }
+                        )
+                    }
+                    composable("notifications") {
+                        NotificationsScreen(
+                            token = token,
+                            onBack = { navController.popBackStack() },
+                            onUnreadChanged = { appViewModel.setUnreadCount(it) },
+                            onError = { appViewModel.setError(it) }
+                        )
+                    }
+                    composable(
+                        route = "detail/{title}",
+                        arguments = listOf(navArgument("title") { type = NavType.StringType })
+                    ) { entry ->
+                        val title = entry.arguments?.getString("title").orEmpty()
+                        StubServiceScreen(
+                            title = title,
+                            onBack = { navController.popBackStack() },
+                            onInfo = { appViewModel.setError(it) }
+                        )
+                    }
                 }
             }
         }
