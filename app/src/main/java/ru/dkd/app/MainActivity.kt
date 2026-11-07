@@ -39,6 +39,7 @@ import ru.dkd.app.feature.home.StubProfileScreen
 import ru.dkd.app.feature.home.StubServiceScreen
 import ru.dkd.app.feature.notifications.NotificationsScreen
 import ru.dkd.app.feature.news.NewsScreen
+import ru.dkd.app.feature.parties.PartiesScreen
 import ru.dkd.app.feature.shell.DkdViewModel
 
 class MainActivity : ComponentActivity() {
@@ -285,11 +286,18 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         arguments = listOf(navArgument("title") { type = NavType.StringType })
                     ) { entry ->
                         val title = entry.arguments?.getString("title").orEmpty()
-                        StubServiceScreen(
-                            title = title,
-                            onBack = { navController.popBackStack() },
-                            onInfo = { appViewModel.setError(it) }
-                        )
+                        if (title == "Партии") {
+                            PartiesScreen(
+                                token = token,
+                                onError = { appViewModel.setError(it) }
+                            )
+                        } else {
+                            StubServiceScreen(
+                                title = title,
+                                onBack = { navController.popBackStack() },
+                                onInfo = { appViewModel.setError(it) }
+                            )
+                        }
                     }
                 }
             }
