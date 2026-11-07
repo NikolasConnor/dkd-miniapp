@@ -45,6 +45,22 @@ internal fun NewsScreen(token: String, onError: (String) -> Unit) {
             Text("Официальные сообщения и события государства", color = Muted, fontSize = 12.sp)
         }
 
+        if (state.fromCache) {
+            item {
+                Surface(color = Color(0xFF3A304A), shape = RoundedCornerShape(13.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("ОФЛАЙН-КОПИЯ", color = Pink, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text("Нет связи с сервером. Показаны ранее загруженные публикации; новые сообщения могут отсутствовать.",
+                            color = White, fontSize = 10.sp, lineHeight = 15.sp)
+                        state.cachedAtEpochMs?.let { timestamp ->
+                            Text("Сохранено: " + java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp)),
+                                color = Muted, fontSize = 9.sp)
+                        }
+                    }
+                }
+            }
+        }
+
         if (state.loading && state.articles.isEmpty()) {
             item {
                 Surface(color = Panel, shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
