@@ -33,6 +33,7 @@ import ru.dkd.app.core.security.SessionStore
 import ru.dkd.app.feature.auth.LoginScreen
 import ru.dkd.app.feature.documents.DocumentsScreen
 import ru.dkd.app.feature.elections.ElectionsScreen
+import ru.dkd.app.feature.government.StateScreen
 import ru.dkd.app.feature.home.StubGovernmentScreen
 import ru.dkd.app.feature.home.StubHomeScreen
 import ru.dkd.app.feature.home.StubProfileScreen
@@ -245,7 +246,10 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         )
                     }
                     composable("government") {
-                        StubGovernmentScreen(onOpen = { navController.navigate("detail/${Uri.encode(it)}") })
+                        StateScreen(
+                            token = token,
+                            onError = { appViewModel.setError(it) }
+                        )
                     }
                     composable("documents") {
                         DocumentsScreen(
