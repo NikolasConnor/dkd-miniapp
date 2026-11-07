@@ -2,6 +2,7 @@ package ru.dkd.app.feature.parties
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -28,6 +29,7 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
     var refresh by remember { mutableIntStateOf(0) }
     var confirmLeave by remember { mutableStateOf(false) }
     var createOpen by remember { mutableStateOf(false) }
+    var editParty by remember { mutableStateOf<JSONObject?>(null) }
 
     LaunchedEffect(token, refresh) { viewModel.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -81,7 +83,8 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
                     isCitizen = state.isCitizen,
                     busy = state.busy,
                     onJoin = { viewModel.join(token, party.optInt("id")) },
-                    onLeave = { confirmLeave = true }
+                    onLeave = { confirmLeave = true },
+                    onEdit = { editParty = party }
                 )
             }
         }
@@ -94,6 +97,55 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
                 Text("↻  Обновить список", color = Purple)
             }
         }
+    }
+
+    editParty?.let { party ->
+        var name by remember(party.optInt("id")) { mutableStateOf(party.string("name")) }
+        var emoji by remember(party.optInt("id")) { mutableStateOf(party.string("emoji", "🎭")) }
+        var description by remember(party.optInt("id")) { mutableStateOf(party.string("description")) }
+        var color by remember(party.optInt("id")) { mutableStateOf(party.string("color", "#8B7CFF").uppercase()) }
+        val colors = listOf("#8B7CFF", "#5E8BFF", "#F0B7D0", "#63D9A0", "#FF8298", "#E6B85C", "#39B8C7", "#FFFFFF")
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) editParty = null },
+            containerColor = Panel,
+            title = { Text("Настройки партии", color = White) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(name, { name = it.take(60) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Название") })
+                    OutlinedTextField(emoji, { emoji = it.take(8) }, modifier = Modifier.fillMaxWidth(), singleLine = true, label = { Text("Эмодзи") })
+                    OutlinedTextField(description, { description = it.take(1000) }, modifier = Modifier.fillMaxWidth(), minLines = 2, label = { Text("Описание") })
+                    Text("ЦВЕТ ПАРТИИ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    colors.chunked(4).forEach { group ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            group.forEach { option ->
+                                val swatch = Color(android.graphics.Color.parseColor(option))
+                                Surface(
+                                    color = swatch,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f).height(34.dp).border(
+                                        if (color == option) 3.dp else 1.dp,
+                                        if (color == option) White else LineColor,
+                                        RoundedCornerShape(10.dp)
+                                    ).clickable { color = option }
+                                ) {}
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = name.trim().length >= 2 && !state.busy,
+                    onClick = {
+                        viewModel.updateSettings(token, party.optInt("id"), name, emoji, description, color)
+                        editParty = null
+                    }
+                ) { Text("Сохранить", color = Purple) }
+            },
+            dismissButton = {
+                TextButton(onClick = { editParty = null }, enabled = !state.busy) { Text("Отмена", color = Muted) }
+            }
+        )
     }
 
     if (createOpen) {
@@ -163,7 +215,8 @@ private fun PartyCard(
     isCitizen: Boolean,
     busy: Boolean,
     onJoin: () -> Unit,
-    onLeave: () -> Unit
+    onLeave: () -> Unit,
+    onEdit: () -> Unit
 ) {
     val id = party.optInt("id")
     val members = party.array("members")
@@ -207,7 +260,13 @@ private fun PartyCard(
                 }
                 if (members.size > 8) Text("И ещё ${members.size - 8} участников", color = Muted, fontSize = 9.sp)
             }
-            if (canManage) Text("Вы можете управлять этой партией в Mini App.", color = Blue, fontSize = 9.sp)
+            if (canManage) {
+                Text("Управление политическим объединением", color = Blue, fontSize = 9.sp)
+                OutlinedButton(onClick = onEdit, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(11.dp)) {
+                    Text("Настроить партию", color = Purple, fontSize = 11.sp)
+                }
+            }
             if (isMine) {
                 OutlinedButton(onClick = onLeave, enabled = !busy, modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(11.dp)) {
