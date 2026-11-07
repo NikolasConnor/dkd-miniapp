@@ -30,6 +30,8 @@ private data class ApplicationsState(
     val loading: Boolean = true,
     val sending: Boolean = false,
     val applications: List<JSONObject> = emptyList(),
+    val applicationsLoaded: Boolean = false,
+    val profileLoaded: Boolean = false,
     val isCitizen: Boolean = false,
     val error: String? = null,
     val message: String? = null
@@ -41,14 +43,23 @@ private class ApplicationsViewModel : ViewModel() {
 
     fun refresh(token: String) {
         viewModelScope.launch {
-            mutable.value = mutable.value.copy(loading = true, error = null)
+            mutable.value = mutable.value.copy(
+                loading = true,
+                applicationsLoaded = false,
+                profileLoaded = false,
+                error = null
+            )
             val result = apiCall(token, "GET", "/api/applications")
             val profileResult = apiCall(token, "GET", "/api/profile")
             val profile = profileResult.data?.optJSONObject("profile") ?: profileResult.data
+            val applicationsLoaded = result.error == null && result.data?.has("applications") == true
+            val profileLoaded = profileResult.error == null && profile?.has("citizenship") == true
             mutable.value = mutable.value.copy(
                 loading = false,
-                applications = result.data?.array("applications") ?: mutable.value.applications,
-                isCitizen = profile?.string("citizenship") == "Гражданин ДКД",
+                applications = if (applicationsLoaded) result.data!!.array("applications") else mutable.value.applications,
+                applicationsLoaded = applicationsLoaded,
+                profileLoaded = profileLoaded,
+                isCitizen = profileLoaded && profile?.string("citizenship") == "Гражданин ДКД",
                 error = result.error ?: profileResult.error
             )
         }
@@ -66,10 +77,18 @@ private class ApplicationsViewModel : ViewModel() {
             if (result.error != null) {
                 mutable.value = mutable.value.copy(sending = false, error = result.error)
             } else {
-                mutable.value = mutable.value.copy(sending = false, message = "Заявление отправлено на рассмотрение.")
-                val refreshed = apiCall(token, "GET", "/api/applications")
                 mutable.value = mutable.value.copy(
-                    applications = refreshed.data?.array("applications") ?: mutable.value.applications,
+                    sending = false,
+                    loading = true,
+                    applicationsLoaded = false,
+                    message = "Заявление отправлено на рассмотрение."
+                )
+                val refreshed = apiCall(token, "GET", "/api/applications")
+                val refreshedLoaded = refreshed.error == null && refreshed.data?.has("applications") == true
+                mutable.value = mutable.value.copy(
+                    loading = false,
+                    applications = if (refreshedLoaded) refreshed.data!!.array("applications") else mutable.value.applications,
+                    applicationsLoaded = refreshedLoaded,
                     error = refreshed.error
                 )
             }
@@ -111,7 +130,15 @@ internal fun ApplicationsScreen(token: String, onBack: () -> Unit, onError: (Str
                 }
             }
         }
-        if (state.isCitizen) {
+        if (!state.profileLoaded || !state.applicationsLoaded) {
+            item {
+                ApplicationNotice(
+                    if (state.loading) "Проверяем данные" else "Подача временно недоступна",
+                    if (state.loading) "Получаем статус гражданства и историю заявлений с сервера."
+                    else "Не удалось достоверно проверить гражданство или активные заявления. Обновите раздел; форма подачи пока скрыта, чтобы не создать повторное обращение."
+                )
+            }
+        } else if (state.isCitizen) {
             item { ApplicationNotice("Гражданство уже подтверждено", "Сервер вернул одобренное заявление. Проверьте выданный паспорт в разделе «Документы».") }
         } else if (pending) {
             item { ApplicationNotice("Заявление на рассмотрении", "Новое заявление на гражданство нельзя подать, пока текущее не рассмотрено.") }
