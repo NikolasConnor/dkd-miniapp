@@ -1,6 +1,7 @@
 package ru.dkd.app
 
 import android.net.Uri
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -26,6 +27,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.launch
 import ru.dkd.app.core.design.*
+import ru.dkd.app.core.network.apiCall
 import ru.dkd.app.core.network.redeemLoginCode
 import ru.dkd.app.core.network.revokeSession
 import ru.dkd.app.core.security.ProfileCache
@@ -120,13 +122,28 @@ private fun DKDApp() {
 
 @Composable
 private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val navController = rememberNavController()
     val appViewModel: DkdViewModel = viewModel()
+    var updateMessage by remember { mutableStateOf<String?>(null) }
+    var updateUrl by remember { mutableStateOf("https://github.com/NikolasConnor/dkd-miniapp/releases/latest") }
+    var updateVersion by remember { mutableStateOf("") }
+    var updateDismissed by remember { mutableStateOf(false) }
     val uiState by appViewModel.state.collectAsState()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
 
-    LaunchedEffect(token) { appViewModel.refresh(token) }
+    LaunchedEffect(token) {
+        appViewModel.refresh(token)
+        val config = apiCall(token, "GET", "/api/config")
+        val data = config.data
+        if (data != null && data.optInt("android_version_code", 0) > BuildConfig.VERSION_CODE) {
+            updateVersion = data.optString("android_version_name", "новая версия")
+            updateMessage = data.optString("android_update_message", "Доступно обновление приложения ДКД.")
+            updateUrl = data.optString("android_release_url").ifBlank { updateUrl }
+            updateDismissed = false
+        }
+    }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -237,6 +254,33 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                     }
                 }
 
+                if (updateMessage != null && !updateDismissed) {
+                    AlertDialog(
+                        onDismissRequest = { updateDismissed = true },
+                        containerColor = Panel,
+                        title = { Text("Доступно обновление ДКД", color = White, fontWeight = FontWeight.Bold) },
+                        text = {
+                            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                                Text("Версия $updateVersion", color = Purple, fontWeight = FontWeight.SemiBold)
+                                Text(updateMessage.orEmpty(), color = Muted, fontSize = 12.sp)
+                                Text("Устанавливайте поверх текущей версии. Не удаляйте старое приложение и не очищайте его данные.",
+                                    color = White, fontSize = 11.sp)
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                runCatching {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(updateUrl)))
+                                }
+                                updateDismissed = true
+                            }) { Text("Открыть обновление", color = Purple) }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { updateDismissed = true }) { Text("Позже", color = Muted) }
+                        }
+                    )
+                }
+
                 NavHost(
                     navController = navController,
                     startDestination = "home",
@@ -249,6 +293,7 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                             onOpen = {
                                 when (it) {
                                     "Новости" -> navController.navigate("news")
+                                    "Меню" -> navController.navigate("menu")
                                     "Профиль" -> navController.navigate("profile")
                                     "Документы" -> navController.navigate("documents")
                                     "Выборы" -> navController.navigate("elections")
