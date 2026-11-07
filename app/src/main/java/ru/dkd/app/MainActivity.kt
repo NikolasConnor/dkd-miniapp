@@ -34,7 +34,6 @@ import ru.dkd.app.feature.auth.LoginScreen
 import ru.dkd.app.feature.documents.DocumentsScreen
 import ru.dkd.app.feature.elections.ElectionsScreen
 import ru.dkd.app.feature.government.StateScreen
-import ru.dkd.app.feature.home.StubGovernmentScreen
 import ru.dkd.app.feature.home.StubHomeScreen
 import ru.dkd.app.feature.home.StubProfileScreen
 import ru.dkd.app.feature.home.StubServiceScreen
