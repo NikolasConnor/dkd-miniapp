@@ -102,7 +102,6 @@ internal fun ElectionsScreen(token: String, onError: (String) -> Unit) {
     }
 }
 
-@Composable
 private data class PendingElectionVote(
     val kind: String,
     val electionId: Int,
@@ -110,6 +109,7 @@ private data class PendingElectionVote(
     val label: String
 )
 
+@Composable
 private fun ElectionCard(election: JSONObject, kind: String, busy: Boolean, onVote: (Int, String, String) -> Unit) {
     val status = election.string("status")
     val isActive = status == "active"
