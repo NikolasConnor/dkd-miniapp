@@ -33,8 +33,11 @@ private data class PresidentUiState(
     val isAdmin: Boolean = false,
     val term: JSONObject? = null,
     val laws: List<JSONObject> = emptyList(),
+    val lawsLoaded: Boolean = false,
     val applications: List<JSONObject> = emptyList(),
+    val applicationsLoaded: Boolean = false,
     val subjects: List<JSONObject> = emptyList(),
+    val subjectsLoaded: Boolean = false,
     val assignableRoles: List<JSONObject> = emptyList(),
     val busy: Boolean = false,
     val error: String? = null,
@@ -75,8 +78,11 @@ private class PresidentViewModel : ViewModel() {
             isAdmin = statusJson.bool("is_admin"),
             term = statusJson.optJSONObject("term"),
             laws = lawsResult.data?.array("laws") ?: emptyList(),
+            lawsLoaded = lawsResult.error == null && lawsResult.data?.has("laws") == true,
             applications = applicationsResult.data?.array("applications") ?: emptyList(),
+            applicationsLoaded = applicationsResult.error == null && applicationsResult.data?.has("applications") == true,
             subjects = subjectsResult.data?.array("subjects") ?: emptyList(),
+            subjectsLoaded = subjectsResult.error == null && subjectsResult.data?.has("subjects") == true,
             assignableRoles = (subjectsResult.data?.array("roles") ?: emptyList())
                 .filter { it.string("name") in allowedRoleNames },
             error = lawsResult.error ?: applicationsResult.error ?: subjectsResult.error,
@@ -219,7 +225,9 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
             val appointed = state.subjects.filter { subject ->
                 subject.array("roles").any { role -> role.string("name") in setOf("Премьер-министр", "Министр иностранных дел") }
             }
-            if (appointed.isEmpty()) {
+            if (!state.subjectsLoaded) {
+                item { PresidentNotice("Список должностных лиц недоступен", "Не удалось загрузить данные с сервера. Обновите раздел, прежде чем выполнять кадровые назначения.") }
+            } else if (appointed.isEmpty()) {
                 item { PresidentNotice("Должности пока не назначены", "Президент может назначить Премьер-министра и Министра иностранных дел.") }
             } else {
                 items(appointed, key = { "appointment-${it.optInt("id")}" }) { subject ->
@@ -235,7 +243,9 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                 }
             }
             item { Text("ЗАЯВЛЕНИЯ ГРАЖДАН", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
-            if (state.applications.isEmpty()) {
+            if (!state.applicationsLoaded) {
+                item { PresidentNotice("Заявления недоступны", "Не удалось получить список заявлений. Решения по обращениям временно недоступны.") }
+            } else if (state.applications.isEmpty()) {
                 item { PresidentNotice("Новых заявлений нет", "Заявления граждан, ожидающие решения, появятся здесь.") }
             }
             items(state.applications, key = { "application-${it.optInt("id")}" }) { application ->
@@ -271,8 +281,10 @@ internal fun PresidentScreen(token: String, onBack: () -> Unit, onError: (String
                 }
             }
             item { Text("ЗАКОНОПРОЕКТЫ НА РЕШЕНИЕ", color = Muted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp) }
-            if (state.laws.isEmpty()) {
-                item { PresidentNotice("Законопроектов нет", "Сервер не вернул законопроекты для рассмотрения.") }
+            if (!state.lawsLoaded) {
+                item { PresidentNotice("Законопроекты недоступны", "Не удалось получить список законопроектов. Подписание и вето временно недоступны.") }
+            } else if (state.laws.isEmpty()) {
+                item { PresidentNotice("Законопроектов нет", "На сервере нет законопроектов для рассмотрения.") }
             }
             items(state.laws, key = { it.optInt("id") }) { law ->
                 val id = law.optInt("id")
