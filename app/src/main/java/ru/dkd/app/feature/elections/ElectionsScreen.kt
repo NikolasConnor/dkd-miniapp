@@ -26,6 +26,7 @@ internal fun ElectionsScreen(token: String, onError: (String) -> Unit) {
     val viewModel: ElectionsViewModel = viewModel()
     val state by viewModel.state.collectAsState()
     var refresh by remember { mutableIntStateOf(0) }
+    var pendingVote by remember { mutableStateOf<Triple<Int, String, String>?>(null) }
 
     LaunchedEffect(token, refresh) { viewModel.refresh(token) }
     LaunchedEffect(state.error) { state.error?.let(onError) }
@@ -59,24 +60,42 @@ internal fun ElectionsScreen(token: String, onError: (String) -> Unit) {
 
         if (state.presidential.isNotEmpty()) {
             item { ElectionSectionTitle("Президентские выборы", state.presidential.size) }
-            items(state.presidential.size) { index -> ElectionCard(state.presidential[index], "presidential") }
+            items(state.presidential.size) { index -> ElectionCard(state.presidential[index], "presidential", state.busy) { id, option, label -> pendingVote = Triple(id, option, label) } }
         }
 
         if (state.duma.isNotEmpty()) {
             item { ElectionSectionTitle("Выборы в Государственную Думу", state.duma.size) }
-            items(state.duma.size) { index -> ElectionCard(state.duma[index], "duma") }
+            items(state.duma.size) { index -> ElectionCard(state.duma[index], "duma", state.busy) { _, _, _ -> } }
         }
 
+        state.message?.let { message -> item { ElectionEmptyState("Голос принят", message) } }
+        state.error?.let { error -> item { ElectionEmptyState("Не удалось проголосовать", error) } }
         item {
             TextButton(onClick = { refresh++ }, modifier = Modifier.fillMaxWidth()) {
                 Text("↻  Обновить выборы", color = Purple)
             }
         }
     }
+
+    pendingVote?.let { vote ->
+        AlertDialog(
+            onDismissRequest = { if (!state.busy) pendingVote = null },
+            containerColor = Panel,
+            title = { Text("Подтвердить голос?", color = White) },
+            text = { Text("Вы выбираете кандидата «${vote.third}». После отправки изменить голос будет нельзя.", color = Muted, fontSize = 12.sp) },
+            confirmButton = {
+                TextButton(enabled = !state.busy, onClick = {
+                    viewModel.castPresidentialVote(token, vote.first, vote.second)
+                    pendingVote = null
+                }) { Text("Подтвердить", color = Purple) }
+            },
+            dismissButton = { TextButton(onClick = { pendingVote = null }, enabled = !state.busy) { Text("Отмена", color = Muted) } }
+        )
+    }
 }
 
 @Composable
-private fun ElectionCard(election: JSONObject, kind: String) {
+private fun ElectionCard(election: JSONObject, kind: String, busy: Boolean, onVote: (Int, String, String) -> Unit) {
     val status = election.string("status")
     val isActive = status == "active"
     val isClosed = status == "closed"
@@ -194,7 +213,7 @@ private fun ElectionCard(election: JSONObject, kind: String) {
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
-                        "Бюллетень доступен для просмотра. Приём голосов из Android будет включён после проверки серверных ограничений и защиты избирательных прав.",
+                        if (kind == "duma") "Голосование в Android временно отключено: сервер должен отдельно гарантировать запрет председателю партии голосовать на думских выборах." else "Выберите кандидата выше и подтвердите отправку голоса.",
                         color = Color(0xFFD7D2FF), fontSize = 10.sp, lineHeight = 15.sp,
                         modifier = Modifier.padding(11.dp)
                     )
