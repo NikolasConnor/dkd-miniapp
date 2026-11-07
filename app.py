@@ -120,6 +120,9 @@ class AndroidCodeCreate(BaseModel):
 class AndroidCodeRedeem(BaseModel):
     code: str = Field(min_length=8, max_length=64)
 
+class AndroidPushToken(BaseModel):
+    token: str = Field(min_length=20, max_length=4096)
+
 
 @app.post("/api/android/auth/redeem")
 def android_redeem_code(payload: AndroidCodeRedeem):
@@ -129,6 +132,11 @@ def android_redeem_code(payload: AndroidCodeRedeem):
 @app.post("/api/admin/android/login-code")
 def admin_create_android_login_code(payload: AndroidCodeCreate, user: dict = Depends(admin_user)):
     return core.create_android_login_code(user["id"], payload.telegram_id)
+
+
+@app.post("/api/android/push-token")
+def android_register_push_token(payload: AndroidPushToken, user: dict = Depends(auth_user)):
+    return core.register_android_push_token(user, payload.token)
 
 
 @app.post("/api/android/auth/logout")
