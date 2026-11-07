@@ -80,15 +80,13 @@ internal fun ProfileScreen(token: String, onLogout: () -> Unit, onError: (String
                         Text("Уведомления о новостях", color = White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                         Text("Получать индивидуальные уведомления о публикациях ДКД", color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
                     }
-                    Switch(
-                        checked = profile.newsNotificationsEnabled,
-                        onCheckedChange = { viewModel.setNewsNotifications(token, it) },
-                        enabled = !state.savingPreference
+                    Text(
+                        if (profile.newsNotificationsEnabled) "ВКЛ." else "ВЫКЛ.",
+                        color = if (profile.newsNotificationsEnabled) Good else Muted,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
                     )
                 }
-            }
-            if (state.savingPreference) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Purple, trackColor = Panel2)
             }
         }
 
