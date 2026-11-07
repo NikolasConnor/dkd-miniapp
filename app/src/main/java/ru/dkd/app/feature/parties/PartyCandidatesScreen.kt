@@ -63,17 +63,31 @@ internal fun PartyCandidatesScreen(token: String, onBack: () -> Unit, onError: (
             }
             items(state.members, key = { it.optLong("user_id") }) { member ->
                 val id = member.optLong("user_id")
-                val checked = id in state.selectedIds
+                val candidateIndex = state.selectedIds.indexOf(id)
+                val checked = candidateIndex >= 0
                 Surface(color = CardColor, shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.fillMaxWidth().border(1.dp, if (checked) Purple else LineColor, RoundedCornerShape(14.dp))) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
                             checked = checked,
                             onCheckedChange = { vm.toggle(id, it) },
                             enabled = !state.busy,
                             colors = CheckboxDefaults.colors(checkedColor = Purple)
                         )
-                        Text(member.string("full_name", "Участник"), color = White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        Text(member.string("full_name", "Участник"), color = White, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                        if (checked) {
+                            Text("${candidateIndex + 1}", color = Pink, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            TextButton(
+                                onClick = { vm.move(id, -1) },
+                                enabled = !state.busy && candidateIndex > 0,
+                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp)
+                            ) { Text("↑", color = Purple) }
+                            TextButton(
+                                onClick = { vm.move(id, 1) },
+                                enabled = !state.busy && candidateIndex < state.selectedIds.lastIndex,
+                                contentPadding = PaddingValues(horizontal = 2.dp, vertical = 0.dp)
+                            ) { Text("↓", color = Purple) }
+                        }
                     }
                 }
             }
