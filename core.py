@@ -1583,6 +1583,8 @@ def list_elections(user_id: int) -> dict:
     _maybe_finalize_duma_elections()
     mine = fetch_all(lambda: db().table("votes").select("election_type,election_id,option").eq("user_id", int(user_id)).order("id"))
     my = {(v["election_type"], int(v["election_id"])): v["option"] for v in mine}
+    duma_membership, duma_party = active_membership(int(user_id))
+    duma_leader_blocked = is_party_leader(duma_membership, duma_party, int(user_id))
     result: dict[str, list] = {}
     for kind, table in ELECTION_TABLES.items():
         items = rows(db().table(table).select(ELECTION_COLS).order("id", desc=True).limit(10))
@@ -1639,6 +1641,8 @@ def list_elections(user_id: int) -> dict:
                 "ends_at": e.get("ends_at"), "created_at": e.get("created_at"),
                 "status": status, "is_open": status == "active",
                 "has_voted": (kind, int(e["id"])) in my, "my_option": my.get((kind, int(e["id"]))),
+                "can_vote": not (kind == "duma" and duma_leader_blocked),
+                "vote_block_reason": "Председатель политической партии не может голосовать на выборах в Государственную Думу." if kind == "duma" and duma_leader_blocked else None,
                 "vote_counts": None, "votes_total": None,
                 "candidate_details": candidate_details, "party_lists": party_lists,
             }
