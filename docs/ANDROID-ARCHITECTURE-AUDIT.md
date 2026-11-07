@@ -281,3 +281,15 @@ The Android CI workflow's concurrency policy was changed to avoid cancelling an 
 Additional native profile work:
 - Profile now reads the server-authoritative full name, avatar emoji, roles, citizenship status, party membership, and news-notification preference from `GET /api/profile`.
 - The notification preference is displayed read-only. A mutation control was deliberately removed because the current `HttpURLConnection` transport does not safely support HTTP PATCH; the API transport must be migrated before enabling profile edits or preference writes in Android.
+
+
+### Stage 3 implementation log — Presidential administration
+
+Added a native President section on the Android working branch. It first requests `GET /api/president/status` and renders management controls only when the server reports `is_president=true`. The following actions use the existing production-confirmed API routes and retain server-side authorization:
+
+- Publish a presidential decree: `POST /api/president/decrees`.
+- List bills and sign or veto a bill: `GET /api/president/laws`, `PATCH /api/president/laws/{law_id}`.
+- Schedule Duma elections: `POST /api/president/elections/duma`.
+- Dissolve the Duma after an explicit confirmation: `POST /api/president/parliament/dissolve`; the backend enforces the once-per-30-days restriction and active-parliament preconditions.
+
+The screen is linked from the Home government services. These operations have not yet been exercised with a real President account on a device. The app does not bypass server authorization, and no backend or production configuration was changed.
