@@ -28,7 +28,7 @@ import ru.dkd.app.core.common.string
 import ru.dkd.app.core.design.*
 import ru.dkd.app.core.network.apiCall
 
-private data class AdminUiState(
+internal data class AdminUiState(
     val loading: Boolean = true,
     val isAdmin: Boolean = false,
     val subjects: List<JSONObject> = emptyList(),
