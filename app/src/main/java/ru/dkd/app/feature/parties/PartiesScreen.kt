@@ -23,7 +23,7 @@ import ru.dkd.app.core.common.string
 import ru.dkd.app.core.design.*
 
 @Composable
-internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
+internal fun PartiesScreen(token: String, onError: (String) -> Unit, onManageCandidates: () -> Unit) {
     val viewModel: PartiesViewModel = viewModel()
     val state by viewModel.state.collectAsState()
     var refresh by remember { mutableIntStateOf(0) }
@@ -86,7 +86,8 @@ internal fun PartiesScreen(token: String, onError: (String) -> Unit) {
                     onJoin = { viewModel.join(token, party.optInt("id")) },
                     onLeave = { confirmLeave = true },
                     onEdit = { editParty = party },
-                    onKick = { memberId, memberName -> kickTarget = Triple(party.optInt("id"), memberId, memberName) }
+                    onKick = { memberId, memberName -> kickTarget = Triple(party.optInt("id"), memberId, memberName) },
+                    onManageCandidates = onManageCandidates
                 )
             }
         }
@@ -236,11 +237,13 @@ private fun PartyCard(
     onJoin: () -> Unit,
     onLeave: () -> Unit,
     onEdit: () -> Unit,
-    onKick: (Int, String) -> Unit
+    onKick: (Int, String) -> Unit,
+    onManageCandidates: () -> Unit
 ) {
     val id = party.optInt("id")
     val members = party.array("members")
     val isMine = party.bool("is_member")
+    val isLeader = isMine && members.any { it.bool("is_leader") }
     val canManage = party.bool("can_manage")
     val color = runCatching { Color(android.graphics.Color.parseColor(party.string("color", "#8B7CFF"))) }.getOrDefault(Purple)
     Surface(
@@ -285,6 +288,12 @@ private fun PartyCard(
                     }
                 }
                 if (members.size > 8) Text("И ещё ${members.size - 8} участников", color = Muted, fontSize = 9.sp)
+            }
+            if (isLeader) {
+                OutlinedButton(onClick = onManageCandidates, enabled = !busy, modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(11.dp)) {
+                    Text("Сформировать список кандидатов в Думу", color = Purple, fontSize = 10.sp)
+                }
             }
             if (canManage) {
                 Text("Управление политическим объединением", color = Blue, fontSize = 9.sp)
