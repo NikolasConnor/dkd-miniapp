@@ -23,7 +23,7 @@ import urllib.request
 from collections import Counter
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable
-from election_rules import is_party_leader
+from election_rules import is_party_leader, president_can_close_duma_election
 from zoneinfo import ZoneInfo
 from urllib.parse import parse_qsl
 
@@ -5057,6 +5057,21 @@ def president_review_application(actor_id: int, application_id: int, status: str
 
 def president_create_duma_election(actor_id: int, title: str, starts_at: str, ends_at: str) -> dict:
     return president_schedule_duma_election(actor_id, title, starts_at, ends_at)
+
+
+def president_close_duma_election(actor_id: int, election_id: int) -> dict:
+    """Президент досрочно завершает только уже начавшуюся думскую кампанию."""
+    election = one(db().table("duma_elections").select(ELECTION_COLS)
+                   .eq("id", int(election_id)).limit(1))
+    if not election:
+        raise DKDError(404, "Выборы в Госдуму не найдены.")
+    status = effective_status(election)
+    if not president_can_close_duma_election(status):
+        raise DKDError(409, "Завершить можно только уже начавшиеся выборы.")
+    result = _finalize_duma_election(int(actor_id), int(election_id))
+    audit(int(actor_id), "president_duma_election_closed", None,
+          json.dumps({"election_id": int(election_id)}, ensure_ascii=False))
+    return result
 
 
 def president_list_laws(actor_id: int) -> dict:
