@@ -376,3 +376,12 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - The app still uses production Render as its read/API base URL. No production backend, Render, Supabase, database, or RLS changes were made.
 
 - Extended the Room cache to the official news feed. Cached party entries are reduced to public summary fields only; membership rosters and user-specific party data are deliberately excluded. Cached news media is not downloaded offline, and the UI explains that media requires a connection.
+
+
+## Typed official documents API
+
+- Added typed Retrofit/Gson DTOs for `GET /api/passport` and `GET /api/documents`.
+- Migrated `DocumentsRepository` to those DTO endpoints while retaining its existing screen-facing model temporarily, so the UI change is isolated from transport migration.
+- Added MockWebServer tests for Bearer token propagation and deserialization of passport, mandate and signed-law collections.
+- The server remains authoritative for document eligibility: it returns current mandates/certificates only for active office holders and only signed laws in the laws collection.
+- Hardened the public offline parliament snapshot: Telegram user IDs are stripped before persistence; only display fields needed by the public State screen are retained.
