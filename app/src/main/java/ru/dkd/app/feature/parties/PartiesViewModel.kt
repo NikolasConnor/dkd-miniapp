@@ -97,6 +97,24 @@ internal class PartiesViewModel : ViewModel() {
         mutate(token, "/api/parties/$partyId/join", "POST", "Вы вступили в партию.")
     }
 
+    fun kick(token: String, partyId: Int, memberId: Int) {
+        viewModelScope.launch {
+            if (mutableState.value.busy) return@launch
+            mutableState.value = mutableState.value.copy(busy = true, error = null, message = null)
+            val result = apiCall(token, "DELETE", "/api/parties/$partyId/members/$memberId")
+            if (result.error != null) {
+                mutableState.value = mutableState.value.copy(busy = false, error = result.error)
+            } else {
+                val refreshed = repository.load(token)
+                mutableState.value = mutableState.value.copy(
+                    loading = false, busy = false, parties = refreshed.parties,
+                    isCitizen = refreshed.isCitizen, myPartyId = refreshed.myPartyId,
+                    error = refreshed.error, message = "Участник исключён из партии."
+                )
+            }
+        }
+    }
+
     fun leave(token: String) {
         mutate(token, "/api/parties/leave", "POST", "Вы вышли из партии.")
     }
