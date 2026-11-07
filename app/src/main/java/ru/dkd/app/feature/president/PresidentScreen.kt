@@ -52,7 +52,7 @@ private data class PresidentUiState(
     val message: String? = null
 )
 
-private class PresidentViewModel : ViewModel() {
+internal class PresidentViewModel : ViewModel() {
     private val mutable = MutableStateFlow(PresidentUiState())
     val state = mutable.asStateFlow()
 
