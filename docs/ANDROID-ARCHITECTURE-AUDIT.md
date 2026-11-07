@@ -412,3 +412,11 @@ The historical Stage 2 notes above describe the earlier checkpoint. At the lates
 - The Android presidential ballot action now uses the typed Retrofit call and displays success only when the server returns `ok: true`; HTTP or transport failures remain visible as errors.
 - The endpoint is a non-idempotent POST and the shared OkHttp client continues to disable automatic connection retries.
 - No Duma ballot action was added. It remains disabled in the client until the party-leader restriction is deployed and verified on production.
+
+
+## Follow-up implementation — typed document presentation
+
+- Removed the intermediate `JSONObject` adapter from the documents repository and ViewModel. Passport and document screens now consume the typed Retrofit/Gson DTOs directly.
+- The passport card reads typed identity/status/issue fields; mandate, presidential certificate, decree, and signed-law rows use typed document IDs and fields.
+- Preserved separate loading-failure states: an unavailable endpoint is not presented as proof that a passport or document does not exist.
+- This source change is awaiting its own Android CI result. It has not been tested on a physical device. Production backend, Render, Supabase, and `main` remain unchanged.
