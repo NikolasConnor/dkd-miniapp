@@ -30,36 +30,6 @@ internal fun StubSectionTitle(title: String, action: String? = null, onAction: (
 }
 
 @Composable
-private fun StateCard(
-    title: String,
-    subtitle: String,
-    icon: String,
-    onClick: () -> Unit
-) {
-    Surface(
-        color = CardColor,
-        shape = RoundedCornerShape(19.dp),
-        modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(19.dp)).clickable(onClick = onClick)
-    ) {
-        Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(45.dp).background(
-                    Brush.linearGradient(listOf(Color(0xFF34316B), Color(0xFF263B68))),
-                    RoundedCornerShape(14.dp)
-                ),
-                contentAlignment = Alignment.Center
-            ) { Text(icon, color = White, fontSize = 22.sp) }
-            Spacer(Modifier.width(13.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(subtitle, color = Muted, fontSize = 11.sp, lineHeight = 15.sp)
-            }
-            Text("›", color = Purple, fontSize = 25.sp)
-        }
-    }
-}
-
-@Composable
 internal fun StubHomeScreen(name: String, role: String, onOpen: (String) -> Unit, onState: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 17.dp)) {
         Spacer(Modifier.height(18.dp))
@@ -153,83 +123,6 @@ internal fun StubHomeScreen(name: String, role: String, onOpen: (String) -> Unit
         Spacer(Modifier.height(23.dp))
         Text("NEXORA GROUP  ·  TECHNOLOGY. IDEAS. FUTURE.", color = Color(0xFF737CA8), fontSize = 8.sp, letterSpacing = 1.1.sp)
         Spacer(Modifier.height(17.dp))
-    }
-}
-
-@Composable
-internal fun StubGovernmentScreen(onOpen: (String) -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(17.dp)) {
-        Text("ГОСУДАРСТВЕННЫЕ ИНСТИТУТЫ", color = Pink, fontSize = 9.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
-        Text("Государство", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-        Text("Органы власти и управление ДКД", color = Muted, fontSize = 12.sp)
-        Spacer(Modifier.height(17.dp))
-        Box(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(23.dp))
-                .background(Brush.linearGradient(listOf(Color(0xFF292B60), Color(0xFF25234D), Color(0xFF3B2860))))
-                .padding(19.dp)
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                Text("ДКД  /  STATE", color = Pink, fontSize = 9.sp, letterSpacing = 2.sp)
-                Text("Система государственного управления", color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("Президентская власть · Парламент · Граждане", color = Color(0xFFD0D3F3), fontSize = 11.sp)
-            }
-        }
-        Spacer(Modifier.height(18.dp))
-        val sections = listOf(
-            Triple("Президент", "Глава государства и гарант Конституции", "♛"),
-            Triple("Правительство", "Премьер-министр и министерства", "⌂"),
-            Triple("Государственная Дума", "Депутаты, заседания и законопроекты", "▥"),
-            Triple("Политические партии", "Объединения и партийные списки", "♟"),
-            Triple("Выборы", "Избирательные кампании и результаты", "☑"),
-            Triple("Законодательство", "Законы и подписанные указы", "§")
-        )
-        sections.forEach { item ->
-            Column(Modifier.padding(bottom = 9.dp)) {
-                StateCard(item.first, item.second, item.third) { onOpen(item.first) }
-            }
-        }
-        Spacer(Modifier.height(12.dp))
-        Text("Данные и действия разделов будут подключаться к действующим сервисам ДКД.", color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
-    }
-}
-
-@Composable
-internal fun StubProfileScreen(name: String, role: String, onLogout: () -> Unit, onOpen: (String) -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(17.dp)) {
-        Text("ЛИЧНЫЙ КАБИНЕТ", color = Pink, fontSize = 9.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
-        Text("Профиль", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(17.dp))
-        Surface(
-            color = Panel2, shape = RoundedCornerShape(23.dp),
-            modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(23.dp))
-        ) {
-            Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(66.dp).background(Brush.linearGradient(listOf(Blue, Purple)), RoundedCornerShape(21.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(name.take(1).uppercase(), color = White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.width(14.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Text(name, color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Text(role, color = Muted, fontSize = 11.sp)
-                    Text("УЧЁТНАЯ ЗАПИСЬ ДКД", color = Pink, fontSize = 8.sp, letterSpacing = 1.sp)
-                }
-            }
-        }
-        Spacer(Modifier.height(17.dp))
-        listOf("Мои документы", "Настройки приложения", "О приложении NEXORA GROUP").forEach { label ->
-            Column(Modifier.padding(bottom = 8.dp)) {
-                StateCard(label, "Перейти к разделу", "›") { onOpen(label) }
-            }
-        }
-        Spacer(Modifier.height(8.dp))
-        OutlinedButton(
-            onClick = onLogout, modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Bad)
-        ) { Text("Выйти из аккаунта") }
     }
 }
 
