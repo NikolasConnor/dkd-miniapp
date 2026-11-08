@@ -72,6 +72,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
         <button class="tile" onclick="openView('parties')"><span class="icon">🎭</span><strong>Партии</strong><span>Участие и состав</span></button>
         <button class="tile" onclick="openView('elections')"><span class="icon">🗳️</span><strong>Выборы</strong><span>Голосование</span></button>
         <button class="tile" onclick="openView('news')"><span class="icon">📰</span><strong>Новости</strong><span>Последние публикации</span></button>
+        <button class="tile" onclick="openView('judicial')"><span class="icon">⚖️</span><strong>ИИ-судья</strong><span>Иски, решения и апелляции</span></button>
         <button class="tile hidden" id="presidentTile" onclick="openView('president')"><span class="icon">🏅</span><strong>Президент</strong><span>Указы и управление</span></button>
         <button class="tile hidden" id="parliamentTile" onclick="openView('parliament')"><span class="icon">🏛️</span><strong>Государственная дума</strong><span>Парламент ДКД</span></button>
         <button class="tile hidden" id="adminTile" onclick="openView('admin')"><span class="icon">🛡️</span><strong>Администрация</strong><span>Управление системой</span></button>
@@ -121,6 +122,19 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 
     <section id="newsView" class="view">
       <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Новости ДКД</h3><button class="btn secondary" onclick="loadNews()">Обновить</button></div><div id="newsContent" class="list"></div>
+    </section>
+    <section id="judicialView" class="view">
+      <button class="back" onclick="openView('home')">← На главную</button>
+      <div class="section-head"><h3>⚖️ Суд ДКД</h3><button class="btn secondary" onclick="loadJudicial()">Обновить</button></div>
+      <div class="card"><div class="eyebrow">НЕЗАВИСИМОЕ РАССМОТРЕНИЕ СПОРОВ</div><h3>ИИ-судья</h3><p class="muted small">ИИ учитывает позиции сторон и действующие подписанные законы ДКД. Каждая сторона вправе один раз подать апелляцию администратору. Суд действует только в рамках симулятора ДКД.</p></div>
+      <form class="card form" onsubmit="createJudicialCase(event)">
+        <h3 style="margin:0">Подать иск</h3>
+        <div class="field"><label>Ответчик</label><select id="judicialDefendant" required><option value="">Загрузка участников…</option></select></div>
+        <div class="field"><label>Предмет спора</label><input id="judicialTitle" minlength="3" maxlength="160" required></div>
+        <div class="field"><label>Иск и доводы</label><textarea id="judicialClaim" minlength="20" maxlength="12000" required placeholder="Опишите обстоятельства, требования и доказательства"></textarea></div>
+        <button class="btn primary">Зарегистрировать иск</button>
+      </form>
+      <div class="section-head"><h3>Мои судебные дела</h3></div><div id="judicialCases" class="list"><div class="empty">Загрузка…</div></div>
     </section>
 
     <section id="parliamentView" class="view">
@@ -225,6 +239,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
       <div id="adminStatus" class="notice">Проверка прав…</div>
       <div id="claimBox" class="card hidden"><h3 style="margin-top:0">Первичная активация администратора</h3><p class="muted small">Введите одноразовый код, выданный владельцем системы.</p><form class="form" onsubmit="claimAdmin(event)"><div class="field"><label>Код активации</label><input id="adminCode" type="password" minlength="8" required autocomplete="off"></div><button class="btn primary">Активировать</button></form></div>
       <div id="adminTools" class="hidden">
+        <div class="section-head"><h3>⚖️ Апелляции ИИ-суда</h3><button type="button" class="btn secondary" onclick="loadJudicialAdminAppeals()">Обновить</button></div><p class="muted small">Администратор может оставить решение ИИ в силе или изменить его. Обоснование сохраняется в деле.</p><div id="judicialAdminAppeals" class="list"></div>
         <div class="card form" style="margin-top:12px">
           <h4 style="margin:0">Вход в отдельное Android-приложение</h4>
           <p class="muted small" style="margin:0">Введите Telegram ID участника. Код действует 15 минут и используется один раз. Передайте его владельцу аккаунта лично.</p>
@@ -477,10 +492,47 @@ function openView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   const target=$(name+'View');if(target)target.classList.add('active');
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
-  if(name==='parliament')loadParliament();if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='admin')loadAdmin();if(name==='president'){checkPresident();loadPresidentLaws()};
+  if(name==='parliament')loadParliament();if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='judicial')loadJudicial();if(name==='admin'){loadAdmin();loadJudicialAdminAppeals();}if(name==='president'){checkPresident();loadPresidentLaws()};
   window.scrollTo({top:0,behavior:'smooth'});
 }
 function statusPill(s){const val=String(s||'');let cls=/approved|active|citizen|опублик/i.test(val)?'good':/rejected|отклон|denied/i.test(val)?'bad':'';return `<span class="status ${cls}">${esc(val||'Не указан')}</span>`}
+
+async function loadJudicialParticipants(){
+ const el=$('judicialDefendant');if(!el)return;
+ try{const d=await api('/api/judicial/participants');const uid=Number(state.profile?.user_id||0);const people=(d.participants||[]).filter(x=>Number(x.user_id)!==uid);el.innerHTML='<option value="">Выберите ответчика</option>'+people.map(x=>'<option value="'+Number(x.user_id)+'">'+esc(x.full_name)+' · ID '+Number(x.user_id)+'</option>').join('')}
+ catch(e){el.innerHTML='<option value="">Ошибка загрузки участников</option>';notify(e.message,'error')}
+}
+async function loadJudicial(){
+ const el=$('judicialCases');if(!el)return;el.innerHTML='<div class="empty">Загрузка дел…</div>';
+ try{
+  const d=await api('/api/judicial/cases');await loadJudicialParticipants();const cases=d.cases||[];
+  if(!cases.length){el.innerHTML='<div class="empty">У вас пока нет судебных дел.</div>';return}
+  const uid=Number(state.profile?.user_id||0),labels={awaiting_response:'Ожидается ответ',ready_for_judge:'Готово к рассмотрению',decided:'Решение ИИ вынесено',appeal_pending:'Апелляция у администратора',closed:'Дело закрыто'};
+  el.innerHTML=cases.map(x=>{
+   const id=Number(x.id),pl=uid===Number(x.plaintiff_user_id),df=uid===Number(x.defendant_user_id);
+   let actions='';
+   if(df&&x.status==='awaiting_response')actions+='<form class="form" onsubmit="respondJudicial(event,'+id+')"><label class="muted small">Ваш ответ</label><textarea name="text" minlength="20" maxlength="12000" required></textarea><button class="btn primary">Отправить ответ</button></form>';
+   if((pl||df)&&x.status==='ready_for_judge')actions+='<button class="btn primary" onclick="judgeJudicialCase('+id+')">Передать дело ИИ-судье</button>';
+   if((pl||df)&&['decided','appeal_pending'].includes(x.status)&&!x.my_appeal_used)actions+='<form class="form" onsubmit="appealJudicial(event,'+id+')"><label class="muted small">Апелляция (одна на сторону)</label><textarea name="appeal_text" minlength="20" maxlength="8000" required></textarea><button class="btn secondary">Подать апелляцию</button></form>';
+   if(x.my_appeal_used)actions+='<div class="notice">Вы уже использовали право на апелляцию.</div>';
+   const dec=x.ai_decision?'<div class="notice" style="white-space:pre-wrap"><strong>Решение ИИ-судьи</strong><br>'+esc(x.ai_decision)+'</div>':'';
+   return '<article class="card"><div class="row"><strong>Дело №'+id+' · '+esc(x.title)+'</strong>'+statusPill(labels[x.status]||x.status)+'</div><p class="muted small">Истец: '+esc(x.plaintiff_name)+' · Ответчик: '+esc(x.defendant_name)+' · '+fmtDate(x.created_at)+'</p><p>'+esc(x.claim_text)+'</p>'+(x.defendant_response?'<div class="notice"><strong>Ответ ответчика</strong><br>'+esc(x.defendant_response)+'</div>':'')+dec+actions+'</article>';
+  }).join('');
+ }catch(e){showError(el,e)}
+}
+async function createJudicialCase(e){e.preventDefault();try{await api('/api/judicial/cases',{method:'POST',body:{defendant_user_id:Number($('judicialDefendant').value),title:$('judicialTitle').value.trim(),claim_text:$('judicialClaim').value.trim()}});notify('Иск зарегистрирован');e.target.reset();await loadJudicial()}catch(err){notify(err.message,'error')}}
+async function respondJudicial(e,id){e.preventDefault();try{await api('/api/judicial/cases/'+id+'/response',{method:'POST',body:{text:new FormData(e.target).get('text')}});notify('Ответ принят');await loadJudicial()}catch(err){notify(err.message,'error')}}
+async function judgeJudicialCase(id){if(!confirm('Передать дело ИИ-судье?'))return;try{notify('ИИ рассматривает дело…');await api('/api/judicial/cases/'+id+'/judge',{method:'POST',body:{}});notify('Решение опубликовано');await loadJudicial()}catch(err){notify(err.message,'error')}}
+async function appealJudicial(e,id){e.preventDefault();if(!confirm('Подать единственную апелляцию по этому делу?'))return;try{await api('/api/judicial/cases/'+id+'/appeals',{method:'POST',body:{appeal_text:new FormData(e.target).get('appeal_text')}});notify('Апелляция передана администратору');await loadJudicial()}catch(err){notify(err.message,'error')}}
+async function loadJudicialAdminAppeals(){
+ const el=$('judicialAdminAppeals');if(!el)return;
+ try{const d=await api('/api/admin/judicial/appeals'),items=(d.appeals||[]).filter(x=>x.status==='pending');
+ if(!items.length){el.innerHTML='<div class="empty">Нет апелляций на рассмотрении.</div>';return}
+ el.innerHTML=items.map(x=>'<article class="card"><div class="row"><strong>Апелляция №'+Number(x.id)+' · дело №'+Number(x.case_id)+'</strong>'+statusPill('Ожидает рассмотрения')+'</div><p><strong>'+esc(x.case_title)+'</strong></p><p class="muted small">Истец: '+esc(x.plaintiff_name)+' · Ответчик: '+esc(x.defendant_name)+'</p><div class="notice" style="white-space:pre-wrap"><strong>Решение ИИ</strong><br>'+esc(x.ai_decision||'—')+'</div><div class="notice" style="white-space:pre-wrap"><strong>Доводы апелляции</strong><br>'+esc(x.appeal_text)+'</div><form class="form" onsubmit="reviewJudicialAppeal(event,'+Number(x.id)+')"><label class="muted small">Итог и обоснование администратора</label><textarea name="admin_decision" minlength="20" maxlength="8000" required></textarea><div class="row"><button class="btn secondary" name="outcome" value="upheld">Оставить решение ИИ</button><button class="btn primary" name="outcome" value="changed">Изменить решение</button></div></form></article>').join('');
+ }catch(e){showError(el,e)}
+}
+async function reviewJudicialAppeal(e,id){e.preventDefault();const outcome=e.submitter?.value||'upheld';if(!confirm('Подтвердить решение по апелляции?'))return;try{await api('/api/admin/judicial/appeals/'+id,{method:'PATCH',body:{outcome,admin_decision:new FormData(e.target).get('admin_decision')}});notify('Решение по апелляции сохранено');await loadJudicialAdminAppeals()}catch(err){notify(err.message,'error')}}
+
 async function init(){
   // Проверка здоровья сервера не должна задерживать загрузку интерфейса.
   fetch('/health',{cache:'no-store'})
