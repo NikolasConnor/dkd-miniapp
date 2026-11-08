@@ -893,3 +893,66 @@ def admin_set_duma_law_vote(law_id: int, payload: AdminDumaLawVote, user: dict =
 @app.post("/api/admin/duma/laws/{law_id}/finalize-votes")
 def admin_finalize_duma_law_votes(law_id: int, user: dict = Depends(admin_user)):
     return core.admin_finalize_duma_law_vote(user["id"], law_id)
+
+
+# ----------------------------------------------------------------------------
+# Суд ДКД — иски, ответы, решения ИИ и апелляции
+# ----------------------------------------------------------------------------
+
+class JudicialCaseCreate(BaseModel):
+    defendant_user_id: int = Field(gt=0)
+    title: str = Field(min_length=3, max_length=160)
+    claim_text: str = Field(min_length=20, max_length=12000)
+
+
+class JudicialText(BaseModel):
+    text: str = Field(min_length=20, max_length=12000)
+
+
+class JudicialAppealCreate(BaseModel):
+    appeal_text: str = Field(min_length=20, max_length=8000)
+
+
+class JudicialAppealReview(BaseModel):
+    outcome: str = Field(pattern="^(upheld|changed)$")
+    admin_decision: str = Field(min_length=20, max_length=8000)
+
+
+@app.get("/api/judicial/participants")
+def judicial_participants(user: dict = Depends(auth_user)):
+    return core.list_judicial_participants()
+
+
+@app.get("/api/judicial/cases")
+def judicial_cases(user: dict = Depends(auth_user)):
+    return core.list_judicial_cases(user, core.is_admin(user))
+
+
+@app.post("/api/judicial/cases")
+def judicial_create_case(payload: JudicialCaseCreate, user: dict = Depends(auth_user)):
+    return core.create_judicial_case(user, payload.defendant_user_id, payload.title, payload.claim_text)
+
+
+@app.post("/api/judicial/cases/{case_id}/response")
+def judicial_respond(case_id: int, payload: JudicialText, user: dict = Depends(auth_user)):
+    return core.submit_judicial_response(user, case_id, payload.text)
+
+
+@app.post("/api/judicial/cases/{case_id}/judge")
+def judicial_judge(case_id: int, user: dict = Depends(auth_user)):
+    return core.judge_judicial_case(user, case_id)
+
+
+@app.post("/api/judicial/cases/{case_id}/appeals")
+def judicial_appeal(case_id: int, payload: JudicialAppealCreate, user: dict = Depends(auth_user)):
+    return core.submit_judicial_appeal(user, case_id, payload.appeal_text)
+
+
+@app.get("/api/admin/judicial/appeals")
+def judicial_admin_appeals(user: dict = Depends(admin_user)):
+    return core.list_judicial_appeals_admin(user)
+
+
+@app.patch("/api/admin/judicial/appeals/{appeal_id}")
+def judicial_admin_review_appeal(appeal_id: int, payload: JudicialAppealReview, user: dict = Depends(admin_user)):
+    return core.review_judicial_appeal(user, appeal_id, payload.outcome, payload.admin_decision)
