@@ -4224,6 +4224,12 @@ def _judicial_party_name(user_id: int) -> str:
     return str((subject or {}).get("full_name") or f"Участник {user_id}")
 
 
+
+def list_judicial_participants() -> dict:
+    people = rows(db().table("subjects").select("user_id,full_name").order("full_name").limit(500))
+    return {"participants": [{"user_id": int(x["user_id"]), "full_name": x.get("full_name") or f"Участник {x['user_id']}"} for x in people if x.get("user_id") is not None]}
+
+
 def create_judicial_case(user: dict, defendant_user_id: int, title: str, claim_text: str) -> dict:
     plaintiff_id = int(user["id"])
     if plaintiff_id == defendant_user_id:
