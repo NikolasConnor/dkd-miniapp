@@ -4417,9 +4417,12 @@ def review_judicial_appeal(user: dict, appeal_id: int, outcome: str, admin_decis
     }).eq("id", appeal_id).eq("status", "pending").select("*"))
     if not reviewed:
         raise DKDError(409, "Апелляция уже была рассмотрена.")
+    pending = rows(db().table("judicial_appeals").select("id").eq("case_id", int(case["id"])).eq("status", "pending"))
+    # Each side has its own single appeal. Reviewing one appeal must not silently
+    # remove the other party's still-unused right to appeal.
     execute(db().table("judicial_cases").update({
-        "status": "closed",
+        "status": "appeal_pending" if pending else "decided",
         "final_decision": admin_decision.strip(),
-        "closed_at": now_iso(),
+        "closed_at": None,
     }).eq("id", int(case["id"])))
-    return {"ok": True, "appeal": reviewed, "case_id": int(case["id"])}
+    return {"ok": True, "appeal": reviewed, "case_id": int(case["id"]), "other_appeals_pending": bool(pending)}
