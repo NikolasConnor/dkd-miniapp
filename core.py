@@ -4206,3 +4206,214 @@ def diagnostics() -> list[dict]:
         except Exception as exc:  # noqa: BLE001
             report.append({"table": table, "ok": False, "error": str(exc)[:200]})
     return report
+
+
+# ----------------------------------------------------------------------------
+# ИИ-суд ДКД
+# ----------------------------------------------------------------------------
+
+def _judicial_case(case_id: int) -> dict:
+    case = one(db().table("judicial_cases").select("*").eq("id", case_id).limit(1))
+    if not case:
+        raise DKDError(404, "Судебное дело не найдено.")
+    return case
+
+
+def _judicial_party_name(user_id: int) -> str:
+    subject = one(db().table("subjects").select("full_name").eq("user_id", user_id).limit(1))
+    return str((subject or {}).get("full_name") or f"Участник {user_id}")
+
+
+def create_judicial_case(user: dict, defendant_user_id: int, title: str, claim_text: str) -> dict:
+    plaintiff_id = int(user["id"])
+    if plaintiff_id == defendant_user_id:
+        raise DKDError(422, "Нельзя подать иск против самого себя.")
+    defendant = one(db().table("subjects").select("user_id,full_name").eq("user_id", defendant_user_id).limit(1))
+    if not defendant:
+        raise DKDError(404, "Ответчик не найден среди зарегистрированных участников ДКД.")
+    if not one(db().table("subjects").select("user_id").eq("user_id", plaintiff_id).limit(1)):
+        ensure_subject(plaintiff_id, user.get("username"), tg_full_name(user))
+    result = one(db().table("judicial_cases").insert({
+        "plaintiff_user_id": plaintiff_id,
+        "defendant_user_id": defendant_user_id,
+        "title": title.strip(),
+        "claim_text": claim_text.strip(),
+        "status": "awaiting_response",
+    }).select("*"))
+    return {"case": result, "message": "Иск зарегистрирован. Ответчик может представить свою позицию."}
+
+
+def list_judicial_cases(user: dict, admin: bool = False) -> dict:
+    uid = int(user["id"])
+    if admin:
+        cases = rows(db().table("judicial_cases").select("*").order("created_at", desc=True).limit(200))
+    else:
+        plaintiff = rows(db().table("judicial_cases").select("*").eq("plaintiff_user_id", uid).order("created_at", desc=True).limit(100))
+        defendant = rows(db().table("judicial_cases").select("*").eq("defendant_user_id", uid).order("created_at", desc=True).limit(100))
+        cases = {int(x["id"]): x for x in plaintiff + defendant}
+        cases = sorted(cases.values(), key=lambda x: str(x.get("created_at") or ""), reverse=True)
+    appeals = rows(db().table("judicial_appeals").select("id,case_id,appellant_user_id,status,created_at,admin_decision").in_("case_id", [int(x["id"]) for x in cases])) if cases else []
+    by_case: dict[int, list] = {}
+    for appeal in appeals:
+        by_case.setdefault(int(appeal["case_id"]), []).append(appeal)
+    out = []
+    for item in cases:
+        row = dict(item)
+        row["plaintiff_name"] = _judicial_party_name(int(row["plaintiff_user_id"]))
+        row["defendant_name"] = _judicial_party_name(int(row["defendant_user_id"]))
+        row["appeals"] = by_case.get(int(row["id"]), [])
+        row["my_appeal_used"] = any(int(a["appellant_user_id"]) == uid for a in row["appeals"])
+        out.append(row)
+    return {"cases": out}
+
+
+def submit_judicial_response(user: dict, case_id: int, response_text: str) -> dict:
+    case = _judicial_case(case_id)
+    if int(case["defendant_user_id"]) != int(user["id"]):
+        raise DKDError(403, "Ответ на иск может представить только ответчик.")
+    if case["status"] != "awaiting_response":
+        raise DKDError(409, "Ответ по этому делу уже принят или дело перешло на следующую стадию.")
+    updated = one(db().table("judicial_cases").update({
+        "defendant_response": response_text.strip(),
+        "status": "ready_for_judge",
+    }).eq("id", case_id).eq("status", "awaiting_response").select("*"))
+    if not updated:
+        raise DKDError(409, "Дело уже изменилось. Обновите список.")
+    return {"ok": True, "case": updated, "message": "Позиция ответчика сохранена. Теперь стороны могут передать дело ИИ-судье."}
+
+
+def judge_judicial_case(user: dict, case_id: int) -> dict:
+    case = _judicial_case(case_id)
+    uid = int(user["id"])
+    if uid not in (int(case["plaintiff_user_id"]), int(case["defendant_user_id"])) and not is_admin(user):
+        raise DKDError(403, "Доступ к этому делу запрещён.")
+    if case["status"] != "ready_for_judge":
+        if case["status"] in ("decided", "appeal_pending", "closed"):
+            raise DKDError(409, "По этому делу уже вынесено решение.")
+        raise DKDError(409, "Сначала ответчик должен представить свою позицию.")
+    api_key = env("OPENAI_API_KEY")
+    if not api_key:
+        raise DKDError(503, "ИИ-судья пока не подключён: администратору нужно добавить OPENAI_API_KEY в секреты Render.")
+    laws = rows(db().table("laws").select("title,description,status").eq("status", "signed").order("id", desc=True).limit(100))
+    law_context = "\n".join(f"- {x.get('title')}: {x.get('description') or ''}" for x in laws) or "В базе пока нет законов со статусом signed."
+    plaintiff_name = _judicial_party_name(int(case["plaintiff_user_id"]))
+    defendant_name = _judicial_party_name(int(case["defendant_user_id"]))
+    instructions = (
+        "Ты — ИИ-судья вымышленного общественного симулятора ДКД. Рассматривай только спор внутри ДКД. "
+        "Не выдавай ответ за реальное юридическое заключение и не применяй право реальных государств. "
+        "Используй только приведённые действующие подписанные законы ДКД; если подходящего закона нет, прямо укажи пробел. "
+        "Будь беспристрастен: отделяй установленные факты от утверждений, учитывай позиции обеих сторон, "
+        "не выдумывай доказательства или статьи закона. Если материалов недостаточно, укажи это и вынеси осторожное решение. "
+        "Ответ строго на русском языке, с разделами: КРАТКОЕ СОДЕРЖАНИЕ, ПОЗИЦИИ СТОРОН, ОЦЕНКА ФАКТОВ, "
+        "ПРИМЕНИМЫЕ ЗАКОНЫ ДКД, РЕШЕНИЕ, ОБОСНОВАНИЕ, ПОРЯДОК АПЕЛЛЯЦИИ. "
+        "Укажи, что каждая сторона вправе подать одну апелляцию, которую рассматривает администратор ДКД."
+    )
+    case_input = (
+        f"Дело №{case_id}: {case.get('title')}\nИстец: {plaintiff_name}\nОтветчик: {defendant_name}\n"
+        f"Иск и доводы истца:\n{case.get('claim_text')}\n\n"
+        f"Ответ ответчика:\n{case.get('defendant_response')}\n\n"
+        f"Действующие подписанные законы ДКД:\n{law_context}"
+    )
+    request_body = json.dumps({
+        "model": env("OPENAI_MODEL", "gpt-4.1-mini"),
+        "instructions": instructions,
+        "input": case_input,
+        "store": False,
+        "max_output_tokens": 1800,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/responses",
+        data=request_body,
+        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=75) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        decision = str(payload.get("output_text") or "").strip()
+        if not decision:
+            chunks = []
+            for item in payload.get("output", []):
+                if item.get("type") == "message":
+                    for part in item.get("content", []):
+                        if part.get("type") == "output_text":
+                            chunks.append(part.get("text", ""))
+            decision = "\n".join(chunks).strip()
+        if not decision:
+            raise ValueError("Empty model response")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[:500]
+        log.error("OpenAI judicial API returned %s: %s", exc.code, detail)
+        raise DKDError(502, "ИИ-судья не смог обработать дело. Проверьте настройки модели и API-ключа.") from exc
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        log.exception("AI judge request failed")
+        raise DKDError(502, "Не удалось получить решение ИИ-судьи. Попробуйте повторить позже.") from exc
+    updated = one(db().table("judicial_cases").update({
+        "ai_decision": decision,
+        "ai_reasoning": decision,
+        "ai_legal_basis": [x.get("title") for x in laws],
+        "status": "decided",
+        "decided_at": now_iso(),
+    }).eq("id", case_id).eq("status", "ready_for_judge").select("*"))
+    if not updated:
+        raise DKDError(409, "Дело изменилось во время рассмотрения. Обновите список.")
+    return {"ok": True, "case": updated}
+
+
+def submit_judicial_appeal(user: dict, case_id: int, appeal_text: str) -> dict:
+    case = _judicial_case(case_id)
+    uid = int(user["id"])
+    if uid not in (int(case["plaintiff_user_id"]), int(case["defendant_user_id"])):
+        raise DKDError(403, "Подать апелляцию могут только стороны дела.")
+    if case["status"] not in ("decided", "appeal_pending"):
+        raise DKDError(409, "Апелляция доступна только после решения ИИ-судьи.")
+    existing = one(db().table("judicial_appeals").select("id").eq("case_id", case_id).eq("appellant_user_id", uid).limit(1))
+    if existing:
+        raise DKDError(409, "Вы уже использовали право на апелляцию по этому делу.")
+    appeal = one(db().table("judicial_appeals").insert({
+        "case_id": case_id, "appellant_user_id": uid, "appeal_text": appeal_text.strip(),
+    }).select("*"))
+    execute(db().table("judicial_cases").update({"status": "appeal_pending"}).eq("id", case_id))
+    return {"ok": True, "appeal": appeal, "message": "Апелляция передана администратору ДКД."}
+
+
+def list_judicial_appeals_admin(user: dict) -> dict:
+    require_admin(user)
+    appeals = rows(db().table("judicial_appeals").select("*").order("created_at", desc=True).limit(200))
+    out = []
+    for appeal in appeals:
+        case = _judicial_case(int(appeal["case_id"]))
+        out.append({
+            **appeal,
+            "case_title": case.get("title"),
+            "ai_decision": case.get("ai_decision"),
+            "plaintiff_name": _judicial_party_name(int(case["plaintiff_user_id"])),
+            "defendant_name": _judicial_party_name(int(case["defendant_user_id"])),
+        })
+    return {"appeals": out}
+
+
+def review_judicial_appeal(user: dict, appeal_id: int, outcome: str, admin_decision: str) -> dict:
+    require_admin(user)
+    appeal = one(db().table("judicial_appeals").select("*").eq("id", appeal_id).limit(1))
+    if not appeal:
+        raise DKDError(404, "Апелляция не найдена.")
+    if appeal.get("status") != "pending":
+        raise DKDError(409, "Эта апелляция уже рассмотрена.")
+    case = _judicial_case(int(appeal["case_id"]))
+    if case.get("status") != "appeal_pending":
+        raise DKDError(409, "Дело больше не ожидает рассмотрения апелляции.")
+    reviewed = one(db().table("judicial_appeals").update({
+        "status": outcome,
+        "admin_decision": admin_decision.strip(),
+        "reviewed_by": int(user["id"]),
+        "reviewed_at": now_iso(),
+    }).eq("id", appeal_id).eq("status", "pending").select("*"))
+    if not reviewed:
+        raise DKDError(409, "Апелляция уже была рассмотрена.")
+    execute(db().table("judicial_cases").update({
+        "status": "closed",
+        "final_decision": admin_decision.strip(),
+        "closed_at": now_iso(),
+    }).eq("id", int(case["id"])))
+    return {"ok": True, "appeal": reviewed, "case_id": int(case["id"])}
