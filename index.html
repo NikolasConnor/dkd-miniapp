@@ -515,8 +515,8 @@ async function loadJudicial(){
    if((pl||df)&&x.status==='ready_for_judge')actions+='<button class="btn primary" onclick="judgeJudicialCase('+id+')">Передать дело ИИ-судье</button>';
    if((pl||df)&&['decided','appeal_pending'].includes(x.status)&&!x.my_appeal_used)actions+='<form class="form" onsubmit="appealJudicial(event,'+id+')"><label class="muted small">Апелляция (одна на сторону)</label><textarea name="appeal_text" minlength="20" maxlength="8000" required></textarea><button class="btn secondary">Подать апелляцию</button></form>';
    if(x.my_appeal_used)actions+='<div class="notice">Вы уже использовали право на апелляцию.</div>';
-   const dec=x.ai_decision?'<div class="notice" style="white-space:pre-wrap"><strong>Решение ИИ-судьи</strong><br>'+esc(x.ai_decision)+'</div>':'';
-   return '<article class="card"><div class="row"><strong>Дело №'+id+' · '+esc(x.title)+'</strong>'+statusPill(labels[x.status]||x.status)+'</div><p class="muted small">Истец: '+esc(x.plaintiff_name)+' · Ответчик: '+esc(x.defendant_name)+' · '+fmtDate(x.created_at)+'</p><p>'+esc(x.claim_text)+'</p>'+(x.defendant_response?'<div class="notice"><strong>Ответ ответчика</strong><br>'+esc(x.defendant_response)+'</div>':'')+dec+actions+'</article>';
+   const dec=x.ai_decision?'<div class="notice" style="white-space:pre-wrap"><strong>Решение ИИ-судьи</strong><br>'+esc(x.ai_decision)+'</div>':'';const finalDec=x.final_decision?'<div class="notice" style="white-space:pre-wrap"><strong>Итог после апелляции</strong><br>'+esc(x.final_decision)+'</div>':'';
+   return '<article class="card"><div class="row"><strong>Дело №'+id+' · '+esc(x.title)+'</strong>'+statusPill(labels[x.status]||x.status)+'</div><p class="muted small">Истец: '+esc(x.plaintiff_name)+' · Ответчик: '+esc(x.defendant_name)+' · '+fmtDate(x.created_at)+'</p><p>'+esc(x.claim_text)+'</p>'+(x.defendant_response?'<div class="notice"><strong>Ответ ответчика</strong><br>'+esc(x.defendant_response)+'</div>':'')+dec+finalDec+actions+'</article>';
   }).join('');
  }catch(e){showError(el,e)}
 }
