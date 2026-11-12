@@ -67,7 +67,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
       </div>
       <div class="section-head"><h3>Сервисы</h3><span class="muted small">Главное меню</span></div>
       <div class="grid">
-        <button class="tile" onclick="openView('profile')"><span class="icon">👤</span><strong>Профиль</strong><span>Личные данные и статус</span></button>
+        <button class="tile" onclick="openView('profile')"><span class="icon">👤</span><strong>Профиль</strong><span>Личные данные и статус</span></button><button class="tile" onclick="openView('marriages')"><span class="icon">💍</span><strong>Браки</strong><span>Предложения, семья и развод</span></button>
         <button class="tile" onclick="openView('documents')"><span class="icon">📚</span><strong>Документы</strong><span>Паспорта, заявления, законы</span></button>
         <button class="tile" onclick="openView('parties')"><span class="icon">🎭</span><strong>Партии</strong><span>Участие и состав</span></button>
         <button class="tile" onclick="openView('elections')"><span class="icon">🗳️</span><strong>Выборы</strong><span>Голосование</span></button>
@@ -101,12 +101,16 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
         <button class="tile" onclick="showDocTab('applications')"><span class="icon">📝</span><strong>Заявления</strong><span>Подать и отслеживать</span></button>
         <button class="tile" onclick="showDocTab('mandates')"><span class="icon">🏛️</span><strong>Мандат депутата</strong><span>Удостоверение и срок полномочий</span></button>
         <button class="tile" onclick="showDocTab('president-id')"><span class="icon">👑</span><strong>Удостоверение Президента</strong><span>Президентские полномочия</span></button>
-        <button class="tile" onclick="showDocTab('laws')"><span class="icon">⚖️</span><strong>Законы и указы</strong><span>Государственные документы</span></button>
+        <button class="tile" onclick="showDocTab('laws')"><span class="icon">⚖️</span><strong>Законы и указы</strong><span>Государственные документы</span></button><button class="tile" onclick="showDocTab('marriages')"><span class="icon">💍</span><strong>Свидетельства о браке</strong><span>Мои документы</span></button>
       </div>
       <div id="docTabContent"></div>
     </section>
 
-    <section id="partiesView" class="view">
+    <section id="marriagesView" class="view">
+<button class="back" onclick="openView('home')">← На главную</button>
+<div class="section-head"><h3>💍 Браки</h3><button class="btn secondary" onclick="loadMarriages()">Обновить</button></div>
+<div class="card"><h3>Предложить брак</h3><p class="muted small">Брак регистрируется только после согласия второго участника.</p><form class="form" onsubmit="sendMarriageProposal(event)"><div class="field"><label for="marriageTarget">Участник</label><select id="marriageTarget" required><option value="">Загрузка…</option></select></div><button class="btn primary">💍 Отправить предложение</button></form></div>
+<div id="marriagesContent" class="list"><div class="empty">Загрузка…</div></div></section><section id="partiesView" class="view">
       <button class="back" onclick="openView('home')">← На главную</button><div class="section-head"><h3>Политические партии</h3><button class="btn secondary" onclick="loadParties()">Обновить</button></div>
       <div id="partiesContent" class="list"></div>
       <div class="muted small">Председатели партий могут изменить цвет в разделе «Состав партии» → «Настройки партии».</div>
@@ -492,7 +496,7 @@ function openView(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   const target=$(name+'View');if(target)target.classList.add('active');
   document.querySelectorAll('.nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===name));
-  if(name==='parliament')loadParliament();if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='judicial')loadJudicial();if(name==='admin'){loadAdmin();loadJudicialAdminAppeals();}if(name==='president'){checkPresident();loadPresidentLaws()};
+  if(name==='parliament')loadParliament();if(name==='profile')loadProfile();if(name==='documents')loadDocuments();if(name==='parties')loadParties();if(name==='elections')loadElections();if(name==='news')loadNews();if(name==='judicial')loadJudicial();if(name==='marriages')loadMarriages();if(name==='admin'){loadAdmin();loadJudicialAdminAppeals();}if(name==='president'){checkPresident();loadPresidentLaws()};
   window.scrollTo({top:0,behavior:'smooth'});
 }
 function statusPill(s){const val=String(s||'');let cls=/approved|active|citizen|опублик/i.test(val)?'good':/rejected|отклон|denied/i.test(val)?'bad':'';return `<span class="status ${cls}">${esc(val||'Не указан')}</span>`}
