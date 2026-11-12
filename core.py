@@ -4560,8 +4560,8 @@ def create_marriage_proposal(user: dict, target_user_id: int) -> dict:
     if existing:
         raise DKDError(409, "Предложение этой паре уже отправлено.")
     row = execute(db().table("marriages").insert({
-        "partner_one_user_id": uid,
-        "partner_two_user_id": target,
+        "partner_one_user_id": min(uid, target),
+        "partner_two_user_id": max(uid, target),
         "proposed_by": uid,
         "status": "proposed",
     }), "Не удалось отправить предложение о браке.")[0]
