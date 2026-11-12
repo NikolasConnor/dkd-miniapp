@@ -4390,6 +4390,12 @@ def judge_judicial_case(user: dict, case_id: int) -> dict:
         detail = exc.read().decode("utf-8", errors="replace")[:500]
         provider = "OpenRouter" if openrouter_key else "OpenAI"
         log.error("%s judicial API returned %s: %s", provider, exc.code, detail)
+        if openrouter_key and exc.code == 402:
+            raise DKDError(502, "На аккаунте OpenRouter закончились доступные кредиты. Пополните баланс или выберите бесплатную модель в OPENROUTER_MODEL.") from exc
+        if openrouter_key and exc.code == 401:
+            raise DKDError(502, "OpenRouter отклонил API-ключ. Проверьте OPENROUTER_API_KEY в Render.") from exc
+        if openrouter_key and exc.code == 404:
+            raise DKDError(502, "Модель OpenRouter не найдена. Проверьте значение OPENROUTER_MODEL в Render.") from exc
         raise DKDError(502, "ИИ-судья не смог обработать дело. Проверьте API-ключ и выбранную модель в Render.") from exc
     except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
         log.exception("AI judge request failed")
