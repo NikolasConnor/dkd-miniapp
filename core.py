@@ -4299,9 +4299,10 @@ def judge_judicial_case(user: dict, case_id: int) -> dict:
         if case["status"] in ("decided", "appeal_pending", "closed"):
             raise DKDError(409, "По этому делу уже вынесено решение.")
         raise DKDError(409, "Сначала ответчик должен представить свою позицию.")
-    api_key = env("OPENAI_API_KEY")
-    if not api_key:
-        raise DKDError(503, "ИИ-судья пока не подключён: администратору нужно добавить OPENAI_API_KEY в секреты Render.")
+    openrouter_key = env("OPENROUTER_API_KEY")
+    openai_key = env("OPENAI_API_KEY")
+    if not openrouter_key and not openai_key:
+        raise DKDError(503, "ИИ-судья пока не подключён: добавьте OPENROUTER_API_KEY в секреты Render.")
     laws = rows(db().table("laws").select("title,description,status").eq("status", "signed").order("id", desc=True).limit(100))
     law_context = "\n".join(f"- {x.get('title')}: {x.get('description') or ''}" for x in laws) or "В базе пока нет законов со статусом signed."
     plaintiff_name = _judicial_party_name(int(case["plaintiff_user_id"]))
@@ -4322,37 +4323,74 @@ def judge_judicial_case(user: dict, case_id: int) -> dict:
         f"Ответ ответчика:\n{case.get('defendant_response')}\n\n"
         f"Действующие подписанные законы ДКД:\n{law_context}"
     )
-    request_body = json.dumps({
-        "model": env("OPENAI_MODEL", "gpt-4.1-mini"),
-        "instructions": instructions,
-        "input": case_input,
-        "store": False,
-        "max_output_tokens": 1800,
-    }).encode("utf-8")
-    request = urllib.request.Request(
-        "https://api.openai.com/v1/responses",
-        data=request_body,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        method="POST",
-    )
+    decision = ""
+    if openrouter_key:
+        # OpenRouter использует совместимый с OpenAI Chat Completions API.
+        request_body = json.dumps({
+            "model": env("OPENROUTER_MODEL", "openai/gpt-4.1-mini"),
+            "messages": [
+                {"role": "system", "content": instructions},
+                {"role": "user", "content": case_input},
+            ],
+            "max_tokens": 1800,
+        }).encode("utf-8")
+        request = urllib.request.Request(
+            "https://openrouter.ai/api/v1/chat/completions",
+            data=request_body,
+            headers={
+                "Authorization": f"Bearer {openrouter_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://dkd-miniapp-1.onrender.com",
+                "X-Title": "DKD Mini App",
+            },
+            method="POST",
+        )
+    else:
+        # Сохраняем совместимость с прежней конфигурацией OpenAI.
+        request_body = json.dumps({
+            "model": env("OPENAI_MODEL", "gpt-4.1-mini"),
+            "instructions": instructions,
+            "input": case_input,
+            "store": False,
+            "max_output_tokens": 1800,
+        }).encode("utf-8")
+        request = urllib.request.Request(
+            "https://api.openai.com/v1/responses",
+            data=request_body,
+            headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
+            method="POST",
+        )
     try:
         with urllib.request.urlopen(request, timeout=75) as response:
             payload = json.loads(response.read().decode("utf-8"))
-        decision = str(payload.get("output_text") or "").strip()
-        if not decision:
-            chunks = []
-            for item in payload.get("output", []):
-                if item.get("type") == "message":
-                    for part in item.get("content", []):
-                        if part.get("type") == "output_text":
-                            chunks.append(part.get("text", ""))
-            decision = "\n".join(chunks).strip()
+        if openrouter_key:
+            choices = payload.get("choices") or []
+            message = choices[0].get("message", {}) if choices else {}
+            content = message.get("content", "")
+            if isinstance(content, list):
+                decision = "\\n".join(
+                    str(part.get("text", "")) for part in content
+                    if isinstance(part, dict) and part.get("type") in ("text", "output_text")
+                ).strip()
+            else:
+                decision = str(content or "").strip()
+        else:
+            decision = str(payload.get("output_text") or "").strip()
+            if not decision:
+                chunks = []
+                for item in payload.get("output", []):
+                    if item.get("type") == "message":
+                        for part in item.get("content", []):
+                            if part.get("type") == "output_text":
+                                chunks.append(part.get("text", ""))
+                decision = "\\n".join(chunks).strip()
         if not decision:
             raise ValueError("Empty model response")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:500]
-        log.error("OpenAI judicial API returned %s: %s", exc.code, detail)
-        raise DKDError(502, "ИИ-судья не смог обработать дело. Проверьте настройки модели и API-ключа.") from exc
+        provider = "OpenRouter" if openrouter_key else "OpenAI"
+        log.error("%s judicial API returned %s: %s", provider, exc.code, detail)
+        raise DKDError(502, "ИИ-судья не смог обработать дело. Проверьте API-ключ и выбранную модель в Render.") from exc
     except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
         log.exception("AI judge request failed")
         raise DKDError(502, "Не удалось получить решение ИИ-судьи. Попробуйте повторить позже.") from exc
