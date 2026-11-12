@@ -621,6 +621,12 @@ function showDocTab(tab){
     el.innerHTML='<div class="section-head"><h3>Моё удостоверение Президента</h3></div><div class="list">'+certificates.map(d=>'<article class="card"><div class="row"><strong>👑 '+esc(d.title||'Удостоверение Президента ДКД')+'</strong>'+statusPill(d.certificate_status==='active'?'Действует':'Истёк')+'</div><p style="white-space:pre-wrap">'+esc(d.text||'')+'</p><small class="muted">'+fmtDate(d.created_at)+'</small></article>').join('')+'</div>';
     return
   }
+  if(tab==='marriages'){
+    const docs=(state.docs||{}).marriage_documents||[];
+    if(!docs.length){el.innerHTML='<div class="empty">Свидетельств пока нет. После взаимного согласия на брак документ появится здесь у обоих супругов.</div>';return;}
+    el.innerHTML='<div class="section-head"><h3>Мои свидетельства о браке</h3></div><div class="list">'+docs.map(d=>'<article class="card"><div class="row"><strong>💍 '+esc(d.title||'Свидетельство о заключении брака')+'</strong>'+statusPill(d.status_label||d.status)+'</div><p class="muted small">Номер: '+esc(d.number||'—')+'</p><div class="passport" style="max-width:none;margin:12px 0;background:#f5d9e6;color:#321c35"><div class="passport-top"><b>СВИДЕТЕЛЬСТВО О ЗАКЛЮЧЕНИИ БРАКА</b><small>ДЕМОКРАТИЧЕСКАЯ КОНФЕДЕРАЦИЯ ДЕБИЛОВ</small></div><div style="padding:17px"><div style="font-size:12px;color:#805c78">СУПРУГИ</div><strong>'+esc(d.partner_one_name||'—')+'</strong><br><strong>'+esc(d.partner_two_name||'—')+'</strong><p style="margin:12px 0 4px;font-size:12px;color:#805c78">ДАТА РЕГИСТРАЦИИ</p><strong>'+fmtDate(d.accepted_at||d.created_at)+'</strong><p style="margin:12px 0 4px;font-size:12px;color:#805c78">НОМЕР ДОКУМЕНТА</p><strong>'+esc(d.number||'—')+'</strong><p style="margin:12px 0 4px;font-size:12px;color:#805c78">СТАТУС</p><strong>'+esc(d.status_label||'—')+'</strong></div></div><details><summary class="muted small">Полный текст документа</summary><p style="white-space:pre-wrap">'+esc(d.text||'')+'</p></details></article>').join('')+'</div>';
+    return;
+  }
   if(tab==='laws'){
     const d=state.docs||{};const laws=d.laws||d.documents||[];const decrees=d.decrees||[];
     el.innerHTML='<div class="section-head"><h3>Законы</h3></div>'+renderItems(laws,'title','description')+'<div class="section-head"><h3>Указы</h3></div>'+renderItems(decrees,'title','text');
@@ -628,6 +634,47 @@ function showDocTab(tab){
 }
 function renderItems(items,titleKey,bodyKey){if(!items.length)return '<div class="empty">Пока ничего не опубликовано</div>';return `<div class="list">${items.map(x=>`<div class="card"><h4 class="item-title">${esc(x[titleKey]||'Документ')}</h4><p class="muted" style="white-space:pre-wrap">${esc(x[bodyKey]||x.text||'')}</p><small class="muted">${fmtDate(x.created_at||x.published_at)}</small></div>`).join('')}</div>`}
 async function submitApplication(e){e.preventDefault();try{await api('/api/applications',{method:'POST',body:{kind:$('appKind').value,full_name:$('appFullName').value.trim(),details:$('appDetails').value.trim()}});notify('Заявление отправлено');await loadDocuments();showDocTab('applications')}catch(err){notify(err.message,'error')}}
+
+async function loadMarriages(){
+  const el=$('marriagesContent');
+  if(el)el.innerHTML='<div class="empty"><span class="spinner"></span> Загружаем браки…</div>';
+  try{
+    const pair=await Promise.all([api('/api/marriages'),api('/api/marriages/people')]);
+    const data=pair[0], people=pair[1], select=$('marriageTarget');
+    if(select){const options=people.people||[];select.innerHTML='<option value="">Выберите участника</option>'+options.map(p=>'<option value="'+Number(p.user_id)+'">'+esc(p.avatar_emoji||'👤')+' '+esc(p.full_name)+(p.username?' · @'+esc(p.username):'')+'</option>').join('');}
+    if(!el)return;
+    const items=data.marriages||[];
+    if(!items.length){el.innerHTML='<div class="empty">Пока нет предложений и зарегистрированных браков.</div>';return;}
+    el.innerHTML=items.map(m=>{
+      const status=m.status==='active'?'В браке':m.status==='proposed'?(m.is_incoming?'Ожидает вашего ответа':'Ожидает ответа'):m.status==='divorce_pending'?'Ожидается подтверждение развода':m.status==='divorced'?'Брак расторгнут':'Предложение отклонено';
+      let actions='';
+      if(m.can_accept)actions+='<button class="btn primary" onclick="marriageAction('+Number(m.id)+',\\'accept\\')">Принять</button> <button class="btn danger" onclick="marriageAction('+Number(m.id)+',\\'reject\\')">Отклонить</button>';
+      if(m.can_cancel)actions+='<button class="btn danger" onclick="marriageAction('+Number(m.id)+',\\'cancel\\')">Отменить предложение</button>';
+      if(m.can_divorce)actions+='<button class="btn danger" onclick="marriageAction('+Number(m.id)+',\\'divorce\\')">Запросить развод</button>';
+      if(m.can_confirm_divorce)actions+='<button class="btn danger" onclick="marriageAction('+Number(m.id)+',\\'divorce\\')">Подтвердить развод</button>';
+      return '<article class="card"><div class="row"><strong>'+esc(m.other_avatar||'👤')+' '+esc(m.other_name||'Участник ДКД')+'</strong>'+statusPill(status)+'</div><p class="muted small">Предложение: '+fmtDate(m.proposed_at)+(m.accepted_at?' · Регистрация: '+fmtDate(m.accepted_at):'')+'</p><div class="row" style="justify-content:flex-start;flex-wrap:wrap;margin-top:10px">'+actions+'</div></article>';
+    }).join('');
+  }catch(e){if(el)showError(el,e);notify(e.message,'error');}
+}
+async function sendMarriageProposal(e){
+  e.preventDefault();
+  const target=Number($('marriageTarget')?.value||0);
+  if(!target){notify('Выберите пользователя','error');return;}
+  try{await api('/api/marriages',{method:'POST',body:{target_user_id:target}});notify('Предложение о браке отправлено');await loadMarriages();}
+  catch(err){notify(err.message,'error');}
+}
+async function marriageAction(id,action){
+  const prompts={accept:'Зарегистрировать брак? Свидетельство появится у обоих участников.',reject:'Отклонить предложение о браке?',cancel:'Отменить отправленное предложение?',divorce:'Подтвердить действие по разводу? Если запрос отправлен второй стороной, брак будет расторгнут.'};
+  if(!confirm(prompts[action]||'Подтвердить действие?'))return;
+  try{
+    if(action==='accept'||action==='reject')await api('/api/marriages/'+id+'/'+action,{method:'POST'});
+    else if(action==='cancel')await api('/api/marriages/'+id,{method:'DELETE'});
+    else await api('/api/marriages/'+id+'/divorce',{method:'POST'});
+    notify('Действие выполнено');
+    await Promise.all([loadMarriages(),loadProfile(),loadDocuments()]);
+  }catch(err){notify(err.message,'error');}
+}
+
 async function loadParties(){
   loadDumaPartyLists();
   const el=$('partiesContent');el.innerHTML='<div class="empty">Загрузка партий…</div>';
