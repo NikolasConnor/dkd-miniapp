@@ -794,6 +794,7 @@ def build_profile(user: dict) -> dict:
         "party_name": party_name,
         "party_id": party_id,
         "citizenship": "Гражданин ДКД" if subject.get("is_citizen") else "Не гражданин",
+        **marriage_profile_summary(uid),
         "registered": True,
     }
 
@@ -2600,7 +2601,8 @@ def list_documents(user: dict, admin: bool) -> dict:
             item.pop("secret_for_user_id", None)
             public_decrees.append(item)
     return {"laws": laws, "decrees": public_decrees, "mandates": mandates,
-            "president_certificate": president_certificate}
+            "president_certificate": president_certificate,
+            "marriage_documents": list_my_marriages(user).get("certificates", [])}
 
 def _election_results_news(kind: str, election: dict, counts: dict[str, int], extra: str = "") -> str:
     title = clean_name(election.get("title")) or ("Выборы в Госдуму" if kind == "duma" else "Президентские выборы")
@@ -4426,3 +4428,248 @@ def review_judicial_appeal(user: dict, appeal_id: int, outcome: str, admin_decis
         "closed_at": None,
     }).eq("id", int(case["id"])))
     return {"ok": True, "appeal": reviewed, "case_id": int(case["id"]), "other_appeals_pending": bool(pending)}
+
+
+# ----------------------------------------------------------------------------
+# Браки и свидетельства о заключении брака
+# ----------------------------------------------------------------------------
+
+def _marriage_subjects(user_ids: list[int]) -> dict[int, dict]:
+    ids = list(dict.fromkeys(int(x) for x in user_ids if x))
+    if not ids:
+        return {}
+    people = select_in("subjects", "user_id,full_name,username,avatar_emoji", "user_id", ids)
+    return {int(p["user_id"]): p for p in people}
+
+
+def list_marriage_people(user: dict) -> dict:
+    uid = int(user["id"])
+    people = rows(db().table("subjects").select(
+        "user_id,full_name,username,avatar_emoji"
+    ).order("full_name").limit(500))
+    result = []
+    for p in people:
+        pid = int(p.get("user_id") or 0)
+        if not pid or pid == uid:
+            continue
+        result.append({
+            "user_id": pid,
+            "full_name": clean_name(p.get("full_name")) or ("@" + str(p.get("username") or pid)),
+            "username": p.get("username"),
+            "avatar_emoji": p.get("avatar_emoji") or "👤",
+        })
+    return {"people": result}
+
+
+def _marriage_certificate(row: dict, people: dict[int, dict], viewer_id: int) -> dict:
+    one_id, two_id = int(row["partner_one_user_id"]), int(row["partner_two_user_id"])
+    p1, p2 = people.get(one_id, {}), people.get(two_id, {})
+    date_value = row.get("accepted_at") or row.get("proposed_at") or row.get("created_at")
+    try:
+        year = parse_dt(date_value).year if date_value else utcnow().year
+    except Exception:
+        year = utcnow().year
+    number = f"ДКД-БР-{year}-{int(row['id']):06d}"
+    status = row.get("status")
+    status_label = "Брак зарегистрирован" if status in ("active", "divorce_pending") else "Брак расторгнут"
+    return {
+        "id": int(row["id"]),
+        "number": number,
+        "title": "Свидетельство о заключении брака",
+        "partner_one_user_id": one_id,
+        "partner_two_user_id": two_id,
+        "partner_one_name": clean_name(p1.get("full_name")) or "Участник ДКД",
+        "partner_two_name": clean_name(p2.get("full_name")) or "Участник ДКД",
+        "my_name": clean_name((p1 if viewer_id == one_id else p2).get("full_name")) or "Участник ДКД",
+        "spouse_name": clean_name((p2 if viewer_id == one_id else p1).get("full_name")) or "Участник ДКД",
+        "status": status,
+        "status_label": status_label,
+        "accepted_at": row.get("accepted_at"),
+        "ended_at": row.get("ended_at"),
+        "text": "\n".join([
+            "ДЕМОКРАТИЧЕСКАЯ КОНФЕДЕРАЦИЯ ДЕБИЛОВ",
+            "ГОСУДАРСТВЕННЫЙ РЕЕСТР АКТОВ ГРАЖДАНСКОГО СОСТОЯНИЯ",
+            "",
+            "СВИДЕТЕЛЬСТВО О ЗАКЛЮЧЕНИИ БРАКА",
+            "",
+            f"Номер документа: {number}",
+            f"Супруг(а): {clean_name(p1.get('full_name')) or 'Участник ДКД'}",
+            f"Супруг(а): {clean_name(p2.get('full_name')) or 'Участник ДКД'}",
+            f"Дата регистрации: {date_value or '—'}",
+            f"Статус: {status_label}",
+            "",
+            "Документ сформирован автоматически информационной системой ДКД.",
+        ]),
+        "created_at": date_value,
+    }
+
+
+def _marriage_rows_for_user(user_id: int) -> list[dict]:
+    a = rows(db().table("marriages").select("*").eq("partner_one_user_id", int(user_id)).order("id", desc=True).limit(100))
+    b = rows(db().table("marriages").select("*").eq("partner_two_user_id", int(user_id)).order("id", desc=True).limit(100))
+    combined = {int(x["id"]): x for x in (a + b)}
+    return sorted(combined.values(), key=lambda x: int(x["id"]), reverse=True)
+
+
+def list_my_marriages(user: dict) -> dict:
+    uid = int(user["id"])
+    items = _marriage_rows_for_user(uid)
+    ids = [int(x["partner_one_user_id"]) for x in items] + [int(x["partner_two_user_id"]) for x in items]
+    people = _marriage_subjects(ids)
+    marriages = []
+    for item in items:
+        one_id, two_id = int(item["partner_one_user_id"]), int(item["partner_two_user_id"])
+        other_id = two_id if uid == one_id else one_id
+        other = people.get(other_id, {})
+        marriages.append({
+            **item,
+            "partner_one_name": clean_name(people.get(one_id, {}).get("full_name")) or "Участник ДКД",
+            "partner_two_name": clean_name(people.get(two_id, {}).get("full_name")) or "Участник ДКД",
+            "other_user_id": other_id,
+            "other_name": clean_name(other.get("full_name")) or ("@" + str(other.get("username") or other_id)),
+            "other_avatar": other.get("avatar_emoji") or "👤",
+            "is_incoming": int(item.get("proposed_by") or 0) != uid,
+            "is_proposer": int(item.get("proposed_by") or 0) == uid,
+            "can_accept": item.get("status") == "proposed" and int(item.get("proposed_by") or 0) != uid,
+            "can_reject": item.get("status") == "proposed" and int(item.get("proposed_by") or 0) != uid,
+            "can_cancel": item.get("status") == "proposed" and int(item.get("proposed_by") or 0) == uid,
+            "can_divorce": item.get("status") == "active",
+            "can_confirm_divorce": item.get("status") == "divorce_pending" and int(item.get("divorce_requested_by") or 0) != uid,
+        })
+    certificates = [
+        _marriage_certificate(x, people, uid)
+        for x in items if x.get("status") in ("active", "divorce_pending", "divorced")
+    ]
+    active = next((x for x in marriages if x.get("status") in ("active", "divorce_pending")), None)
+    return {"marriages": marriages, "certificates": certificates, "active_marriage": active}
+
+
+def create_marriage_proposal(user: dict, target_user_id: int) -> dict:
+    uid, target = int(user["id"]), int(target_user_id)
+    if uid == target:
+        raise DKDError(422, "Нельзя заключить брак с самим собой.")
+    if not one(db().table("subjects").select("user_id").eq("user_id", target).limit(1)):
+        raise DKDError(404, "Пользователь не найден.")
+    for person_id in (uid, target):
+        active = rows(db().table("marriages").select("id").in_("status", ["active", "divorce_pending"])
+                      .or_(f"partner_one_user_id.eq.{person_id},partner_two_user_id.eq.{person_id}").limit(1))
+        if active:
+            raise DKDError(409, "Один из участников уже состоит в браке.")
+    existing = rows(db().table("marriages").select("id").eq("status", "proposed")
+                    .or_(f"and(partner_one_user_id.eq.{uid},partner_two_user_id.eq.{target}),and(partner_one_user_id.eq.{target},partner_two_user_id.eq.{uid})").limit(1))
+    if existing:
+        raise DKDError(409, "Предложение этой паре уже отправлено.")
+    row = execute(db().table("marriages").insert({
+        "partner_one_user_id": uid,
+        "partner_two_user_id": target,
+        "proposed_by": uid,
+        "status": "proposed",
+    }), "Не удалось отправить предложение о браке.")[0]
+    proposer = get_subject(uid)
+    target_name = clean_name(get_subject(target).get("full_name") if get_subject(target) else "") or "пользователь"
+    proposer_name = clean_name(proposer.get("full_name") if proposer else "") or "Пользователь"
+    create_notification(target, "💍 Предложение вступить в брак", f"{proposer_name} предлагает вам заключить брак в ДКД. Откройте раздел «Браки», чтобы принять или отклонить предложение.")
+    create_notification(uid, "Предложение отправлено", f"Предложение о браке для пользователя «{target_name}» отправлено.")
+    audit(uid, "marriage_proposed", target, f"marriage_id={row['id']}")
+    return {"ok": True, "marriage": row}
+
+
+def respond_marriage_proposal(user: dict, marriage_id: int, accept: bool) -> dict:
+    uid = int(user["id"])
+    item = one(db().table("marriages").select("*").eq("id", int(marriage_id)).limit(1))
+    if not item:
+        raise DKDError(404, "Предложение о браке не найдено.")
+    if uid not in (int(item["partner_one_user_id"]), int(item["partner_two_user_id"])):
+        raise DKDError(403, "Это предложение адресовано не вам.")
+    if int(item.get("proposed_by") or 0) == uid:
+        raise DKDError(403, "Отправитель не может принять собственное предложение.")
+    if item.get("status") != "proposed":
+        raise DKDError(409, "Это предложение уже обработано.")
+    if accept:
+        for person_id in (int(item["partner_one_user_id"]), int(item["partner_two_user_id"])):
+            active = rows(db().table("marriages").select("id").in_("status", ["active", "divorce_pending"])
+                          .or_(f"partner_one_user_id.eq.{person_id},partner_two_user_id.eq.{person_id}").limit(1))
+            if active:
+                raise DKDError(409, "Один из участников уже состоит в другом браке.")
+        status, fields = "active", {"status": "active", "accepted_at": now_iso()}
+    else:
+        status, fields = "rejected", {"status": "rejected", "ended_at": now_iso()}
+    updated = execute(db().table("marriages").update(fields).eq("id", int(marriage_id)).eq("status", "proposed"),
+                      "Не удалось обработать предложение о браке.")
+    if not updated:
+        raise DKDError(409, "Предложение уже было обработано.")
+    other = int(item["proposed_by"])
+    actor = get_subject(uid)
+    actor_name = clean_name(actor.get("full_name") if actor else "") or "Пользователь"
+    if accept:
+        create_notification(other, "💍 Брак заключён", f"{actor_name} принял(а) ваше предложение. Свидетельство доступно в разделе «Документы».")
+        create_notification(uid, "💍 Брак зарегистрирован", "Вы заключили брак. Свидетельство доступно в разделе «Документы».")
+        audit(uid, "marriage_accepted", other, f"marriage_id={marriage_id}")
+    else:
+        create_notification(other, "Предложение о браке отклонено", f"{actor_name} отклонил(а) предложение о браке.")
+        create_notification(uid, "Предложение отклонено", "Вы отклонили предложение о браке.")
+        audit(uid, "marriage_rejected", other, f"marriage_id={marriage_id}")
+    return {"ok": True, "status": status}
+
+
+def cancel_marriage_proposal(user: dict, marriage_id: int) -> dict:
+    uid = int(user["id"])
+    item = one(db().table("marriages").select("*").eq("id", int(marriage_id)).limit(1))
+    if not item or int(item.get("proposed_by") or 0) != uid:
+        raise DKDError(404, "Ваше предложение не найдено.")
+    if item.get("status") != "proposed":
+        raise DKDError(409, "Предложение уже обработано.")
+    execute(db().table("marriages").update({"status": "rejected", "ended_at": now_iso()})
+            .eq("id", int(marriage_id)).eq("status", "proposed"),
+            "Не удалось отменить предложение.")
+    target = int(item["partner_two_user_id"] if int(item["partner_one_user_id"]) == uid else item["partner_one_user_id"])
+    create_notification(target, "Предложение о браке отменено", "Отправитель отменил предложение о браке.")
+    audit(uid, "marriage_proposal_cancelled", target, f"marriage_id={marriage_id}")
+    return {"ok": True}
+
+
+def request_or_confirm_marriage_divorce(user: dict, marriage_id: int) -> dict:
+    uid = int(user["id"])
+    item = one(db().table("marriages").select("*").eq("id", int(marriage_id)).limit(1))
+    if not item or uid not in (int(item["partner_one_user_id"]), int(item["partner_two_user_id"])):
+        raise DKDError(404, "Брак не найден.")
+    other = int(item["partner_two_user_id"] if int(item["partner_one_user_id"]) == uid else item["partner_one_user_id"])
+    actor = get_subject(uid)
+    actor_name = clean_name(actor.get("full_name") if actor else "") or "Пользователь"
+    if item.get("status") == "active":
+        execute(db().table("marriages").update({
+            "status": "divorce_pending", "divorce_requested_by": uid,
+            "divorce_requested_at": now_iso(),
+        }).eq("id", int(marriage_id)).eq("status", "active"),
+        "Не удалось отправить запрос на развод.")
+        create_notification(other, "💔 Запрос на развод", f"{actor_name} предложил(а) расторгнуть брак. Откройте раздел «Браки», чтобы подтвердить развод.")
+        create_notification(uid, "Запрос на развод отправлен", "Развод вступит в силу после подтверждения второй стороны.")
+        audit(uid, "marriage_divorce_requested", other, f"marriage_id={marriage_id}")
+        return {"ok": True, "status": "divorce_pending"}
+    if item.get("status") == "divorce_pending":
+        if int(item.get("divorce_requested_by") or 0) == uid:
+            raise DKDError(409, "Ожидается подтверждение второй стороны.")
+        execute(db().table("marriages").update({"status": "divorced", "ended_at": now_iso()})
+                .eq("id", int(marriage_id)).eq("status", "divorce_pending"),
+                "Не удалось подтвердить расторжение брака.")
+        create_notification(other, "Брак расторгнут", f"{actor_name} подтвердил(а) развод. Документ о браке сохранён в истории.")
+        create_notification(uid, "Брак расторгнут", "Развод оформлен. Свидетельство сохранено в документах с отметкой о расторжении.")
+        audit(uid, "marriage_divorced", other, f"marriage_id={marriage_id}")
+        return {"ok": True, "status": "divorced"}
+    raise DKDError(409, "Для этого брака действие недоступно.")
+
+
+def marriage_profile_summary(user_id: int) -> dict:
+    try:
+        result = list_my_marriages({"id": int(user_id)})
+        active = result.get("active_marriage")
+        if not active:
+            return {"marital_status": "Не состоит в браке", "spouse_name": None, "spouse_user_id": None}
+        return {
+            "marital_status": "В браке" if active.get("status") == "active" else "Ожидается развод",
+            "spouse_name": active.get("other_name"),
+            "spouse_user_id": active.get("other_user_id"),
+        }
+    except Exception as exc:
+        log.warning("Marriage profile summary unavailable for %s: %s", user_id, exc)
+        return {"marital_status": "Не состоит в браке", "spouse_name": None, "spouse_user_id": None}
