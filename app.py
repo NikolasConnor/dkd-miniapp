@@ -956,3 +956,46 @@ def judicial_admin_appeals(user: dict = Depends(admin_user)):
 @app.patch("/api/admin/judicial/appeals/{appeal_id}")
 def judicial_admin_review_appeal(appeal_id: int, payload: JudicialAppealReview, user: dict = Depends(admin_user)):
     return core.review_judicial_appeal(user, appeal_id, payload.outcome, payload.admin_decision)
+
+
+# ----------------------------------------------------------------------------
+# Браки
+# ----------------------------------------------------------------------------
+
+class MarriageProposal(BaseModel):
+    target_user_id: int = Field(gt=0)
+
+
+@app.get("/api/marriages/people")
+def marriage_people(user: dict = Depends(auth_user)):
+    return core.list_marriage_people(user)
+
+
+@app.get("/api/marriages")
+def my_marriages(user: dict = Depends(auth_user)):
+    return core.list_my_marriages(user)
+
+
+@app.post("/api/marriages")
+def propose_marriage(payload: MarriageProposal, user: dict = Depends(auth_user)):
+    return core.create_marriage_proposal(user, payload.target_user_id)
+
+
+@app.post("/api/marriages/{marriage_id}/accept")
+def accept_marriage(marriage_id: int, user: dict = Depends(auth_user)):
+    return core.respond_marriage_proposal(user, marriage_id, True)
+
+
+@app.post("/api/marriages/{marriage_id}/reject")
+def reject_marriage(marriage_id: int, user: dict = Depends(auth_user)):
+    return core.respond_marriage_proposal(user, marriage_id, False)
+
+
+@app.delete("/api/marriages/{marriage_id}")
+def cancel_marriage(marriage_id: int, user: dict = Depends(auth_user)):
+    return core.cancel_marriage_proposal(user, marriage_id)
+
+
+@app.post("/api/marriages/{marriage_id}/divorce")
+def divorce_marriage(marriage_id: int, user: dict = Depends(auth_user)):
+    return core.request_or_confirm_marriage_divorce(user, marriage_id)
