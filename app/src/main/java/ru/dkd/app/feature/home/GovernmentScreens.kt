@@ -9,6 +9,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +35,7 @@ internal fun StubSectionTitle(title: String, action: String? = null, onAction: (
 
 @Composable
 internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, onState: () -> Unit) {
+    var searchQuery by remember { mutableStateOf("") }
     val shortcuts = listOf(
         Triple("Государственная Дума", "Состав, заседания и законы", "§"),
         Triple("Выборы", "Официальные бюллетени", "◉"),
@@ -92,6 +97,44 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
                             fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.width(7.dp))
                         Text("↗", color = Pink, fontSize = 16.sp)
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(17.dp))
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(17.dp),
+            placeholder = { Text("Поиск по услугам и разделам", color = Muted, fontSize = 12.sp) },
+            leadingIcon = { Text("⌕", color = Purple, fontSize = 25.sp) },
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = White, unfocusedTextColor = White,
+                focusedBorderColor = Purple, unfocusedBorderColor = LineColor,
+                cursorColor = Purple, focusedContainerColor = CardColor,
+                unfocusedContainerColor = CardColor
+            )
+        )
+        if (searchQuery.isNotBlank()) {
+            val query = searchQuery.trim()
+            val results = (shortcuts.map { it.first to it.second } +
+                listOf("Профиль" to "Личные данные и статус", "Документы" to "Паспорт и удостоверения",
+                    "Панель администратора" to "Управление системой"))
+                .distinctBy { it.first }
+                .filter { it.first.contains(query, true) || it.second.contains(query, true) }
+            Surface(color = CardColor, shape = RoundedCornerShape(17.dp),
+                modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(17.dp))) {
+                Column(Modifier.padding(12.dp)) {
+                    if (results.isEmpty()) {
+                        Text("Ничего не найдено", color = Muted, fontSize = 12.sp)
+                    } else results.forEach { result ->
+                        TextButton(onClick = { onOpen(result.first); searchQuery = "" },
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text(result.first, color = White, modifier = Modifier.weight(1f))
+                            Text("›", color = Purple, fontSize = 20.sp)
+                        }
                     }
                 }
             }
