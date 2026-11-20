@@ -23,12 +23,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ru.dkd.app.core.design.*
 
+
+private val GovBackground = Color(0xFFF3F7FC)
+private val GovCard = Color(0xFFFFFFFF)
+private val GovText = Color(0xFF172B4D)
+private val GovMuted = Color(0xFF64758B)
+private val GovBlue = Color(0xFF0B63CE)
+private val GovLine = Color(0xFFDCE6F1)
+private val GovGreen = Color(0xFF168653)
+private val GovRed = Color(0xFFD94848)
+
+
 @Composable
 internal fun StubSectionTitle(title: String, action: String? = null, onAction: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text(title, color = GovText, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         if (action != null && onAction != null) TextButton(onClick = onAction) {
-            Text(action, color = Purple, fontSize = 11.sp)
+            Text(action, color = GovBlue, fontSize = 11.sp)
         }
     }
 }
@@ -45,58 +56,58 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
         Triple("Президентская администрация", "Указы и кадровые решения", "♛")
     )
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        Modifier.fillMaxSize().background(GovBackground).verticalScroll(rememberScrollState())
             .padding(horizontal = 18.dp)
     ) {
         Spacer(Modifier.height(18.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("ЛИЧНЫЙ КАБИНЕТ  /  ДКД", color = Pink, fontSize = 9.sp,
+                Text("ГОСУДАРСТВЕННЫЕ УСЛУГИ  /  ДКД", color = GovBlue, fontSize = 9.sp,
                     fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-                Text("Добро пожаловать", color = Muted, fontSize = 13.sp)
-                Text(name.substringBefore(" ").ifBlank { name }, color = White,
+                Text("Добро пожаловать", color = GovMuted, fontSize = 13.sp)
+                Text(name.substringBefore(" ").ifBlank { name }, color = GovText,
                     fontSize = 29.sp, fontWeight = FontWeight.Bold, maxLines = 1)
             }
             Box(
                 Modifier.size(58.dp).background(
-                    Brush.linearGradient(listOf(Blue, Purple, Color(0xFF51458D))),
+                    Brush.linearGradient(listOf(GovBlue, GovBlue, Color(0xFF51458D))),
                     RoundedCornerShape(20.dp)
                 ),
                 contentAlignment = Alignment.Center
             ) {
-                Text("✦", color = White, fontSize = 29.sp)
+                Text("✦", color = GovText, fontSize = 29.sp)
             }
         }
         Spacer(Modifier.height(19.dp))
         Surface(
-            color = Panel2, shape = RoundedCornerShape(27.dp),
+            color = GovBlue, shape = RoundedCornerShape(27.dp),
             modifier = Modifier.fillMaxWidth()
                 .border(1.dp, Color(0x776D8FFF), RoundedCornerShape(27.dp))
                 .clickable { onOpen("Профиль") }
         ) {
             Box(Modifier.background(
-                Brush.linearGradient(listOf(Color(0xFF29386C), Color(0xFF302B60), Color(0xFF20264A)))
+                Brush.linearGradient(listOf(Color(0xFF0B63CE), Color(0xFF2679D8), Color(0xFF4A91E5)))
             )) {
                 Column(Modifier.padding(horizontal = 21.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("ВАШ СТАТУС В ГОСУДАРСТВЕ", color = Color(0xFFD0D5FF),
+                        Text("ВАШ СТАТУС В ГОСУДАРСТВЕ", color = GovMuted,
                             fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp,
                             modifier = Modifier.weight(1f))
                         Surface(color = Color(0x3363D9A0), shape = RoundedCornerShape(30.dp)) {
-                            Text("● АКТИВЕН", color = Good, fontSize = 8.sp,
+                            Text("● АКТИВЕН", color = GovGreen, fontSize = 8.sp,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp))
                         }
                     }
-                    Text(role.ifBlank { "Гражданин" }, color = White,
+                    Text(role.ifBlank { "Гражданин" }, color = Color.White,
                         fontSize = 22.sp, fontWeight = FontWeight.Bold)
                     Text("Профиль, полномочия и персональные документы",
-                        color = Color(0xFFD0D3F3), fontSize = 11.sp)
+                        color = Color(0xFFEAF3FF), fontSize = 11.sp)
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Открыть профиль", color = Color(0xFFD6D8FF),
+                        Text("Открыть профиль", color = Color.White,
                             fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.width(7.dp))
-                        Text("↗", color = Pink, fontSize = 16.sp)
+                        Text("↗", color = GovBlue, fontSize = 16.sp)
                     }
                 }
             }
@@ -108,13 +119,13 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             shape = RoundedCornerShape(17.dp),
-            placeholder = { Text("Поиск по услугам и разделам", color = Muted, fontSize = 12.sp) },
-            leadingIcon = { Text("⌕", color = Purple, fontSize = 25.sp) },
+            placeholder = { Text("Поиск по услугам и разделам", color = GovMuted, fontSize = 12.sp) },
+            leadingIcon = { Text("⌕", color = GovBlue, fontSize = 25.sp) },
             colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = White, unfocusedTextColor = White,
-                focusedBorderColor = Purple, unfocusedBorderColor = LineColor,
-                cursorColor = Purple, focusedContainerColor = CardColor,
-                unfocusedContainerColor = CardColor
+                focusedTextColor = GovText, unfocusedTextColor = GovText,
+                focusedBorderColor = GovBlue, unfocusedBorderColor = GovLine,
+                cursorColor = GovBlue, focusedContainerColor = GovCard,
+                unfocusedContainerColor = GovCard
             )
         )
         if (searchQuery.isNotBlank()) {
@@ -124,16 +135,16 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
                     "Панель администратора" to "Управление системой"))
                 .distinctBy { it.first }
                 .filter { it.first.contains(query, true) || it.second.contains(query, true) }
-            Surface(color = CardColor, shape = RoundedCornerShape(17.dp),
-                modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(17.dp))) {
+            Surface(color = GovCard, shape = RoundedCornerShape(17.dp),
+                modifier = Modifier.fillMaxWidth().border(1.dp, GovLine, RoundedCornerShape(17.dp))) {
                 Column(Modifier.padding(12.dp)) {
                     if (results.isEmpty()) {
-                        Text("Ничего не найдено", color = Muted, fontSize = 12.sp)
+                        Text("Ничего не найдено", color = GovMuted, fontSize = 12.sp)
                     } else results.forEach { result ->
                         TextButton(onClick = { onOpen(result.first); searchQuery = "" },
                             modifier = Modifier.fillMaxWidth()) {
-                            Text(result.first, color = White, modifier = Modifier.weight(1f))
-                            Text("›", color = Purple, fontSize = 20.sp)
+                            Text(result.first, color = GovText, modifier = Modifier.weight(1f))
+                            Text("›", color = GovBlue, fontSize = 20.sp)
                         }
                     }
                 }
@@ -142,10 +153,10 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
         Spacer(Modifier.height(26.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text("Государство", color = White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                Text("Основные разделы и сервисы", color = Muted, fontSize = 11.sp)
+                Text("Государство", color = GovText, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text("Основные разделы и сервисы", color = GovMuted, fontSize = 11.sp)
             }
-            TextButton(onClick = { onOpen("Меню") }) { Text("Все разделы  →", color = Purple, fontSize = 10.sp) }
+            TextButton(onClick = { onOpen("Меню") }) { Text("Все разделы  →", color = GovBlue, fontSize = 10.sp) }
         }
         Spacer(Modifier.height(10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -165,21 +176,21 @@ internal fun HomeScreen(name: String, role: String, onOpen: (String) -> Unit, on
             Spacer(Modifier.height(10.dp))
         }
         Surface(
-            color = CardColor, shape = RoundedCornerShape(19.dp),
-            modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(19.dp))
+            color = GovCard, shape = RoundedCornerShape(19.dp),
+            modifier = Modifier.fillMaxWidth().border(1.dp, GovLine, RoundedCornerShape(19.dp))
                 .clickable { onOpen("Панель администратора") }
         ) {
             Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(43.dp).background(Color(0x338B7CFF), RoundedCornerShape(14.dp)),
+                Box(Modifier.size(43.dp).background(Color(0xFFE4F0FF), RoundedCornerShape(14.dp)),
                     contentAlignment = Alignment.Center) {
-                    Text("⚙", color = Pink, fontSize = 22.sp)
+                    Text("⚙", color = GovBlue, fontSize = 22.sp)
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text("Панель администратора", color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Управление участниками и системой", color = Muted, fontSize = 10.sp)
+                    Text("Панель администратора", color = GovText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Управление участниками и системой", color = GovMuted, fontSize = 10.sp)
                 }
-                Text("›", color = Purple, fontSize = 24.sp)
+                Text("›", color = GovBlue, fontSize = 24.sp)
             }
         }
         Spacer(Modifier.height(19.dp))
@@ -195,11 +206,11 @@ private fun HomeFeatureCard(
     onClick: () -> Unit
 ) {
     Surface(
-        color = CardColor,
+        color = GovCard,
         shape = RoundedCornerShape(22.dp),
         modifier = modifier
             .height(178.dp)
-            .border(1.dp, Color(0xFF3A426F), RoundedCornerShape(22.dp))
+            .border(1.dp, GovLine, RoundedCornerShape(22.dp))
             .clickable(onClick = onClick)
     ) {
         Column(
@@ -208,18 +219,18 @@ private fun HomeFeatureCard(
         ) {
             Box(
                 Modifier.size(54.dp)
-                    .background(Brush.linearGradient(listOf(Color(0x554F70D5), Color(0x558B7CFF))), RoundedCornerShape(17.dp)),
+                    .background(Brush.linearGradient(listOf(Color(0xFFE4F0FF), Color(0xFFD7E9FF))), RoundedCornerShape(17.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Text(icon, color = Pink, fontSize = 29.sp, fontWeight = FontWeight.Medium)
+                Text(icon, color = GovBlue, fontSize = 29.sp, fontWeight = FontWeight.Medium)
             }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
-                    title, color = White, fontSize = 15.sp,
+                    title, color = GovText, fontSize = 15.sp,
                     fontWeight = FontWeight.Bold, lineHeight = 19.sp, maxLines = 2
                 )
                 Text(
-                    subtitle, color = Muted, fontSize = 11.sp,
+                    subtitle, color = GovMuted, fontSize = 11.sp,
                     lineHeight = 15.sp, maxLines = 2
                 )
             }
@@ -242,38 +253,38 @@ internal fun MenuScreen(name: String, role: String, unreadCount: Int, onOpen: (S
         Triple("Уведомления", "Важные события и сообщения", "♧"),
         Triple("Панель администратора", "Управление системой и участниками", "⚙")
     )
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
+    Column(Modifier.fillMaxSize().background(GovBackground).verticalScroll(rememberScrollState()).padding(18.dp)) {
         Spacer(Modifier.height(14.dp))
-        Text("НАВИГАЦИЯ  /  ДКД", color = Pink, fontSize = 9.sp,
+        Text("НАВИГАЦИЯ  /  ДКД", color = GovBlue, fontSize = 9.sp,
             fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
-        Text("Все разделы", color = White, fontSize = 29.sp, fontWeight = FontWeight.Bold)
-        Text("$name  ·  $role", color = Muted, fontSize = 11.sp)
+        Text("Все разделы", color = GovText, fontSize = 29.sp, fontWeight = FontWeight.Bold)
+        Text("$name  ·  $role", color = GovMuted, fontSize = 11.sp)
         Spacer(Modifier.height(18.dp))
         sections.forEach { item ->
             Surface(
-                color = CardColor, shape = RoundedCornerShape(17.dp),
+                color = GovCard, shape = RoundedCornerShape(17.dp),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 9.dp)
-                    .border(1.dp, LineColor, RoundedCornerShape(17.dp))
+                    .border(1.dp, GovLine, RoundedCornerShape(17.dp))
                     .clickable { onOpen(item.first) }
             ) {
                 Row(Modifier.heightIn(min = 76.dp).padding(horizontal = 17.dp, vertical = 15.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.size(48.dp).background(Color(0x338B7CFF), RoundedCornerShape(13.dp)),
                         contentAlignment = Alignment.Center) {
-                        Text(item.third, color = Pink, fontSize = 24.sp)
+                        Text(item.third, color = GovBlue, fontSize = 24.sp)
                     }
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(item.first, color = White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Text(item.second, color = Muted, fontSize = 10.sp)
+                        Text(item.first, color = GovText, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(item.second, color = GovMuted, fontSize = 10.sp)
                     }
                     if (item.first == "Уведомления" && unreadCount > 0) {
-                        Surface(color = Bad, shape = RoundedCornerShape(20.dp)) {
+                        Surface(color = GovRed, shape = RoundedCornerShape(20.dp)) {
                             Text(if (unreadCount > 99) "99+" else unreadCount.toString(),
-                                color = White, fontSize = 9.sp, fontWeight = FontWeight.Bold,
+                                color = GovText, fontSize = 9.sp, fontWeight = FontWeight.Bold,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp))
                         }
-                    } else Text("›", color = Purple, fontSize = 23.sp)
+                    } else Text("›", color = GovBlue, fontSize = 23.sp)
                 }
             }
         }
@@ -283,21 +294,21 @@ internal fun MenuScreen(name: String, role: String, unreadCount: Int, onOpen: (S
 
 @Composable
 internal fun StubServiceScreen(title: String, onBack: () -> Unit, onInfo: (String) -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(17.dp)) {
-        TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) { Text("←  Назад", color = Purple) }
+    Column(Modifier.fillMaxSize().background(GovBackground).verticalScroll(rememberScrollState()).padding(17.dp)) {
+        TextButton(onClick = onBack, contentPadding = PaddingValues(0.dp)) { Text("←  Назад", color = GovBlue) }
         Spacer(Modifier.height(9.dp))
-        Text("ГОСУДАРСТВЕННЫЙ СЕРВИС  /  ДКД", color = Pink, fontSize = 9.sp, letterSpacing = 1.5.sp)
-        Text(title, color = White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Text("ГОСУДАРСТВЕННЫЙ СЕРВИС  /  ДКД", color = GovBlue, fontSize = 9.sp, letterSpacing = 1.5.sp)
+        Text(title, color = GovText, fontSize = 28.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(15.dp))
         Box(
             Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
-                .background(Brush.linearGradient(listOf(Color(0xFF292B60), Color(0xFF25234D), Color(0xFF3B2860))))
+                .background(Brush.linearGradient(listOf(Color(0xFF0B63CE), Color(0xFF2679D8), Color(0xFF4A91E5))))
                 .padding(18.dp)
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Цифровые услуги ДКД", color = White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-                Text("Единое пространство государственных сервисов виртуального государства.", color = Color(0xFFD0D3F3), fontSize = 11.sp)
-                Text("NEXORA GROUP", color = Pink, fontSize = 9.sp, letterSpacing = 2.sp)
+                Text("Цифровые услуги ДКД", color = GovText, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Text("Единое пространство государственных сервисов виртуального государства.", color = Color(0xFFEAF3FF), fontSize = 11.sp)
+                Text("NEXORA GROUP", color = GovBlue, fontSize = 9.sp, letterSpacing = 2.sp)
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -306,27 +317,27 @@ internal fun StubServiceScreen(title: String, onBack: () -> Unit, onInfo: (Strin
         Button(
             onClick = { onInfo("Этот раздел пока демонстрационный. Действия появятся после подключения сервиса.") },
             modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Purple)
-        ) { Text("Понятно", color = White) }
+            colors = ButtonDefaults.buttonColors(containerColor = GovBlue)
+        ) { Text("Понятно", color = GovText) }
     }
 }
 
 @Composable
 internal fun StubEmptyState(icon: String, title: String, subtitle: String) {
     Surface(
-        color = CardColor, shape = RoundedCornerShape(20.dp),
-        modifier = Modifier.fillMaxWidth().border(1.dp, LineColor, RoundedCornerShape(20.dp))
+        color = GovCard, shape = RoundedCornerShape(20.dp),
+        modifier = Modifier.fillMaxWidth().border(1.dp, GovLine, RoundedCornerShape(20.dp))
     ) {
         Column(
             Modifier.fillMaxWidth().padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(9.dp)
         ) {
-            Box(Modifier.size(54.dp).background(Color(0xFF34316B), RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
-                Text(icon, color = Pink, fontSize = 25.sp)
+            Box(Modifier.size(54.dp).background(Color(0xFFE4F0FF), RoundedCornerShape(18.dp)), contentAlignment = Alignment.Center) {
+                Text(icon, color = GovBlue, fontSize = 25.sp)
             }
-            Text(title, color = White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+            Text(title, color = GovText, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = GovMuted, fontSize = 11.sp, lineHeight = 16.sp)
         }
     }
 }
