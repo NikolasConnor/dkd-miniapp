@@ -145,7 +145,7 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
       <button class="back" onclick="openView('home')">← На главную</button>
       <div class="parliament-hero">
         <div><div class="eyebrow">Законодательная власть ДКД</div><h2>Государственная дума</h2><p id="parliamentTermText">Действующий состав парламента</p></div>
-        <div class="parliament-total"><strong><span id="parliamentSeatsOccupied">0</span><span class="total-divider">/</span>50</strong><span>депутатских мест занято</span></div>
+        <div class="parliament-total"><strong><span id="parliamentSeatsOccupied">0</span><span class="total-divider">/</span><span id="parliamentSeatsTotal">0</span></strong><span>депутатских мест занято</span></div>
       </div>
       <div class="card parliament-chamber">
         <div class="section-head"><h3>Зал Государственной думы</h3><span class="status" id="parliamentStatus">Загрузка состава…</span></div>
@@ -465,7 +465,7 @@ async function loadParliament(){
  if(state.isDeputy||state.isAdmin)loadDumaConstitutional();
  try{
   const r=await api('/api/parliament-roster');
-  $('parliamentSeatsOccupied').textContent=Number(r.seats_occupied||0);
+  $('parliamentSeatsOccupied').textContent=Number(r.seats_occupied||0);$('parliamentSeatsTotal').textContent=Number(r.seats_total||0);
   $('parliamentTermText').textContent=r.formed?'Состав сформирован по итогам выборов '+(r.election_completed_at?fmtDate(r.election_completed_at):''):'Данные о составе парламента не найдены';
   $('parliamentStatus').textContent=r.formed?'Парламент сформирован':'Нет данных о составе';
   $('parliamentSeatsCaption').textContent=Number(r.seats_total||0)+' мест · занято '+Number(r.seats_occupied||0);

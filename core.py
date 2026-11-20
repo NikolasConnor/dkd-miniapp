@@ -3520,7 +3520,7 @@ def duma_list(user: dict) -> dict:
                 data = {}
             sessions.append({"id": int(ev["id"]), "title": data.get("title", "Заседание Государственной думы"),
                              "created_by": ev.get("actor_user_id"), "created_at": data.get("created_at"),
-                             "closed": False, "laws": []})
+                             "closed": _duma_session_expired(ev), "laws": []})
         elif ev.get("action") == "duma_session_closed":
             try:
                 data = json.loads(ev.get("details") or "{}")
@@ -3598,6 +3598,19 @@ def duma_open_session(actor_id: int, title: str) -> dict:
     }), "Не удалось открыть заседание Государственной думы.")[0]
     _notify_current_deputies("Открыто заседание Госдумы", f"Началось заседание Государственной думы: «{title}». Откройте Mini App → раздел Госдумы.")
     return {"id": int(row["id"]), "title": title, "created_at": created_at, "closed": False, "laws": []}
+
+
+DUMA_SESSION_DURATION = timedelta(days=3)
+
+
+def _duma_session_expired(opened_event: dict) -> bool:
+    # Заседание автоматически завершается через три дня после открытия.
+    try:
+        payload = json.loads(opened_event.get("details") or "{}")
+    except (TypeError, ValueError):
+        payload = {}
+    started = parse_dt(payload.get("created_at") or opened_event.get("created_at"))
+    return bool(started and utcnow() >= started + DUMA_SESSION_DURATION)
 
 
 def _is_duma_session_closed(events: list[dict], session_id: int) -> bool:
@@ -3900,9 +3913,12 @@ def duma_vote_law(actor_id: int, law_id: int, vote: str) -> dict:
     session = next((e for e in events if e.get("action") == "duma_session_opened" and int(e["id"]) == int(submitted.get("session_id",0))), None)
     if not session:
         raise DKDError(404, "Заседание не найдено.")
-    session_closed = _is_duma_session_closed(events, int(submitted.get("session_id", 0)))
-    if session_closed:
-        raise DKDError(409, "Заседание закрыто.")
+    session_id = int(submitted.get("session_id", 0))
+    session_event = next((e for e in events if e.get("action") == "duma_session_opened"
+                          and int(e.get("id", 0)) == session_id), None)
+    session_closed = _is_duma_session_closed(events, session_id)
+    if session_closed or (session_event and _duma_session_expired(session_event)):
+        raise DKDError(409, "Заседание закрыто: срок его работы составляет три дня.")
     if any(e.get("action") == "duma_law_vote" and int(d.get("law_id",0)) == int(law_id) and int(e["actor_user_id"]) == int(actor_id) for e,d in details):
         raise DKDError(409, "Вы уже голосовали по этому законопроекту.")
     vote_event = audit(actor_id, "duma_law_vote", None, json.dumps({"law_id": int(law_id), "vote": vote}, ensure_ascii=False))
