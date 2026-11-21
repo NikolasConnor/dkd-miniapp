@@ -18,6 +18,7 @@ internal data class DocumentsUiState(
     val presidentCertificates: List<DkdDocumentDto> = emptyList(),
     val decrees: List<DkdDocumentDto> = emptyList(),
     val laws: List<DkdDocumentDto> = emptyList(),
+    val marriages: List<ru.dkd.app.core.network.MarriageDocumentDto> = emptyList(),
     val passportLoadFailed: Boolean = false,
     val documentsLoadFailed: Boolean = false,
     val error: String? = null
@@ -40,6 +41,7 @@ internal class DocumentsViewModel : ViewModel() {
                 presidentCertificates = result.presidentCertificates,
                 decrees = result.decrees,
                 laws = result.laws,
+                marriages = result.marriages,
                 passportLoadFailed = result.passportLoadFailed,
                 documentsLoadFailed = result.documentsLoadFailed,
                 error = result.error
