@@ -77,7 +77,22 @@ internal data class DocumentsEnvelopeDto(
     @SerializedName("laws") val laws: List<DkdDocumentDto> = emptyList(),
     @SerializedName("decrees") val decrees: List<DkdDocumentDto> = emptyList(),
     @SerializedName("mandates") val mandates: List<DkdDocumentDto> = emptyList(),
-    @SerializedName("president_certificate") val presidentCertificates: List<DkdDocumentDto> = emptyList()
+    @SerializedName("president_certificate") val presidentCertificates: List<DkdDocumentDto> = emptyList(),
+    @SerializedName("marriages") val marriages: List<MarriageDocumentDto> = emptyList()
+)
+
+internal data class MarriagePartnerDto(
+    @SerializedName("full_name") val fullName: String = "",
+    @SerializedName("avatar_emoji") val avatarEmoji: String = "👤"
+)
+
+internal data class MarriageDocumentDto(
+    @SerializedName("id") val id: Int = 0,
+    @SerializedName("status") val status: String = "",
+    @SerializedName("accepted_at") val acceptedAt: String? = null,
+    @SerializedName("ended_at") val endedAt: String? = null,
+    @SerializedName("created_at") val createdAt: String = "",
+    @SerializedName("partner") val partner: MarriagePartnerDto? = null
 )
 
 internal data class PartyMemberDto(
