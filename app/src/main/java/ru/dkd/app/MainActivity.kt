@@ -38,6 +38,7 @@ import ru.dkd.app.feature.applications.ApplicationsScreen
 import ru.dkd.app.feature.documents.DocumentsScreen
 import ru.dkd.app.feature.duma.DumaScreen
 import ru.dkd.app.feature.elections.ElectionsScreen
+import ru.dkd.app.feature.familycourt.FamilyCourtScreen
 import ru.dkd.app.feature.government.StateScreen
 import ru.dkd.app.feature.home.HomeScreen
 import ru.dkd.app.feature.home.MenuScreen
@@ -166,11 +167,12 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                         Triple("Главная", "⌂", "home"),
                         Triple("Документы", "▤", "documents"),
                         Triple("Уведомления", "◉", "notifications"),
-                        Triple("Меню", "☰", "menu")
+                        Triple("Меню", "☰", "menu"),
+                        Triple("Суд и семья", "⚖", "family-court")
                     )
                     tabs.forEach { (label, icon, route) ->
                         val active = currentRoute == route ||
-                            (route == "menu" && currentRoute in setOf("government", "elections", "profile", "news", "duma", "admin", "president", "applications", "party-candidates", "detail/{title}"))
+                            (route == "menu" && currentRoute in setOf("government", "elections", "profile", "news", "duma", "admin", "president", "applications", "party-candidates", "family-court", "detail/{title}"))
                         Column(
                             Modifier.weight(1f)
                                 .background(
@@ -328,6 +330,13 @@ private fun AuthenticatedApp(token: String, logoutError: String?, onLogout: () -
                                     else -> navController.navigate("detail/${Uri.encode(it)}")
                                 }
                             }
+                        )
+                    }
+                    composable("family-court") {
+                        FamilyCourtScreen(
+                            token = token,
+                            onBack = { navController.popBackStack() },
+                            onError = { appViewModel.setError(it) }
                         )
                     }
                     composable("duma") {
