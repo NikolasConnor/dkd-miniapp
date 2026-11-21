@@ -1,6 +1,7 @@
 package ru.dkd.app.data.repository
 
 import ru.dkd.app.core.network.DkdDocumentDto
+import ru.dkd.app.core.network.MarriageDocumentDto
 import ru.dkd.app.core.network.PassportDto
 import ru.dkd.app.core.network.loadDocumentsDto
 import ru.dkd.app.core.network.loadPassportDto
@@ -12,6 +13,7 @@ internal data class DocumentsData(
     val presidentCertificates: List<DkdDocumentDto>,
     val decrees: List<DkdDocumentDto>,
     val laws: List<DkdDocumentDto>,
+    val marriages: List<MarriageDocumentDto>,
     val passportLoadFailed: Boolean,
     val documentsLoadFailed: Boolean,
     val error: String?
@@ -29,6 +31,7 @@ internal class DocumentsRepository {
             presidentCertificates = envelope?.presidentCertificates.orEmpty(),
             decrees = envelope?.decrees.orEmpty(),
             laws = envelope?.laws.orEmpty(),
+            marriages = envelope?.marriages.orEmpty(),
             passportLoadFailed = passportResult.error != null || passportResult.data == null,
             documentsLoadFailed = documentsResult.error != null || envelope == null,
             error = passportResult.error ?: documentsResult.error
