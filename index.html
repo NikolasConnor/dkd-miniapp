@@ -132,9 +132,9 @@ input:focus,textarea:focus,select:focus{border-color:#2585c9!important;box-shado
         <button class="tile" onclick="openView('elections')"><span class="icon">🗳️</span><strong>Выборы</strong><span>Голосование</span></button>
         <button class="tile" onclick="openView('news')"><span class="icon">📰</span><strong>Новости</strong><span>Последние публикации</span></button>
         <button class="tile" onclick="openView('judicial')"><span class="icon">⚖️</span><strong>ИИ-судья</strong><span>Иски, решения и апелляции</span></button>
-        <button class="tile hidden" id="presidentTile" onclick="openView('president')"><span class="icon">🏅</span><strong>Президент</strong><span>Указы и управление</span></button>
+        <button class="tile hidden" id="presidentTile" data-access-hidden="true" onclick="openView('president')"><span class="icon">🏅</span><strong>Президент</strong><span>Указы и управление</span></button>
         <button class="tile hidden" id="parliamentTile" onclick="openView('parliament')"><span class="icon">🏛️</span><strong>Государственная дума</strong><span>Парламент ДКД</span></button>
-        <button class="tile hidden" id="adminTile" onclick="openView('admin')"><span class="icon">🛡️</span><strong>Администрация</strong><span>Управление системой</span></button>
+        <button class="tile hidden" id="adminTile" data-access-hidden="true" onclick="openView('admin')"><span class="icon">🛡️</span><strong>Администрация</strong><span>Управление системой</span></button>
       </div>
       <div id="homeNotice" style="margin-top:14px"></div>
     </section>
@@ -427,7 +427,8 @@ function filterServices(value){
  const tiles=document.querySelectorAll('#homeView .grid .tile');
  let visible=0;
  tiles.forEach(tile=>{
-  const match=!query||tile.textContent.toLocaleLowerCase('ru').includes(query);
+  const accessHidden=tile.dataset.accessHidden==='true';
+  const match=!accessHidden&&(!query||tile.textContent.toLocaleLowerCase('ru').includes(query));
   tile.classList.toggle('hidden',!match);
   if(match)visible++;
  });
@@ -658,9 +659,13 @@ async function init(){
     state.isPresident=!!p.is_president;
     state.isDeputy=(state.profile?.roles||[]).some(r=>String(typeof r==='string'?r:r.name||'').trim().toLowerCase()==='депутат');
 
-    $('adminTile').classList.toggle('hidden',!(state.isAdmin||adminStatus.bootstrap_available));
+    const canOpenAdmin=state.isAdmin||!!adminStatus.bootstrap_available;
+    $('adminTile').classList.toggle('hidden',!canOpenAdmin);
+    $('adminTile').dataset.accessHidden=String(!canOpenAdmin);
     $('presidentTile').classList.toggle('hidden',!state.isPresident);
+    $('presidentTile').dataset.accessHidden=String(!state.isPresident);
     $('parliamentTile').classList.remove('hidden');
+    $('parliamentTile').dataset.accessHidden='false';
   }catch(e){
     $('homeNotice').innerHTML=`<div class="notice error">${esc(e.message||'Не удалось загрузить данные')}. Проверьте подключение и настройки сервера.</div>`;
   }
