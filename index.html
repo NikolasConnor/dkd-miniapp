@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#10132b">
+<meta name="theme-color" content="#0877c9">
 <title>ДКД — Mini App</title>
 <script>
 if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/telegram-web-app.js"><\/script>');
@@ -49,6 +49,63 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 .election-empty{padding:24px 16px;text-align:center;border:1px dashed var(--line);border-radius:17px;color:var(--muted);background:#151b34}
 @media(max-width:380px){.ballot-paper{padding:12px 10px}.ballot-option{gap:9px;padding:10px}.ballot-avatar{width:43px;height:43px;flex-basis:43px}.election-card-head{padding:14px}}
 
+
+/* ДКД: светлая официальная визуальная система в духе государственных сервисов */
+:root{color-scheme:light;--bg:#f2f5f9;--panel:#fff;--panel2:#f6f8fc;--line:#dce3ed;--text:#172b4d;--muted:#66758b;--purple:#1769aa;--blue:#0877c9;--pink:#b45b83;--good:#16845b;--bad:#c43d52;--radius:18px}
+html,body{background:#f2f5f9!important;color:var(--text)!important}
+body{background:linear-gradient(180deg,#eaf3fb 0,#f4f7fb 260px,#f2f5f9 100%)!important}
+.app{max-width:760px;padding:16px 15px 108px}
+.top{margin:5px 0 18px}
+.brand{gap:12px}.logo{background:linear-gradient(145deg,#0877c9,#00539b);border-radius:14px;box-shadow:0 5px 14px #0877c926}
+.brand h1{font-size:18px;color:#16395f;letter-spacing:.02em}.brand small{color:#718198}
+.pill{background:#fff;color:#53657d;border-color:#dce5ef}
+.bell-btn{background:#fff;color:#175b91;border-color:#dce5ef;box-shadow:0 2px 8px #203a5810}
+.bell-count{border-color:#fff}.notification-panel{background:#fff;border-color:#dce3ed;box-shadow:0 14px 42px #23415e24}
+.notification-item{background:#f7f9fc;border-color:#e1e7ef}.notification-item.unread{background:#edf5ff;border-color:#75afe1}
+.hero{background:linear-gradient(115deg,#086bb4,#0b82ce 65%,#2c9bd8)!important;border:0;border-radius:22px;padding:23px;color:#fff;box-shadow:0 10px 24px #0b70b52b}
+.hero:after{background:#ffffff16}.hero h2{font-size:25px}.hero p{color:#e4f3ff}
+.btn{border-radius:12px;min-height:42px}.primary{background:#0877c9;color:#fff;box-shadow:0 4px 12px #0877c927}.primary:hover{background:#0568b1}
+.secondary{background:#fff;border:1px solid #cbd8e7;color:#155b91}.danger{background:#fff1f2;color:#b4233a;border:1px solid #f0c7ce}
+.section-head{margin:22px 2px 12px}.section-head h3{font-size:17px;color:#193b60}
+.tile,.card{background:#fff!important;border:1px solid #e0e7ef!important;border-radius:17px;box-shadow:0 3px 12px #24415d0a;color:#172b4d!important}
+.tile{min-height:112px;padding:15px;transition:transform .15s,box-shadow .15s}.tile:active{transform:scale(.985);box-shadow:0 2px 8px #24415d14}
+.tile .icon{width:42px;height:42px;display:grid;place-items:center;border-radius:13px;background:#edf5fc;font-size:22px}
+.tile strong{color:#183b61;font-size:14px}.tile span:last-child{color:#6b7b90}
+.muted{color:#66758b!important}.small{font-size:12px}
+.back{color:#1769aa;font-weight:650}.field label{color:#5f7188}
+input,textarea,select{background:#fff!important;color:#172b4d!important;border:1px solid #d5dfeb!important;border-radius:12px}
+input::placeholder,textarea::placeholder{color:#91a0b3}
+input:focus,textarea:focus,select:focus{border-color:#2585c9!important;box-shadow:0 0 0 3px #0877c918}
+.status{background:#edf2f8;color:#50647e}.status.good{background:#e6f6ee;color:#16764f}.status.bad{background:#fff0f1;color:#b4233a}
+.notice{background:#eef6fd;border-color:#d4e7f6;color:#315b7f}.notice.error{background:#fff1f2;border-color:#f0c7ce;color:#a12c40}.notice.ok{background:#eaf8f0;border-color:#c5ead5;color:#176c49}
+.avatar-categories button{background:#f5f8fc;color:#47617e;border-color:#dce4ee}.avatar-categories button.active{background:#e5f2fd;border-color:#3a91cf;color:#075b9d}
+.avatar-option{background:#f5f8fc;color:#203c5a;border-color:#dce4ee}.avatar-option.selected{background:#e5f2fd;border-color:#0877c9;box-shadow:0 0 0 2px #0877c91c}
+.profile-avatar{background:linear-gradient(145deg,#0877c9,#3b9cdb)}
+.bottom{background:#ffffffed;border-top:1px solid #dfe6ee;box-shadow:0 -5px 18px #27415b0a;backdrop-filter:blur(16px)}
+.nav button{color:#728197}.nav button.active{color:#075e9f;background:#eaf4fc;font-weight:700}
+.nav button span{font-size:20px}
+.footer-note{color:#8492a4}
+.passport{box-shadow:0 12px 30px #24415d20}
+.president-hero{background:#edf5fc;border-color:#d7e5f1}.president-symbol{background:#dceefb}
+.president-action-card{background:#fff!important;border-color:#e0e7ef}
+.parliament-hero{background:linear-gradient(115deg,#075d9d,#0877c9)!important;border:0}
+.parliament-hero p,.parliament-total>span{color:#e1f0fc}.parliament-total strong{color:#fff}
+.chamber-frame{background:#f4f7fb;border-color:#dce4ed}.chamber-label{color:#73839a}.chamber-foot{color:#718198}.chamber-line{background:linear-gradient(90deg,transparent,#b7c7d8)}
+.seat-empty{background:#e3eaf2;border-color:#cbd6e2;box-shadow:none}.seat-occupied{background:linear-gradient(145deg,#4c9bd4,#0870b8);border-color:#b5ddf5;box-shadow:0 2px 0 #d4e1ec}
+.parliament-steps>div{border-color:#e0e7ef;background:#fff}
+.election-intro{background:#edf5fc;border-color:#d7e5f1}.election-intro .eyebrow,.election-kicker{color:#1769aa}.election-intro p{color:#61748a}
+.election-card{background:#fff;border-color:#dfe7ef}.election-card-head{border-color:#e8edf3}.ballot-paper{background:#f7f9fc}.ballot-paper-title{color:#385777}
+.ballot-option{background:#fff;color:#172b4d;border-color:#dce4ed}.ballot-option.selected{background:#edf6ff;border-color:#2585c9}.ballot-avatar{background:#edf3f9;border-color:#dfe7ef}.ballot-copy small{color:#6b7b90}.ballot-check{border-color:#9aabba}.ballot-option.selected .ballot-check{background:#0877c9;border-color:#0877c9;box-shadow:inset 0 0 0 4px #edf6ff}
+.ballot-candidates{background:#f1f5f9}.ballot-results{border-color:#e8edf3}.ballot-result-track{background:#e7edf4}.ballot-result-fill{background:linear-gradient(90deg,#0877c9,#55a9df)}
+.vote-result-backdrop{background:#18324c66}.vote-result-card{background:#fff;border-color:#dce4ed;box-shadow:0 24px 80px #17334a35}.vote-result-card h2{color:#183b60}.vote-result-card p{color:#5f7188}.vote-result-icon{background:#e6f6ee;color:#16764f;border-color:#c5ead5}.vote-result-card.error .vote-result-icon{background:#fff0f1;color:#b4233a;border-color:#f0c7ce}
+.president-menu{gap:10px}
+.service-search{position:relative;margin:16px 0 8px}
+.service-search input{height:52px;padding:0 46px 0 46px;border-radius:15px;background:#fff!important;border:1px solid #d8e3ee!important;box-shadow:0 4px 14px #24415d0a;font-size:14px}
+.service-search .search-icon{position:absolute;left:15px;top:50%;transform:translateY(-50%);font-size:19px;color:#6585a4;pointer-events:none}
+.service-search .search-clear{position:absolute;right:9px;top:50%;transform:translateY(-50%);width:34px;height:34px;border-radius:10px;background:#eef4f9;color:#52718e;font-size:18px}
+.service-search-note{font-size:11px;color:#8291a3;margin:0 3px 7px}
+@media(max-width:420px){.hero{padding:20px}.hero h2{font-size:23px}.tile{min-height:106px;padding:13px}.app{padding-left:13px;padding-right:13px}}
+
 </style>
 </head>
 <body>
@@ -65,7 +122,9 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
         <p>Документы, гражданство и государственные сервисы — в одном месте.</p>
         <div class="hero-actions"><button class="btn primary" onclick="openView('documents')">Открыть документы</button><button class="btn secondary" onclick="openView('profile')">Мой профиль</button></div>
       </div>
-      <div class="section-head"><h3>Сервисы</h3><span class="muted small">Главное меню</span></div>
+      <div class="service-search"><span class="search-icon">⌕</span><input id="serviceSearch" type="search" placeholder="Поиск по услугам и разделам" autocomplete="off" oninput="filterServices(this.value)" aria-label="Поиск по услугам и разделам"><button class="search-clear hidden" id="serviceSearchClear" type="button" onclick="clearServiceSearch()" aria-label="Очистить поиск">×</button></div>
+      <p class="service-search-note">Быстрый доступ к государственным сервисам ДКД</p>
+      <div class="section-head"><h3>Все сервисы</h3><span class="muted small">Главное меню</span></div>
       <div class="grid">
         <button class="tile" onclick="openView('profile')"><span class="icon">👤</span><strong>Профиль</strong><span>Личные данные и статус</span></button><button class="tile" onclick="openView('marriages')"><span class="icon">💍</span><strong>Браки</strong><span>Предложения, семья и развод</span></button>
         <button class="tile" onclick="openView('documents')"><span class="icon">📚</span><strong>Документы</strong><span>Паспорта, заявления, законы</span></button>
@@ -359,10 +418,33 @@ if (!window.AndroidDKD) document.write('<script src="https://telegram.org/js/tel
 </div>
 <script>
 const tg = window.Telegram?.WebApp;
-if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#0d1024'); tg.setBackgroundColor('#0d1024'); } catch(e) {} }
+if (tg) { tg.ready(); tg.expand(); try { tg.setHeaderColor('#f2f5f9'); tg.setBackgroundColor('#f2f5f9'); } catch(e) {} }
 const initData = tg?.initData || (window.AndroidDKD?.hasSession?.() ? 'native-session' : '');
 const state = {profile:null, isAdmin:false, isPresident:false, isDeputy:false, docs:null, apps:[], avatarCategory:'Все', pendingAvatar:'👤'};
 const AVATAR_GROUPS = {'Все':'👤 👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️ 👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬 😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽 🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄 🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹 💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩 🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬'.split(' '), 'Государство':'👑 🤴 👸 🫅 🎖️ 🏛️ ⚖️ 🗳️ 🏅 🛡️', 'Профессии':'👨‍💼 👩‍💼 🧑‍⚖️ 👨‍⚖️ 👩‍⚖️ 🧑‍💻 👨‍💻 👩‍💻 🧑‍🔬 👨‍🔬 👩‍🔬', 'Настроение':'😎 🤓 🧐 🤠 🥸 😈 👿 👹 👺 🤡 💀 👻 🤖 👽', 'Животные':'🐺 🦊 🦁 🐯 🐻 🐼 🐸 🦉 🦅 🐲 🐉 🦈 🐍 🐈 🐕 🐈‍⬛ 🦄', 'Фэнтези':'🧙 🧙‍♂️ 🧙‍♀️ 🧛 🧛‍♂️ 🧛‍♀️ 🧟 🧟‍♂️ 🧟‍♀️ 🦸 🦹 🥷 ⚔️ 🏹', 'Стиль':'💎 🔥 ⚡ 🌙 ☀️ 🌟 💫 🌀 🌈 🦋 🪬 🎭 🎩', 'Космос':'🚀 🛸 🛰️ 🧑‍🚀 🌌 💻 🔬 👾 👽'};
+function filterServices(value){
+ const query=String(value||'').trim().toLocaleLowerCase('ru');
+ const tiles=document.querySelectorAll('#homeView .grid .tile');
+ let visible=0;
+ tiles.forEach(tile=>{
+  const match=!query||tile.textContent.toLocaleLowerCase('ru').includes(query);
+  tile.classList.toggle('hidden',!match);
+  if(match)visible++;
+ });
+ let empty=document.getElementById('serviceSearchEmpty');
+ if(!empty){
+  empty=document.createElement('div');empty.id='serviceSearchEmpty';empty.className='empty card';
+  empty.textContent='По вашему запросу ничего не найдено.';
+  document.querySelector('#homeView .grid')?.after(empty);
+ }
+ empty.classList.toggle('hidden',!query||visible>0);
+ const clear=document.getElementById('serviceSearchClear');
+ if(clear)clear.classList.toggle('hidden',!query);
+}
+function clearServiceSearch(){
+ const input=document.getElementById('serviceSearch');
+ if(input){input.value='';filterServices('');input.focus()}
+}
 function renderAvatarPicker(){const cats=Object.keys(AVATAR_GROUPS);$('avatarCategories').innerHTML=cats.map(c=>`<button type="button" class="${state.avatarCategory===c?'active':''}" onclick="setAvatarCategory('${esc(c)}')">${esc(c)}</button>`).join('');const list=AVATAR_GROUPS[state.avatarCategory]||AVATAR_GROUPS['Все'];$('avatarGrid').innerHTML=[...new Set(list)].map(e=>`<button type="button" aria-label="Выбрать ${e}" class="avatar-option ${state.pendingAvatar===e?'selected':''}" onclick="pickAvatar('${e}')">${e}</button>`).join('');$('avatarCurrent').textContent=state.pendingAvatar;}
 function setAvatarCategory(c){state.avatarCategory=c;renderAvatarPicker()}
 function pickAvatar(e){state.pendingAvatar=e;renderAvatarPicker()}
