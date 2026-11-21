@@ -77,7 +77,7 @@ internal fun FamilyCourtScreen(
         marriages = marriagesResult.data?.optJSONArray("marriages").objects()
         certificates = marriagesResult.data?.optJSONArray("certificates").objects()
         if (selectedDefendant == 0 && participants.isNotEmpty()) {
-            selectedDefendant = participants.first().optInt("user_id")
+            selectedDefendant = participants.firstOrNull { it.optInt("user_id") != myUserId }?.optInt("user_id") ?: 0
         }
         if (selectedPartner == 0 && marriagePeople.isNotEmpty()) {
             selectedPartner = marriagePeople.first().optInt("user_id")
@@ -173,7 +173,7 @@ internal fun FamilyCourtScreen(
                                 Text(chosen?.text("full_name", "Выберите ответчика") ?: "Выберите ответчика", color = TextMain)
                             }
                             DropdownMenu(expanded = defendantMenu, onDismissRequest = { defendantMenu = false }) {
-                                participants.filter { it.optInt("user_id") != 0 }.forEach { person ->
+                                participants.filter { it.optInt("user_id") != 0 && it.optInt("user_id") != myUserId }.forEach { person ->
                                     DropdownMenuItem(
                                         text = { Text(person.text("full_name", "Участник ДКД")) },
                                         onClick = {
@@ -204,7 +204,7 @@ internal fun FamilyCourtScreen(
                                     if (error == null) { claimTitle = ""; claimText = "" }
                                 }
                             },
-                            enabled = !busy && selectedDefendant > 0 && claimTitle.trim().length in 4..160 && claimText.trim().length in 20..8000,
+                            enabled = !busy && selectedDefendant > 0 && selectedDefendant != myUserId && claimTitle.trim().length in 4..160 && claimText.trim().length in 20..8000,
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Navy)
                         ) { Text(if (busy) "Отправка…" else "Зарегистрировать иск", fontWeight = FontWeight.Bold) }
