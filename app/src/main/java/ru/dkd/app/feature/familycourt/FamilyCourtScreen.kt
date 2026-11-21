@@ -54,6 +54,7 @@ internal fun FamilyCourtScreen(
     var marriages by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var certificates by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
     var adminAppeals by remember { mutableStateOf<List<JSONObject>>(emptyList()) }
+    var myUserId by remember { mutableIntStateOf(0) }
 
     var selectedDefendant by remember { mutableIntStateOf(0) }
     var defendantMenu by remember { mutableStateOf(false) }
@@ -64,6 +65,8 @@ internal fun FamilyCourtScreen(
 
     suspend fun refresh() {
         loading = true
+        val profileResult = apiCall(token, "GET", "/api/profile")
+        myUserId = profileResult.data?.optJSONObject("profile")?.optInt("user_id") ?: 0
         val peopleResult = apiCall(token, "GET", "/api/judicial/participants")
         val casesResult = apiCall(token, "GET", "/api/judicial/cases")
         val marriagePeopleResult = apiCall(token, "GET", "/api/marriages/people")
@@ -101,6 +104,7 @@ internal fun FamilyCourtScreen(
     }
 
     LaunchedEffect(token) { refresh() }
+    LaunchedEffect(error) { error?.let(onError) }
 
     Column(
         Modifier.fillMaxSize().background(Navy)
@@ -216,6 +220,7 @@ internal fun FamilyCourtScreen(
                 items(cases, key = { it.optInt("id") }) { case ->
                     JudicialCaseCard(
                         item = case,
+                        myUserId = myUserId,
                         busy = busy,
                         onResponse = { value ->
                             scope.launch { perform("POST", "/api/judicial/cases/${case.optInt("id")}/response", JSONObject().put("text", value)) }
@@ -324,6 +329,7 @@ internal fun FamilyCourtScreen(
 @Composable
 private fun JudicialCaseCard(
     item: JSONObject,
+    myUserId: Int,
     busy: Boolean,
     onResponse: (String) -> Unit,
     onJudge: () -> Unit,
@@ -331,7 +337,6 @@ private fun JudicialCaseCard(
 ) {
     val id = item.optInt("id")
     val status = item.text("status")
-    val role = if (item.text("plaintiff_user_id") == item.text("my_user_id")) "Истец" else item.text("my_role", "")
     var response by remember(id) { mutableStateOf("") }
     var appeal by remember(id) { mutableStateOf("") }
     val statusLabel = when (status) {
@@ -363,7 +368,7 @@ private fun JudicialCaseCard(
             Text("ИТОГ АПЕЛЛЯЦИИ", color = Accent, fontSize = 9.sp, fontWeight = FontWeight.Bold)
             Text(item.text("final_decision"), color = TextMain, fontSize = 11.sp)
         }
-        if (status == "awaiting_response" && item.text("my_role") == "defendant") {
+        if (status == "awaiting_response" && item.optInt("defendant_user_id") == myUserId && myUserId > 0) {
             OutlinedTextField(
                 value = response, onValueChange = { response = it },
                 modifier = Modifier.fillMaxWidth(), minLines = 3,
